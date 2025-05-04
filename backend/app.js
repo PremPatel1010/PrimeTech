@@ -7,6 +7,7 @@ import authRoutes from './routes/auth.routes.js';
 import pool from './db/db.js';
 import productRoutes from './routes/product.route.js';
 import rawMaterialRoutes from './routes/rawMaterial.routes.js';
+import purchaseOrderRoutes from './routes/purchaseOrder.routes.js';
 
 dotenv.config();
 
@@ -23,6 +24,8 @@ app.use(cookieParser())
 app.use('/api/auth', authRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/raw-materials', rawMaterialRoutes);
+app.use('/api/purchase-orders', purchaseOrderRoutes);
+
 
 // Error handling middleware
 app.use((err, req, res, next) => {
