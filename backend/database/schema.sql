@@ -43,6 +43,9 @@ CREATE TABLE inventory.raw_materials (
     moc VARCHAR(100), -- Material of Construction
     unit_weight DECIMAL(10, 2),
     unit VARCHAR(20) DEFAULT 'kg',
+    current_stock DECIMAL(10, 2) DEFAULT 0,
+    minimum_stock DECIMAL(10, 2) DEFAULT 0,
+    unit_price DECIMAL(10, 2) DEFAULT 0,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 

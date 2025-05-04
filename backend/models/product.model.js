@@ -93,6 +93,7 @@ class Product {
       `;
       
       const result = await pool.query(query, [productId]);
+      
       return result.rows[0];
     } catch (error) {
       console.error('Error in Product.getProductById:', error);

@@ -6,7 +6,7 @@ import cookieParser from 'cookie-parser';
 import authRoutes from './routes/auth.routes.js';
 import pool from './db/db.js';
 import productRoutes from './routes/product.route.js';
-
+import rawMaterialRoutes from './routes/rawMaterial.routes.js';
 
 dotenv.config();
 
@@ -22,6 +22,7 @@ app.use(cookieParser())
 // Routes`
 app.use('/api/auth', authRoutes);
 app.use('/api/products', productRoutes);
+app.use('/api/raw-materials', rawMaterialRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {

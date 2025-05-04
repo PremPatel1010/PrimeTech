@@ -6,8 +6,8 @@ export const listProducts = async (req, res) => {
 };
 
 export const getProductBOM = async (req, res) => {
-  const { id } = req.params;
-  const product = await Product.getProductWithBOM(id);
+  const { productId } = req.params;
+  const product = await Product.getProductWithBOM(productId);
   res.json(product);
 };
 
@@ -118,6 +118,14 @@ export const addBOMItems = async (req, res) => {
   try {
     const { productId } = req.params;
     const { bomItems } = req.body;
+
+    console.log(productId)
+
+    // Check if product exists first
+    const product = await Product.getProductById(productId);
+    if (!product) {
+      return res.status(404).json({ message: 'Product not found' });
+    }
 
     // Validate BOM items
     if (!Array.isArray(bomItems) || bomItems.length === 0) {
