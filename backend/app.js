@@ -8,6 +8,8 @@ import pool from './db/db.js';
 import productRoutes from './routes/product.route.js';
 import rawMaterialRoutes from './routes/rawMaterial.routes.js';
 import purchaseOrderRoutes from './routes/purchaseOrder.routes.js';
+import supplierRoutes from './routes/supplier.routes.js';
+import salesOrderRoutes from './routes/salesOrder.routes.js';
 
 dotenv.config();
 
@@ -25,6 +27,9 @@ app.use('/api/auth', authRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/raw-materials', rawMaterialRoutes);
 app.use('/api/purchase-orders', purchaseOrderRoutes);
+app.use('/api/suppliers', supplierRoutes);
+app.use('/api/sales-orders', salesOrderRoutes);
+
 
 
 // Error handling middleware
