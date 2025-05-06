@@ -72,6 +72,20 @@ class User {
   static verifyToken(token) {
     return jwt.verify(token, process.env.JWT_SECRET);
   }
+
+  static async findAll() {
+    const query = `
+      SELECT user_id, username, email, role, created_at
+      FROM auth.users
+      ORDER BY created_at DESC
+    `;
+    try {
+      const result = await pool.query(query);
+      return result.rows;
+    } catch (error) {
+      throw error;
+    }
+  }
 }
 
 export default User; 

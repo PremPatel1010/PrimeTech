@@ -90,4 +90,19 @@ export const getProfile = async (req, res) => {
   } catch (error) {
     res.status(500).json({ message: 'Error fetching profile', error: error.message });
   }
+};
+
+export const getAllUsers = async (req, res) => {
+  try {
+    const users = await User.findAll();
+    res.json(users.map(user => ({
+      id: user.user_id,
+      username: user.username,
+      email: user.email,
+      role: user.role,
+      created_at: user.created_at
+    })));
+  } catch (error) {
+    res.status(500).json({ message: 'Error fetching users', error: error.message });
+  }
 }; 

@@ -47,7 +47,8 @@ CREATE TABLE inventory.raw_materials (
     current_stock DECIMAL(10, 2) DEFAULT 0,
     minimum_stock DECIMAL(10, 2) DEFAULT 0,
     unit_price DECIMAL(10, 2) DEFAULT 0,
-    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE inventory.finished_products (
