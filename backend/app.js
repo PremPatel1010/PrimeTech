@@ -10,7 +10,10 @@ import rawMaterialRoutes from './routes/rawMaterial.routes.js';
 import purchaseOrderRoutes from './routes/purchaseOrder.routes.js';
 import supplierRoutes from './routes/supplier.routes.js';
 import salesOrderRoutes from './routes/salesOrder.routes.js';
-
+import manufacturingStageRoutes from './routes/manufacturingStage.routes.js';
+import manufacturingProgressRoutes from './routes/manufacturingProgress.routes.js';
+import finishedProductRoutes from './routes/finishedProduct.routes.js';
+import revenueAnalysisRoutes from './routes/revenueAnalysis.routes.js';
 dotenv.config();
 
 const app = express();
@@ -29,8 +32,10 @@ app.use('/api/raw-materials', rawMaterialRoutes);
 app.use('/api/purchase-orders', purchaseOrderRoutes);
 app.use('/api/suppliers', supplierRoutes);
 app.use('/api/sales-orders', salesOrderRoutes);
-
-
+app.use('/api/manufacturing-stages', manufacturingStageRoutes);
+app.use('/api/manufacturing-progress', manufacturingProgressRoutes);
+app.use('/api/finished-products', finishedProductRoutes);
+app.use('/api/revenue-analysis', revenueAnalysisRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {

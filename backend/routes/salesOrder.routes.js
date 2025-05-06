@@ -4,9 +4,11 @@ import {
   getSalesOrder,
   createSalesOrder,
   updateSalesOrder,
-  deleteSalesOrder
+  deleteSalesOrder,
+  updateStatus
 } from '../controllers/salesOrder.controller.js';
 import { authenticate } from '../middleware/auth.middleware.js';
+
 
 const router = express.Router();
 
@@ -24,5 +26,8 @@ router.put('/:salesOrderId', authenticate, updateSalesOrder);
 
 // Delete a sales order
 router.delete('/:salesOrderId', authenticate, deleteSalesOrder);
+
+// Update sales order status
+router.put('/:id/status', updateStatus);
 
 export default router; 

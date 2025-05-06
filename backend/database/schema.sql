@@ -32,6 +32,7 @@ CREATE TABLE products.product (
     head_range VARCHAR(50),
     rating_range VARCHAR(50),
     price DECIMAL(10, 2),
+    cost_price DECIMAL(10, 2) DEFAULT 0,
     status VARCHAR(20) CHECK (status IN ('inward', 'qc_inward', 'storage')) DEFAULT 'inward',
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
@@ -58,8 +59,6 @@ CREATE TABLE inventory.finished_products (
     added_on TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
-
-
 CREATE TABLE products.bom (
     bom_id SERIAL PRIMARY KEY,
     product_id INTEGER NOT NULL REFERENCES products.product(product_id) ON DELETE CASCADE,
@@ -80,7 +79,8 @@ CREATE TABLE sales.sales_order (
     gst DECIMAL(5, 2) DEFAULT 18,
     total_amount DECIMAL(10, 2),
     status VARCHAR(20) CHECK (status IN ('pending', 'completed', 'cancelled')) DEFAULT 'pending',
-    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE sales.sales_order_items (
@@ -139,11 +139,120 @@ CREATE TABLE manufacturing.stages (
 
 CREATE TABLE manufacturing.product_manufacturing (
     tracking_id SERIAL PRIMARY KEY,
+    sales_order_id INTEGER NOT NULL REFERENCES sales.sales_order(sales_order_id) ON DELETE CASCADE,
+    sales_order_item_id INTEGER NOT NULL REFERENCES sales.sales_order_items(item_id) ON DELETE CASCADE,
     product_id INTEGER NOT NULL REFERENCES products.product(product_id) ON DELETE CASCADE,
     current_stage_id INTEGER REFERENCES manufacturing.stages(stage_id),
     quantity_in_process INTEGER DEFAULT 0,
     status VARCHAR(20) CHECK (status IN ('not_started', 'in_progress', 'completed')) DEFAULT 'not_started',
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
+
+-- ========================
+-- REVENUE AND PROFIT ANALYSIS
+-- ========================
+CREATE TABLE sales.revenue_analysis (
+    analysis_id SERIAL PRIMARY KEY,
+    period_type VARCHAR(20) CHECK (period_type IN ('daily', 'weekly', 'monthly', 'yearly', 'custom')),
+    start_date DATE NOT NULL,
+    end_date DATE NOT NULL,
+    total_revenue DECIMAL(12, 2) NOT NULL DEFAULT 0,
+    total_cost DECIMAL(12, 2) NOT NULL DEFAULT 0,
+    total_profit DECIMAL(12, 2) NOT NULL DEFAULT 0,
+    total_orders INTEGER NOT NULL DEFAULT 0,
+    average_order_value DECIMAL(12, 2) NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (period_type, start_date, end_date)
+);
+
+CREATE TABLE sales.revenue_details (
+    detail_id SERIAL PRIMARY KEY,
+    analysis_id INTEGER REFERENCES sales.revenue_analysis(analysis_id) ON DELETE CASCADE,
+    product_id INTEGER REFERENCES products.product(product_id),
+    quantity_sold INTEGER NOT NULL DEFAULT 0,
+    revenue DECIMAL(12, 2) NOT NULL DEFAULT 0,
+    cost DECIMAL(12, 2) NOT NULL DEFAULT 0,
+    profit DECIMAL(12, 2) NOT NULL DEFAULT 0
+);
+
+-- Function to update revenue analysis
+CREATE OR REPLACE FUNCTION sales.update_revenue_analysis()
+RETURNS TRIGGER AS $$
+DECLARE
+    v_total_cost DECIMAL(12, 2);
+    v_total_profit DECIMAL(12, 2);
+BEGIN
+    -- Update revenue analysis when sales order is completed
+    IF NEW.status = 'completed' AND OLD.status != 'completed' THEN
+        -- Calculate costs and profits
+        SELECT 
+            COALESCE(SUM(soi.quantity * soi.unit_price * 0.7), 0),
+            NEW.total_amount - COALESCE(SUM(soi.quantity * soi.unit_price * 0.7), 0)
+        INTO v_total_cost, v_total_profit
+        FROM sales.sales_order_items soi
+        WHERE soi.sales_order_id = NEW.sales_order_id;
+
+        -- Insert or update daily analysis
+        INSERT INTO sales.revenue_analysis (
+            period_type,
+            start_date,
+            end_date,
+            total_revenue,
+            total_cost,
+            total_profit,
+            total_orders,
+            average_order_value
+        )
+        VALUES (
+            'daily',
+            DATE(NEW.created_at),
+            DATE(NEW.created_at),
+            NEW.total_amount,
+            v_total_cost,
+            v_total_profit,
+            1,
+            NEW.total_amount
+        )
+        ON CONFLICT (period_type, start_date, end_date) 
+        DO UPDATE SET
+            total_revenue = sales.revenue_analysis.total_revenue + NEW.total_amount,
+            total_cost = sales.revenue_analysis.total_cost + v_total_cost,
+            total_profit = sales.revenue_analysis.total_profit + v_total_profit,
+            total_orders = sales.revenue_analysis.total_orders + 1,
+            average_order_value = (sales.revenue_analysis.total_revenue + NEW.total_amount) / (sales.revenue_analysis.total_orders + 1),
+            updated_at = CURRENT_TIMESTAMP;
+
+        -- Insert revenue details
+        INSERT INTO sales.revenue_details (
+            analysis_id,
+            product_id,
+            quantity_sold,
+            revenue,
+            cost,
+            profit
+        )
+        SELECT 
+            ra.analysis_id,
+            soi.product_id,
+            soi.quantity,
+            soi.total_price,
+            soi.quantity * soi.unit_price * 0.7,
+            soi.total_price - (soi.quantity * soi.unit_price * 0.7)
+        FROM sales.revenue_analysis ra
+        JOIN sales.sales_order_items soi ON soi.sales_order_id = NEW.sales_order_id
+        WHERE ra.period_type = 'daily' 
+        AND ra.start_date = DATE(NEW.created_at)
+        AND ra.end_date = DATE(NEW.created_at);
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Trigger for revenue analysis
+CREATE TRIGGER update_revenue_analysis_trigger
+AFTER UPDATE ON sales.sales_order
+FOR EACH ROW
+EXECUTE FUNCTION sales.update_revenue_analysis();
 
 

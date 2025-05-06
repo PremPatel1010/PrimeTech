@@ -105,6 +105,7 @@ export const createSalesOrder = async (req, res) => {
     const salesOrder = await SalesOrder.createSalesOrder(salesOrderData);
     res.status(201).json(salesOrder);
   } catch (error) {
+    console.error('Error creating sales order:', error);
     res.status(500).json({ message: 'Error creating sales order', error: error.message });
   }
 };
@@ -216,5 +217,49 @@ export const deleteSalesOrder = async (req, res) => {
     res.json({ message: 'Sales order deleted successfully' });
   } catch (error) {
     res.status(500).json({ message: 'Error deleting sales order', error: error.message });
+  }
+};
+
+// Update sales order status
+export const updateStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+
+    if (!status) {
+      return res.status(400).json({
+        success: false,
+        message: 'Status is required'
+      });
+    }
+
+    if (!['pending', 'completed', 'cancelled'].includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid status. Must be one of: pending, completed, cancelled'
+      });
+    }
+
+    const result = await SalesOrder.updateStatus(id, status);
+
+    if (!result) {
+      return res.status(404).json({
+        success: false,
+        message: 'Sales order not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Sales order status updated successfully',
+      data: result
+    });
+  } catch (error) {
+    console.error('Error updating sales order status:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error updating sales order status',
+      error: error.message
+    });
   }
 }; 
