@@ -54,6 +54,7 @@ CREATE TABLE inventory.finished_products (
     finished_product_id SERIAL PRIMARY KEY,
     product_id INTEGER NOT NULL REFERENCES products.product(product_id) ON DELETE CASCADE,
     quantity_available INTEGER NOT NULL DEFAULT 0,
+    minimum_stock INTEGER NOT NULL DEFAULT 5,
     storage_location VARCHAR(100), -- Optional: rack/bin info
     status VARCHAR(20) CHECK (status IN ('available', 'reserved', 'dispatched')) DEFAULT 'available',
     added_on TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
@@ -254,5 +255,104 @@ CREATE TRIGGER update_revenue_analysis_trigger
 AFTER UPDATE ON sales.sales_order
 FOR EACH ROW
 EXECUTE FUNCTION sales.update_revenue_analysis();
+
+-- ========================
+-- NOTIFICATIONS
+-- ========================
+CREATE TABLE auth.notifications (
+    notification_id SERIAL PRIMARY KEY,
+    user_id INTEGER REFERENCES auth.users(user_id),
+    title VARCHAR(100) NOT NULL,
+    message TEXT NOT NULL,
+    type VARCHAR(50) NOT NULL CHECK (type IN ('order', 'manufacturing', 'inventory', 'system')),
+    status VARCHAR(20) CHECK (status IN ('unread', 'read')) DEFAULT 'unread',
+    reference_id INTEGER, -- ID of the related entity (order_id, manufacturing_id, etc.)
+    reference_type VARCHAR(50), -- Type of the reference (sales_order, manufacturing_progress, etc.)
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    read_at TIMESTAMPTZ
+);
+
+-- Index for faster notification queries
+CREATE INDEX idx_notifications_user_status ON auth.notifications(user_id, status);
+CREATE INDEX idx_notifications_created_at ON auth.notifications(created_at);
+
+-- Function to check stock levels and create notifications
+CREATE OR REPLACE FUNCTION inventory.check_stock_levels()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Check raw materials
+    IF TG_TABLE_NAME = 'raw_materials' THEN
+        IF NEW.current_stock <= NEW.minimum_stock THEN
+            -- Create notification for all admin/manager users
+            INSERT INTO auth.notifications (
+                user_id,
+                title,
+                message,
+                type,
+                reference_id,
+                reference_type
+            )
+            SELECT 
+                u.user_id,
+                'Low Raw Material Alert',
+                format('Raw material "%s" is running low. Current stock: %s %s, Minimum required: %s %s',
+                    NEW.material_name,
+                    NEW.current_stock,
+                    NEW.unit,
+                    NEW.minimum_stock,
+                    NEW.unit
+                ),
+                'inventory',
+                NEW.material_id,
+                'raw_material'
+            FROM auth.users u
+            WHERE u.role IN ('admin', 'manager');
+        END IF;
+    END IF;
+
+    -- Check finished products
+    IF TG_TABLE_NAME = 'finished_products' THEN
+        IF NEW.quantity_available <= NEW.minimum_stock THEN
+            -- Create notification for all admin/manager users
+            INSERT INTO auth.notifications (
+                user_id,
+                title,
+                message,
+                type,
+                reference_id,
+                reference_type
+            )
+            SELECT 
+                u.user_id,
+                'Low Finished Product Alert',
+                format('Finished product "%s" is running low. Current stock: %s units, Minimum required: %s units',
+                    p.product_name,
+                    NEW.quantity_available,
+                    NEW.minimum_stock
+                ),
+                'inventory',
+                NEW.finished_product_id,
+                'finished_product'
+            FROM auth.users u
+            CROSS JOIN products.product p
+            WHERE u.role IN ('admin', 'manager')
+            AND p.product_id = NEW.product_id;
+        END IF;
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Create triggers for stock level checks
+CREATE TRIGGER check_raw_materials_stock
+AFTER INSERT OR UPDATE ON inventory.raw_materials
+FOR EACH ROW
+EXECUTE FUNCTION inventory.check_stock_levels();
+
+CREATE TRIGGER check_finished_products_stock
+AFTER INSERT OR UPDATE ON inventory.finished_products
+FOR EACH ROW
+EXECUTE FUNCTION inventory.check_stock_levels();
 
 

@@ -14,6 +14,8 @@ import manufacturingStageRoutes from './routes/manufacturingStage.routes.js';
 import manufacturingProgressRoutes from './routes/manufacturingProgress.routes.js';
 import finishedProductRoutes from './routes/finishedProduct.routes.js';
 import revenueAnalysisRoutes from './routes/revenueAnalysis.routes.js';
+import notificationRoutes from './routes/notification.routes.js';
+
 dotenv.config();
 
 const app = express();
@@ -36,6 +38,7 @@ app.use('/api/manufacturing-stages', manufacturingStageRoutes);
 app.use('/api/manufacturing-progress', manufacturingProgressRoutes);
 app.use('/api/finished-products', finishedProductRoutes);
 app.use('/api/revenue-analysis', revenueAnalysisRoutes);
+app.use('/api/notifications', notificationRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
