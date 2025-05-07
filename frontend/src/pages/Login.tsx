@@ -6,7 +6,7 @@ import { useAuth } from '../contexts/AuthContext';
 
 const Login: React.FC = () => {
   const navigate = useNavigate();
-  const { authState } = useAuth();
+  const { authState, login } = useAuth();
   const [credentials, setCredentials] = useState<LoginCredentials>({
     email: '',
     password: ''
@@ -14,6 +14,7 @@ const Login: React.FC = () => {
   const [error, setError] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(false);
 
+  // Redirect if already authenticated
   useEffect(() => {
     if (authState.isAuthenticated) {
       navigate('/dashboard');
@@ -34,8 +35,8 @@ const Login: React.FC = () => {
     setLoading(true);
 
     try {
-      await authService.login(credentials);
-      // Do NOT navigate here, let the effect handle it!
+      await login(credentials.email, credentials.password);
+      // The useEffect will handle the navigation when authState updates
     } catch (err: any) {
       setError(err.response?.data?.message || 'An error occurred during login');
     } finally {

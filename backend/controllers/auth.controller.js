@@ -206,6 +206,17 @@ export const resetPassword = async (req, res) => {
   res.json({ message: 'Password has been reset.' });
 };
 
+export const logout = async (req, res) => {
+  try {
+    // Since we're using JWT, we don't need to do anything server-side
+    // The client will handle removing the token
+    res.status(200).json({ message: 'Logged out successfully' });
+  } catch (error) {
+    console.error('Logout error:', error);
+    res.status(500).json({ message: 'Error during logout' });
+  }
+};
+
 // Helper function to send email
 async function sendPasswordEmail(email, password) {
 

@@ -1,9 +1,10 @@
-
 import React, { useState } from 'react';
 import Sidebar from './Sidebar';
 import { Menu } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
+
+import axiosInstance from '@/utils/axios';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -11,9 +12,24 @@ interface LayoutProps {
 
 const Layout: React.FC<LayoutProps> = ({ children }) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const navigate = useNavigate();
 
   const toggleSidebar = () => {
     setSidebarOpen(!sidebarOpen);
+  };
+
+  const handleLogout = async () => {
+    try {
+      await axiosInstance.post('/auth/logout');
+      // Clear any stored tokens
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      window.location.reload();
+      // Redirect to login page
+      navigate('/login');
+    } catch (error) {
+      console.error('Logout failed:', error);
+    }
   };
 
   return (
@@ -51,12 +67,12 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           </div>
 
           <div className="hidden sm:flex items-center gap-4 ml-auto">
-            <Link to="/products" className="text-sm font-medium text-gray-600 hover:text-factory-primary">
-              Products
-            </Link>
-            <Link to="/purchase" className="text-sm font-medium text-gray-600 hover:text-factory-primary">
-              Purchase Orders
-            </Link>
+            <button 
+              onClick={handleLogout}
+              className="text-sm font-medium text-gray-600 hover:text-factory-primary"
+            >
+              Logout
+            </button>
           </div>
         </header>
         

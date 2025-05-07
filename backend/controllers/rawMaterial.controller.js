@@ -4,13 +4,17 @@ export const getAllRawMaterials = async (req, res) => {
   try {
     const rawMaterials = await RawMaterial.getAllRawMaterials();
     const mappedRawMaterials = rawMaterials.map(rm => ({
-      id: rm.material_id.toString(),
-      name: rm.material_name,
+      material_id: rm.material_id,
+      material_code: rm.material_code,
+      material_name: rm.material_name,
+      moc: rm.moc,
+      unit_weight: rm.unit_weight,
       unit: rm.unit,
-      quantity: rm.current_stock,
-      pricePerUnit: rm.unit_price,
-      lastUpdated: rm.updated_at,
-      minThreshold: rm.minimum_stock
+      current_stock: rm.current_stock,
+      minimum_stock: rm.minimum_stock,
+      unit_price: rm.unit_price,
+      created_at: rm.created_at,
+      updated_at: rm.updated_at
     }));
     res.json(mappedRawMaterials);
   } catch (error) {
@@ -47,18 +51,20 @@ export const getRawMaterial = async (req, res) => {
 
 export const createRawMaterial = async (req, res) => {
   try {
-    const { material_code, material_name, moc, unit_weight, unit, current_stock, minimum_stock, unit_price } = req.body;
-    
-    // Validate required fields
-    if (!material_name || !material_code || !moc || current_stock === undefined || minimum_stock === undefined || unit_price === undefined) {
-      return res.status(400).json({ 
-        message: 'Material name, material code, moc, current stock, and unit price are required' 
-      });
-    }
-
-    const rawMaterial = await RawMaterial.createRawMaterial({
-      material_name,
+    const { 
       material_code,
+      material_name,
+      moc,
+      unit_weight,
+      unit,
+      current_stock,
+      minimum_stock,
+      unit_price
+    } = req.body;
+
+    const newRawMaterial = await RawMaterial.createRawMaterial({
+      material_code,
+      material_name,
       moc,
       unit_weight,
       unit,
@@ -67,34 +73,42 @@ export const createRawMaterial = async (req, res) => {
       unit_price
     });
 
-    const mappedRawMaterial = {
-      id: rawMaterial.material_id.toString(),
-      name: rawMaterial.material_name,
-      unit: rawMaterial.unit,
-      quantity: rawMaterial.current_stock,
-      pricePerUnit: rawMaterial.unit_price,
-      lastUpdated: rawMaterial.updated_at,
-      minThreshold: rawMaterial.minimum_stock
-    };
-
     res.status(201).json({
-      message: 'Raw material created successfully',
-      rawMaterial: mappedRawMaterial
+      material_id: newRawMaterial.material_id,
+      material_code: newRawMaterial.material_code,
+      material_name: newRawMaterial.material_name,
+      moc: newRawMaterial.moc,
+      unit_weight: newRawMaterial.unit_weight,
+      unit: newRawMaterial.unit,
+      current_stock: newRawMaterial.current_stock,
+      minimum_stock: newRawMaterial.minimum_stock,
+      unit_price: newRawMaterial.unit_price,
+      created_at: newRawMaterial.created_at,
+      updated_at: newRawMaterial.updated_at
     });
   } catch (error) {
-    console.error('Error in createRawMaterial:', error);
-    res.status(500).json({ message: 'Error creating raw material', error: error.message });
+    console.error('Error creating raw material:', error);
+    res.status(500).json({ message: 'Error creating raw material' });
   }
 };
 
 export const updateRawMaterial = async (req, res) => {
   try {
     const { materialId } = req.params;
-    const { material_name, material_code, moc, unit_weight, unit, current_stock, minimum_stock, unit_price } = req.body;
+    const { 
+      material_code,
+      material_name,
+      moc,
+      unit_weight,
+      unit,
+      current_stock,
+      minimum_stock,
+      unit_price
+    } = req.body;
 
     const updatedRawMaterial = await RawMaterial.updateRawMaterial(materialId, {
-      material_name,
       material_code,
+      material_name,
       moc,
       unit_weight,
       unit,
@@ -107,23 +121,22 @@ export const updateRawMaterial = async (req, res) => {
       return res.status(404).json({ message: 'Raw material not found' });
     }
 
-    const mappedRawMaterial = {
-      id: updatedRawMaterial.material_id.toString(),
-      name: updatedRawMaterial.material_name,
-      unit: updatedRawMaterial.unit,
-      quantity: updatedRawMaterial.current_stock,
-      pricePerUnit: updatedRawMaterial.unit_price,
-      lastUpdated: updatedRawMaterial.updated_at,
-      minThreshold: updatedRawMaterial.minimum_stock
-    };
-
     res.json({
-      message: 'Raw material updated successfully',
-      rawMaterial: mappedRawMaterial
+      material_id: updatedRawMaterial.material_id,
+      material_code: updatedRawMaterial.material_code,
+      material_name: updatedRawMaterial.material_name,
+      moc: updatedRawMaterial.moc,
+      unit_weight: updatedRawMaterial.unit_weight,
+      unit: updatedRawMaterial.unit,
+      current_stock: updatedRawMaterial.current_stock,
+      minimum_stock: updatedRawMaterial.minimum_stock,
+      unit_price: updatedRawMaterial.unit_price,
+      created_at: updatedRawMaterial.created_at,
+      updated_at: updatedRawMaterial.updated_at
     });
   } catch (error) {
-    console.error('Error in updateRawMaterial:', error);
-    res.status(500).json({ message: 'Error updating raw material', error: error.message });
+    console.error('Error updating raw material:', error);
+    res.status(500).json({ message: 'Error updating raw material' });
   }
 };
 

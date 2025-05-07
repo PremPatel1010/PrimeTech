@@ -116,13 +116,39 @@ class RawMaterial {
 
   // Delete a raw material
   static async deleteRawMaterial(materialId) {
+    // Delete from purchase_order_items and products.bom first
+    const deletePurchaseOrderItemsQuery = `
+      DELETE FROM purchase.purchase_order_items
+      WHERE material_id = $1
+    `;
+    const deleteBOMQuery = `
+      DELETE FROM products.bom
+      WHERE material_id = $1
+    `;
+    const deleteRawMaterialQuery = `
+      DELETE FROM inventory.raw_materials
+      WHERE material_id = $1
+      RETURNING *
+    `;
+
+    const client = await pool.connect();
     try {
-      const query = 'DELETE FROM inventory.raw_materials WHERE material_id = $1 RETURNING *';
-      const result = await pool.query(query, [materialId]);
+      await client.query('BEGIN');
+
+      // Delete dependent records first
+      await client.query(deletePurchaseOrderItemsQuery, [materialId]);
+      await client.query(deleteBOMQuery, [materialId]);
+
+      // Then delete the raw material
+      const result = await client.query(deleteRawMaterialQuery, [materialId]);
+
+      await client.query('COMMIT');
       return result.rows[0];
     } catch (error) {
-      console.error('Error in RawMaterial.deleteRawMaterial:', error);
+      await client.query('ROLLBACK');
       throw error;
+    } finally {
+      client.release();
     }
   }
 }
