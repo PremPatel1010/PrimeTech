@@ -86,6 +86,70 @@ class User {
       throw error;
     }
   }
+
+  static async update(userId, { username, email, role, departmentName }) {
+    const query = `
+      UPDATE auth.users
+      SET username = $1,
+          email = $2,
+          role = $3,
+          department_name = $4,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE user_id = $5
+      RETURNING user_id, username, email, role, department_name, created_at
+    `;
+    
+    try {
+      const result = await pool.query(query, [username, email, role, departmentName, userId]);
+      return result.rows[0];
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  static async delete(userId) {
+    // First delete associated notifications
+    const deleteNotificationsQuery = `
+      DELETE FROM auth.notifications
+      WHERE user_id = $1
+    `;
+
+    // Then delete the user
+    const deleteUserQuery = `
+      DELETE FROM auth.users
+      WHERE user_id = $1
+    `;
+    
+    try {
+      // Start a transaction
+      await pool.query('BEGIN');
+
+      // Delete notifications first
+      await pool.query(deleteNotificationsQuery, [userId]);
+      
+      // Then delete the user
+      await pool.query(deleteUserQuery, [userId]);
+
+      // Commit the transaction
+      await pool.query('COMMIT');
+      
+      return true;
+    } catch (error) {
+      // Rollback in case of error
+      await pool.query('ROLLBACK');
+      throw error;
+    }
+  }
+
+  static async updatePassword(userId, newPassword) {
+    const hashedPassword = await bcrypt.hash(String(newPassword), 10);
+    const query = `
+      UPDATE auth.users
+      SET password_hash = $1, updated_at = CURRENT_TIMESTAMP
+      WHERE user_id = $2
+    `;
+    await pool.query(query, [hashedPassword, userId]);
+  }
 }
 
 export default User; 
