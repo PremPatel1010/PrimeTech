@@ -1,5 +1,4 @@
-
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useFactory } from '../context/FactoryContext';
 import { formatCurrency, formatDate } from '../utils/calculations';
 import { Button } from '@/components/ui/button';
@@ -12,9 +11,10 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { SalesOrder, OrderProduct, OrderStatus, PartialFulfillment } from '../types';
 import { Plus, FileText, X, AlertCircle, Check } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
+import { productService, Product } from '../services/productService';
 
 const SalesOrders: React.FC = () => {
-  const { salesOrders, finishedProducts, addSalesOrder, updateSalesOrderStatus, checkProductAvailability } = useFactory();
+  const { salesOrders, addSalesOrder, updateSalesOrderStatus, checkProductAvailability } = useFactory();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [newOrder, setNewOrder] = useState<Partial<SalesOrder>>({
     orderNumber: `SO-${new Date().getFullYear()}-${String(salesOrders.length + 1).padStart(3, '0')}`,
@@ -26,6 +26,11 @@ const SalesOrders: React.FC = () => {
   });
   const [selectedProduct, setSelectedProduct] = useState<string>('');
   const [productQuantity, setProductQuantity] = useState<number>(1);
+  const [products, setProducts] = useState<Product[]>([]);
+  
+  useEffect(() => {
+    productService.getAllProducts().then(setProducts);
+  }, []);
   
   // Filter for active orders only
   const activeOrders = salesOrders.filter(order => 
@@ -36,11 +41,12 @@ const SalesOrders: React.FC = () => {
   
   const handleAddProduct = () => {
     if (selectedProduct && productQuantity > 0) {
-      const product = finishedProducts.find(p => p.id === selectedProduct);
+      const product = products.find(p => String(p.product_id) === selectedProduct);
       if (product) {
         const orderProduct: OrderProduct = {
-          productId: product.id,
-          productName: product.name,
+          productId: String(product.product_id),
+          productName: product.product_name,
+          productCategory: product.product_code || '',
           quantity: productQuantity,
           price: product.price
         };
@@ -184,7 +190,7 @@ const SalesOrders: React.FC = () => {
 
   // Check product availability as user selects products
   const getProductAvailabilityStatus = (productId: string, quantity: number) => {
-    const product = finishedProducts.find(p => p.id === productId);
+    const product = products.find(p => String(p.product_id) === productId);
     
     if (!product) return { status: 'unavailable', message: 'Product not found' };
     
@@ -401,8 +407,8 @@ const SalesOrders: React.FC = () => {
                       <SelectValue placeholder="Select product" />
                     </SelectTrigger>
                     <SelectContent>
-                      {finishedProducts.map((product) => (
-                        <SelectItem key={product.id} value={product.id}>{product.name}</SelectItem>
+                      {products.map((product) => (
+                        <SelectItem key={product.product_id} value={String(product.product_id)}>{product.product_name}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>

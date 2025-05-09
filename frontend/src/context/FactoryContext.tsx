@@ -13,6 +13,7 @@ import {
   Supplier
 } from '../types';
 import { toast } from '@/hooks/use-toast';
+import { createSalesOrder, fetchSalesOrders } from '../services/salesOrderService';
 
 // Import mock data
 import { rawMaterialsMock } from '../data/mockRawMaterials';
@@ -259,105 +260,19 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
   
   // Sales Orders functions
-  const addSalesOrder = (order: Omit<SalesOrder, 'id'>) => {
-    // Process the order and check for partial fulfillment
-    const partialFulfillment: PartialFulfillment[] = [];
-    let orderStatus: OrderStatus = 'confirmed';
-    let anyManufacturingNeeded = false;
-    let allProductsInStock = true;
-    let anyMaterialShortage = false;
-    
-    // Analyze each product in the order
-    for (const orderProduct of order.products) {
-      const { available, toManufacture } = checkProductAvailability(orderProduct);
-      
-      // If we need to manufacture some or all of this product
-      if (toManufacture > 0) {
-        allProductsInStock = false;
-        anyManufacturingNeeded = true;
-        
-        const product = finishedProducts.find(p => p.id === orderProduct.productId);
-        if (product) {
-          // Check if raw materials are available for manufacturing
-          const materialsAvailable = checkRawMaterialsAvailability(product, toManufacture);
-          
-          if (!materialsAvailable) {
-            anyMaterialShortage = true;
-          }
-          
-          partialFulfillment.push({
-            productId: orderProduct.productId,
-            productName: orderProduct.productName,
-            totalQuantity: orderProduct.quantity,
-            inStockQuantity: available,
-            manufacturingQuantity: toManufacture,
-            manufacturingBatchIds: []
-          });
-        }
-      } else {
-        // This product is fully available
-        partialFulfillment.push({
-          productId: orderProduct.productId,
-          productName: orderProduct.productName,
-          totalQuantity: orderProduct.quantity,
-          inStockQuantity: orderProduct.quantity,
-          manufacturingQuantity: 0
-        });
-      }
-    }
-    
-    // Determine the overall status based on the analysis
-    if (allProductsInStock) {
-      orderStatus = 'confirmed'; // Everything is in stock
-    } else if (anyMaterialShortage) {
-      orderStatus = 'awaiting_materials'; // Can't manufacture due to material shortage
-    } else {
-      orderStatus = 'partially_in_stock'; // Some in stock, some need manufacturing
-    }
-    
-    // Create the new order - always mark as tracked
-    const newOrder: SalesOrder = {
-      ...order,
-      id: uuidv4(),
-      status: orderStatus,
-      partialFulfillment: partialFulfillment,
-      isTracked: true
-    };
-    
-    setSalesOrders([...salesOrders, newOrder]);
-    
-    // Update inventory for items already in stock
-    const updatedProducts = [...finishedProducts];
-    
-    for (const fulfillment of partialFulfillment) {
-      if (fulfillment.inStockQuantity > 0) {
-        const productIndex = updatedProducts.findIndex(p => p.id === fulfillment.productId);
-        if (productIndex !== -1) {
-          updatedProducts[productIndex] = {
-            ...updatedProducts[productIndex],
-            quantity: Math.max(0, updatedProducts[productIndex].quantity - fulfillment.inStockQuantity),
-            lastUpdated: new Date().toISOString()
-          };
-        }
-      }
-    }
-    
-    setFinishedProducts(updatedProducts);
-    
-    // Create manufacturing batches for products that need to be manufactured
-    if (anyManufacturingNeeded && !anyMaterialShortage) {
-      createManufacturingBatches(newOrder);
-    }
-    
-    toast({
-      title: "Sales Order Created",
-      description: `Order ${order.orderNumber} has been created successfully.`
-    });
-    
-    if (anyMaterialShortage) {
+  const addSalesOrder = async (order: Omit<SalesOrder, 'id'>) => {
+    try {
+      await createSalesOrder(order as SalesOrder);
+      const updatedOrders = await fetchSalesOrders();
+      setSalesOrders(updatedOrders);
       toast({
-        title: "Raw Materials Shortage",
-        description: "Some products can't be manufactured due to material shortage.",
+        title: "Sales Order Created",
+        description: `Order ${order.orderNumber} has been created successfully.`
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to create sales order.",
         variant: "destructive"
       });
     }

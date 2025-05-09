@@ -104,7 +104,7 @@ CREATE TABLE purchase.purchase_order (
     order_number VARCHAR(50) UNIQUE NOT NULL,
     order_date DATE NOT NULL,
     supplier_id INTEGER REFERENCES purchase.suppliers(supplier_id) ON DELETE SET NULL,
-    status VARCHAR(20) CHECK (status IN ('pending', 'received', 'cancelled')) DEFAULT 'pending',
+    status VARCHAR(20) CHECK (status IN ('ordered', 'arrived', 'cancelled')) DEFAULT 'ordered',
     payment_details TEXT,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
@@ -114,6 +114,7 @@ CREATE TABLE purchase.purchase_order_items (
     purchase_order_id INTEGER REFERENCES purchase.purchase_order(purchase_order_id) ON DELETE CASCADE,
     material_id INTEGER REFERENCES inventory.raw_materials(material_id),
     quantity DECIMAL(10, 2) NOT NULL,
+    unit VARCHAR(20) DEFAULT 'pcs',
     unit_price DECIMAL(10, 2) NOT NULL,
     total_price DECIMAL(10, 2) GENERATED ALWAYS AS (quantity * unit_price) STORED,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP

@@ -28,44 +28,51 @@ export const getPurchaseOrder = async (req, res) => {
 
 export const createPurchaseOrder = async (req, res) => {
   try {
-    const { 
-      order_number, 
-      order_date, 
-      supplier_id, 
-      status, 
+    const {
+      order_number,
+      order_date,
+      supplier_id,
+      status,
       payment_details,
-      items 
+      materials // frontend sends 'materials' not 'items'
     } = req.body;
-    
+
     // Validate required fields
     if (!order_number || !order_date || !supplier_id || !status) {
-      return res.status(400).json({ 
-        message: 'Order number, order date, supplier ID, and status are required' 
+      return res.status(400).json({
+        message: 'Order number, order date, supplier ID, and status are required'
       });
     }
 
-    // Validate status
-    if (!['pending', 'received', 'cancelled'].includes(status)) {
-      return res.status(400).json({ 
-        message: 'Status must be one of: pending, received, cancelled' 
+    // Accept status values from frontend
+    if (!['ordered', 'arrived', 'cancelled'].includes(status)) {
+      return res.status(400).json({
+        message: 'Status must be one of: ordered, arrived, cancelled'
       });
     }
 
-    // Validate items
-    if (!items || !Array.isArray(items) || items.length === 0) {
-      return res.status(400).json({ 
-        message: 'At least one item is required' 
+    // Validate materials
+    if (!materials || !Array.isArray(materials) || materials.length === 0) {
+      return res.status(400).json({
+        message: 'At least one material is required'
       });
     }
 
-    // Validate each item
-    for (const item of items) {
+    // Validate each material
+    for (const item of materials) {
       if (!item.material_id || !item.quantity || !item.unit_price) {
-        return res.status(400).json({ 
-          message: 'Each item must have material_id, quantity, and unit_price' 
+        return res.status(400).json({
+          message: 'Each material must have material_id, quantity, and unit_price'
         });
       }
     }
+
+    // Map 'materials' to 'items' for the model
+    const items = materials.map(({ material_id, quantity, unit_price }) => ({
+      material_id,
+      quantity,
+      unit_price
+    }));
 
     const purchaseOrder = await PurchaseOrder.createPurchaseOrder({
       order_number,
@@ -95,15 +102,19 @@ export const updatePurchaseOrder = async (req, res) => {
       supplier_id, 
       status, 
       payment_details,
-      items 
+      materials, // Accept materials from frontend
+      items // Keep items for backward compatibility
     } = req.body;
 
     // Validate status if provided
-    if (status && !['pending', 'received', 'cancelled'].includes(status)) {
+    if (status && !['ordered', 'arrived', 'cancelled'].includes(status)) {
       return res.status(400).json({ 
-        message: 'Status must be one of: pending, received, cancelled' 
+        message: 'Status must be one of: ordered, arrived, cancelled' 
       });
     }
+
+    // Use materials if provided, otherwise use items
+    const itemsToUpdate = materials || items;
 
     const updatedPurchaseOrder = await PurchaseOrder.updatePurchaseOrder(poId, {
       order_number,
@@ -111,7 +122,7 @@ export const updatePurchaseOrder = async (req, res) => {
       supplier_id,
       status,
       payment_details,
-      items
+      items: itemsToUpdate
     });
 
     if (!updatedPurchaseOrder) {

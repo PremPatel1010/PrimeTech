@@ -52,10 +52,12 @@ export interface SalesOrder {
   products: OrderProduct[];
   status: OrderStatus;
   totalValue: number;
+  discount?: number;
+  gst?: number;
   manufacturingRequestId?: string;
   deliveryDate?: string;
   partialFulfillment?: PartialFulfillment[];
-  isTracked?: boolean; // Flag to ensure orders are tracked
+  isTracked?: boolean;
 }
 
 export interface PartialFulfillment {
@@ -72,6 +74,7 @@ export type OrderStatus = 'confirmed' | 'pending' | 'in_production' | 'partially
 export interface OrderProduct {
   productId: string;
   productName: string;
+  productCategory?: string;
   quantity: number;
   price: number;
 }

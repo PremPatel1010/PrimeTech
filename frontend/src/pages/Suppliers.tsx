@@ -1,67 +1,111 @@
-
-import React, { useState } from 'react';
-import { useFactory } from '../context/FactoryContext';
+import React, { useState, useEffect } from 'react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
-import { Search, Plus, User, Mail, Phone, MapPin, Edit, Trash } from 'lucide-react';
-import { Supplier } from '../types';
+import { Plus, Edit, Trash, Building2 } from 'lucide-react';
+import { useToast } from '@/components/ui/use-toast';
+import { supplierService, Supplier } from '../services/supplierService';
 
 const Suppliers: React.FC = () => {
-  const { suppliers = [], addSupplier, updateSupplier, deleteSupplier } = useFactory();
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [isEditMode, setIsEditMode] = useState(false);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [currentSupplier, setCurrentSupplier] = useState<Partial<Supplier>>({
-    name: '',
-    contactPerson: '',
-    email: '',
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [open, setOpen] = useState(false);
+  const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null);
+  const [formData, setFormData] = useState<Partial<Supplier>>({
+    supplier_name: '',
+    contact_person: '',
     phone: '',
+    email: '',
     address: '',
-    materials: [],
-    notes: ''
+    gst_number: ''
   });
+  const { toast } = useToast();
 
-  const filteredSuppliers = suppliers.filter(supplier => 
-    supplier.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    supplier.contactPerson.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  useEffect(() => {
+    loadSuppliers();
+  }, []);
 
-  const handleOpenDialog = (supplier?: Supplier) => {
-    if (supplier) {
-      setCurrentSupplier(supplier);
-      setIsEditMode(true);
-    } else {
-      setCurrentSupplier({
-        name: '',
-        contactPerson: '',
-        email: '',
-        phone: '',
-        address: '',
-        materials: [],
-        notes: ''
+  const loadSuppliers = async () => {
+    try {
+      const data = await supplierService.getAllSuppliers();
+      setSuppliers(data);
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to load suppliers",
+        variant: "destructive"
       });
-      setIsEditMode(false);
     }
-    setIsDialogOpen(true);
   };
 
-  const handleSubmit = () => {
-    if (isEditMode && currentSupplier.id) {
-      updateSupplier(currentSupplier.id, currentSupplier);
+  const handleOpen = (supplier?: Supplier) => {
+    if (supplier) {
+      setEditingSupplier(supplier);
+      setFormData(supplier);
     } else {
-      addSupplier(currentSupplier as Omit<Supplier, 'id'>);
+      setEditingSupplier(null);
+      setFormData({
+        supplier_name: '',
+        contact_person: '',
+        phone: '',
+        email: '',
+        address: '',
+        gst_number: ''
+      });
     }
-    setIsDialogOpen(false);
+    setOpen(true);
   };
 
-  const handleDelete = (id: string) => {
-    if (confirm('Are you sure you want to delete this supplier?')) {
-      deleteSupplier(id);
+  const handleClose = () => {
+    setOpen(false);
+    setEditingSupplier(null);
+  };
+
+  const handleSubmit = async () => {
+    try {
+      if (editingSupplier) {
+        await supplierService.updateSupplier(editingSupplier.supplier_id, formData);
+        toast({
+          title: "Success",
+          description: "Supplier updated successfully"
+        });
+      } else {
+        await supplierService.createSupplier(formData as Omit<Supplier, 'supplier_id' | 'created_at'>);
+        toast({
+          title: "Success",
+          description: "Supplier created successfully"
+        });
+      }
+      handleClose();
+      loadSuppliers();
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to save supplier",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const handleDelete = async (supplierId: number) => {
+    if (window.confirm('Are you sure you want to delete this supplier?')) {
+      try {
+        await supplierService.deleteSupplier(supplierId);
+        toast({
+          title: "Success",
+          description: "Supplier deleted successfully"
+        });
+        loadSuppliers();
+      } catch (error) {
+        toast({
+          title: "Error",
+          description: "Failed to delete supplier",
+          variant: "destructive"
+        });
+      }
     }
   };
 
@@ -70,7 +114,7 @@ const Suppliers: React.FC = () => {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <h1 className="text-2xl font-bold text-factory-gray-900">Suppliers</h1>
         <Button 
-          onClick={() => handleOpenDialog()}
+          onClick={() => handleOpen()}
           className="bg-factory-primary hover:bg-factory-primary/90"
         >
           <Plus className="mr-2 h-4 w-4" />
@@ -78,42 +122,32 @@ const Suppliers: React.FC = () => {
         </Button>
       </div>
 
-      {/* Search */}
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-        <Input 
-          placeholder="Search suppliers..." 
-          className="pl-10"
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-        />
-      </div>
-
-      {/* Suppliers List */}
-      {filteredSuppliers.length > 0 ? (
+      {suppliers.length > 0 ? (
         <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Supplier Name</TableHead>
+                <TableHead>Name</TableHead>
                 <TableHead>Contact Person</TableHead>
-                <TableHead>Email</TableHead>
                 <TableHead>Phone</TableHead>
+                <TableHead>Email</TableHead>
+                <TableHead>GST Number</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredSuppliers.map((supplier) => (
-                <TableRow key={supplier.id}>
-                  <TableCell className="font-medium">{supplier.name}</TableCell>
-                  <TableCell>{supplier.contactPerson}</TableCell>
-                  <TableCell>{supplier.email}</TableCell>
+              {suppliers.map((supplier) => (
+                <TableRow key={supplier.supplier_id}>
+                  <TableCell className="font-medium">{supplier.supplier_name}</TableCell>
+                  <TableCell>{supplier.contact_person}</TableCell>
                   <TableCell>{supplier.phone}</TableCell>
+                  <TableCell>{supplier.email}</TableCell>
+                  <TableCell>{supplier.gst_number}</TableCell>
                   <TableCell className="text-right space-x-2">
                     <Button 
                       variant="ghost" 
                       size="icon" 
-                      onClick={() => handleOpenDialog(supplier)}
+                      onClick={() => handleOpen(supplier)}
                     >
                       <Edit className="h-4 w-4" />
                       <span className="sr-only">Edit</span>
@@ -121,7 +155,7 @@ const Suppliers: React.FC = () => {
                     <Button 
                       variant="ghost" 
                       size="icon"
-                      onClick={() => handleDelete(supplier.id)}
+                      onClick={() => handleDelete(supplier.supplier_id)}
                     >
                       <Trash className="h-4 w-4" />
                       <span className="sr-only">Delete</span>
@@ -135,18 +169,17 @@ const Suppliers: React.FC = () => {
       ) : (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-10 text-center">
-            <User className="h-12 w-12 mb-4 text-factory-gray-300" />
+            <Building2 className="h-12 w-12 mb-4 text-factory-gray-300" />
             <p className="text-factory-gray-500">No suppliers found.</p>
             <p className="text-sm text-factory-gray-400 mt-1">Add a new supplier to get started.</p>
           </CardContent>
         </Card>
       )}
 
-      {/* Add/Edit Supplier Dialog */}
-      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+      <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="sm:max-w-[550px]">
           <DialogHeader>
-            <DialogTitle>{isEditMode ? 'Edit Supplier' : 'Add New Supplier'}</DialogTitle>
+            <DialogTitle>{editingSupplier ? 'Edit Supplier' : 'Add New Supplier'}</DialogTitle>
           </DialogHeader>
           
           <div className="grid gap-4 py-4">
@@ -154,8 +187,8 @@ const Suppliers: React.FC = () => {
               <Label htmlFor="name">Supplier Name</Label>
               <Input 
                 id="name" 
-                value={currentSupplier.name} 
-                onChange={(e) => setCurrentSupplier({...currentSupplier, name: e.target.value})}
+                value={formData.supplier_name} 
+                onChange={(e) => setFormData({...formData, supplier_name: e.target.value})}
                 placeholder="Enter supplier name"
               />
             </div>
@@ -165,8 +198,8 @@ const Suppliers: React.FC = () => {
                 <Label htmlFor="contactPerson">Contact Person</Label>
                 <Input 
                   id="contactPerson" 
-                  value={currentSupplier.contactPerson} 
-                  onChange={(e) => setCurrentSupplier({...currentSupplier, contactPerson: e.target.value})}
+                  value={formData.contact_person} 
+                  onChange={(e) => setFormData({...formData, contact_person: e.target.value})}
                   placeholder="Enter contact name"
                 />
               </div>
@@ -175,8 +208,8 @@ const Suppliers: React.FC = () => {
                 <Label htmlFor="phone">Phone</Label>
                 <Input 
                   id="phone" 
-                  value={currentSupplier.phone} 
-                  onChange={(e) => setCurrentSupplier({...currentSupplier, phone: e.target.value})}
+                  value={formData.phone} 
+                  onChange={(e) => setFormData({...formData, phone: e.target.value})}
                   placeholder="Enter phone number"
                 />
               </div>
@@ -187,8 +220,8 @@ const Suppliers: React.FC = () => {
               <Input 
                 id="email" 
                 type="email" 
-                value={currentSupplier.email} 
-                onChange={(e) => setCurrentSupplier({...currentSupplier, email: e.target.value})}
+                value={formData.email} 
+                onChange={(e) => setFormData({...formData, email: e.target.value})}
                 placeholder="Enter email address"
               />
             </div>
@@ -197,19 +230,19 @@ const Suppliers: React.FC = () => {
               <Label htmlFor="address">Address</Label>
               <Textarea 
                 id="address" 
-                value={currentSupplier.address} 
-                onChange={(e) => setCurrentSupplier({...currentSupplier, address: e.target.value})}
+                value={formData.address} 
+                onChange={(e) => setFormData({...formData, address: e.target.value})}
                 placeholder="Enter supplier address"
               />
             </div>
             
             <div className="space-y-2">
-              <Label htmlFor="notes">Notes (Optional)</Label>
-              <Textarea 
-                id="notes" 
-                value={currentSupplier.notes} 
-                onChange={(e) => setCurrentSupplier({...currentSupplier, notes: e.target.value})}
-                placeholder="Enter any additional notes"
+              <Label htmlFor="gst">GST Number</Label>
+              <Input 
+                id="gst" 
+                value={formData.gst_number} 
+                onChange={(e) => setFormData({...formData, gst_number: e.target.value})}
+                placeholder="Enter GST number"
               />
             </div>
           </div>
@@ -217,15 +250,15 @@ const Suppliers: React.FC = () => {
           <DialogFooter>
             <Button 
               variant="outline" 
-              onClick={() => setIsDialogOpen(false)}
+              onClick={handleClose}
             >
               Cancel
             </Button>
             <Button 
               onClick={handleSubmit}
-              disabled={!currentSupplier.name || !currentSupplier.contactPerson || !currentSupplier.phone}
+              disabled={!formData.supplier_name || !formData.contact_person || !formData.phone}
             >
-              {isEditMode ? 'Update Supplier' : 'Add Supplier'}
+              {editingSupplier ? 'Update Supplier' : 'Add Supplier'}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -234,4 +267,4 @@ const Suppliers: React.FC = () => {
   );
 };
 
-export default Suppliers;
+export default Suppliers; 

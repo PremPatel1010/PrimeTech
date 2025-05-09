@@ -14,7 +14,8 @@ import {
   Shield,
   ChevronDown,
   Plus,
-  Eye
+  Eye,
+  Building2
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -138,6 +139,12 @@ const Sidebar: React.FC = () => {
             icon={<Package size={20} />} 
             text="Inventory" 
             isActive={currentPath === '/inventory'} 
+          />
+          <NavItem 
+            to="/suppliers" 
+            icon={<Building2 size={20} />} 
+            text="Suppliers" 
+            isActive={currentPath === '/suppliers'} 
           />
           <NavItem 
             to="/products" 

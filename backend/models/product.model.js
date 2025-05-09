@@ -55,16 +55,15 @@ class Product {
   }
 
   // Create a new product
-  static async createProduct({ product_name, product_code, discharge_range, head_range, rating_range, price }) {
+  static async createProduct({ product_name, product_code, discharge_range, head_range, rating_range, price, cost_price, status }) {
     try {
       const query = `
         INSERT INTO products.product 
-        (product_name, product_code, discharge_range, head_range, rating_range, price)
-        VALUES ($1, $2, $3, $4, $5, $6)
+        (product_name, product_code, discharge_range, head_range, rating_range, price, cost_price, status)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         RETURNING *
       `;
-      const values = [product_name, product_code, discharge_range, head_range, rating_range, price];
-      
+      const values = [product_name, product_code, discharge_range, head_range, rating_range, price, cost_price, status];
       const result = await pool.query(query, values);
       return result.rows[0];
     } catch (error) {
@@ -177,6 +176,11 @@ class Product {
       if (updateData.price !== undefined) {
         setClauses.push(`price = $${paramCount}`);
         values.push(updateData.price);
+        paramCount++;
+      }
+      if (updateData.cost_price !== undefined) {
+        setClauses.push(`cost_price = $${paramCount}`);
+        values.push(updateData.cost_price);
         paramCount++;
       }
 

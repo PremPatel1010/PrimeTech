@@ -14,10 +14,11 @@ class PurchaseOrder {
               'material_id', poi.material_id,
               'material_name', rm.material_name,
               'quantity', poi.quantity,
+              'unit', poi.unit,
               'unit_price', poi.unit_price,
               'total_price', poi.total_price
             )
-          ) FILTER (WHERE poi.item_id IS NOT NULL), '[]') as items
+          ) FILTER (WHERE poi.item_id IS NOT NULL), '[]') as materials
         FROM purchase.purchase_order po
         LEFT JOIN purchase.suppliers s ON po.supplier_id = s.supplier_id
         LEFT JOIN purchase.purchase_order_items poi ON po.purchase_order_id = poi.purchase_order_id
@@ -46,10 +47,11 @@ class PurchaseOrder {
               'material_id', poi.material_id,
               'material_name', rm.material_name,
               'quantity', poi.quantity,
+              'unit', poi.unit,
               'unit_price', poi.unit_price,
               'total_price', poi.total_price
             )
-          ) FILTER (WHERE poi.item_id IS NOT NULL), '[]') as items
+          ) FILTER (WHERE poi.item_id IS NOT NULL), '[]') as materials
         FROM purchase.purchase_order po
         LEFT JOIN purchase.suppliers s ON po.supplier_id = s.supplier_id
         LEFT JOIN purchase.purchase_order_items poi ON po.purchase_order_id = poi.purchase_order_id
@@ -100,8 +102,8 @@ class PurchaseOrder {
       if (items && items.length > 0) {
         const itemQuery = `
           INSERT INTO purchase.purchase_order_items 
-          (purchase_order_id, material_id, quantity, unit_price)
-          VALUES ($1, $2, $3, $4)
+          (purchase_order_id, material_id, quantity, unit, unit_price)
+          VALUES ($1, $2, $3, $4, $5)
           RETURNING *
         `;
 
@@ -110,6 +112,7 @@ class PurchaseOrder {
             purchaseOrder.purchase_order_id,
             item.material_id,
             item.quantity,
+            item.unit || 'pcs',
             item.unit_price
           ];
           await client.query(itemQuery, itemValues);
@@ -183,8 +186,8 @@ class PurchaseOrder {
         // Insert new items
         const itemQuery = `
           INSERT INTO purchase.purchase_order_items 
-          (purchase_order_id, material_id, quantity, unit_price)
-          VALUES ($1, $2, $3, $4)
+          (purchase_order_id, material_id, quantity, unit, unit_price)
+          VALUES ($1, $2, $3, $4, $5)
           RETURNING *
         `;
 
@@ -193,6 +196,7 @@ class PurchaseOrder {
             poId,
             item.material_id,
             item.quantity,
+            item.unit || 'pcs',
             item.unit_price
           ];
           await client.query(itemQuery, itemValues);

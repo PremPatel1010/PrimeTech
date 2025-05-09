@@ -11,29 +11,24 @@ export const getProductBOM = async (req, res) => {
   res.json(product);
 };
 
-
 export const createProduct = async (req, res) => {
   try {
-    const { product_name, product_code, discharge_range, head_range, rating_range, price } = req.body;
-    
+    const { product_name, product_code, discharge_range, head_range, rating_range, price, cost_price, status } = req.body;
     // Validate required fields
     if (!product_name || !product_code || !price) {
       return res.status(400).json({ message: 'Product name, code, and price are required' });
     }
-
     const product = await Product.createProduct({
       product_name,
       product_code,
       discharge_range,
       head_range,
       rating_range,
-      price
+      price,
+      cost_price,
+      status
     });
-
-    res.status(201).json({
-      message: 'Product created successfully',
-      product
-    });
+    res.status(201).json(product); // Return the product directly
   } catch (error) {
     console.error('Error in createProduct:', error);
     res.status(500).json({ message: 'Error creating product', error: error.message });
@@ -119,7 +114,6 @@ export const addBOMItems = async (req, res) => {
     const { productId } = req.params;
     const { bomItems } = req.body;
 
-    console.log(productId)
 
     // Check if product exists first
     const product = await Product.getProductById(productId);
