@@ -143,8 +143,15 @@ CREATE TABLE manufacturing.stages (
 
 CREATE TABLE manufacturing.product_manufacturing (
     tracking_id SERIAL PRIMARY KEY,
-    sales_order_id INTEGER NOT NULL REFERENCES sales.sales_order(sales_order_id) ON DELETE CASCADE,
-    sales_order_item_id INTEGER NOT NULL REFERENCES sales.sales_order_items(item_id) ON DELETE CASCADE,
+    batch_number VARCHAR(50),
+    product_name VARCHAR(100),
+    stage_completion_dates JSONB,
+    progress INTEGER DEFAULT 0,
+    estimated_completion_date DATE,
+    start_date DATE,
+    linked_sales_order_id INTEGER,
+    sales_order_id INTEGER REFERENCES sales.sales_order(sales_order_id) ON DELETE CASCADE,
+    sales_order_item_id INTEGER REFERENCES sales.sales_order_items(item_id) ON DELETE CASCADE,
     product_id INTEGER NOT NULL REFERENCES products.product(product_id) ON DELETE CASCADE,
     current_stage_id INTEGER REFERENCES manufacturing.stages(stage_id),
     quantity_in_process INTEGER DEFAULT 0,

@@ -216,6 +216,104 @@ class ManufacturingProgress {
     `, [orderId, orderItemId]);
     return result.rows[0];
   }
+
+  // Get all manufacturing batches
+  static async getAllBatches() {
+    const result = await pool.query(`
+      SELECT * FROM manufacturing.product_manufacturing
+      ORDER BY updated_at DESC
+    `);
+    return result.rows;
+  }
+
+  // Create a new manufacturing batch
+  static async createBatch(batchData) {
+    // Destructure all possible fields
+    const {
+      batch_number,
+      product_name,
+      stage_completion_dates,
+      progress,
+      estimated_completion_date,
+      start_date,
+      linked_sales_order_id,
+      sales_order_id,
+      sales_order_item_id,
+      product_id,
+      current_stage_id,
+      quantity_in_process,
+      status
+    } = batchData;
+
+    // Build dynamic columns and values for optional sales_order_id/item_id
+    const columns = [
+      'batch_number', 'product_name', 'stage_completion_dates', 'progress', 'estimated_completion_date', 'start_date', 'linked_sales_order_id',
+      'product_id', 'current_stage_id', 'quantity_in_process', 'status'
+    ];
+    const values = [
+      batch_number, product_name, stage_completion_dates, progress, estimated_completion_date, start_date, linked_sales_order_id,
+      product_id, current_stage_id, quantity_in_process, status || 'in_progress'
+    ];
+    if (sales_order_id) {
+      columns.push('sales_order_id');
+      values.push(sales_order_id);
+    }
+    if (sales_order_item_id) {
+      columns.push('sales_order_item_id');
+      values.push(sales_order_item_id);
+    }
+    const placeholders = values.map((_, i) => `$${i + 1}`).join(', ');
+    const query = `INSERT INTO manufacturing.product_manufacturing (${columns.join(', ')}) VALUES (${placeholders}) RETURNING *`;
+    const result = await pool.query(query, values);
+    return result.rows[0];
+  }
+
+  // Update batch stage and progress
+  static async updateBatchStage(trackingId, updateData) {
+    let { current_stage_id, progress, stage_completion_dates, status } = updateData;
+    // If the stage is completed (progress 100 or status completed), set status to 'completed'
+    if ((progress === 100 || status === 'completed') && status !== 'completed') {
+      status = 'completed';
+    }
+    const result = await pool.query(`
+      UPDATE manufacturing.product_manufacturing
+      SET current_stage_id = COALESCE($1, current_stage_id),
+          progress = COALESCE($2, progress),
+          stage_completion_dates = COALESCE($3, stage_completion_dates),
+          status = COALESCE($4, status),
+          updated_at = CURRENT_TIMESTAMP
+      WHERE tracking_id = $5
+      RETURNING *
+    `, [current_stage_id, progress, stage_completion_dates, status, trackingId]);
+    return result.rows[0];
+  }
+
+  // Edit a manufacturing batch
+  static async editBatch(trackingId, update) {
+    // Only allow valid columns to be updated
+    const validColumns = [
+      'batch_number', 'product_name', 'stage_completion_dates', 'progress', 'estimated_completion_date', 'start_date', 'linked_sales_order_id',
+      'product_id', 'current_stage_id', 'quantity_in_process', 'status', 'sales_order_id', 'sales_order_item_id'
+    ];
+    const keys = Object.keys(update).filter(k => validColumns.includes(k));
+    if (keys.length === 0) throw new Error('No valid fields to update');
+    const setClause = keys.map((k, i) => `${k} = $${i + 1}`).join(', ');
+    const values = keys.map(k => update[k]);
+    values.push(trackingId);
+    const result = await pool.query(
+      `UPDATE manufacturing.product_manufacturing SET ${setClause} WHERE tracking_id = $${values.length} RETURNING *`,
+      values
+    );
+    return result.rows[0];
+  }
+
+  // Delete a manufacturing batch
+  static async deleteBatch(trackingId) {
+    await pool.query(
+      'DELETE FROM manufacturing.product_manufacturing WHERE tracking_id = $1',
+      [trackingId]
+    );
+  }
 }
 
 export default ManufacturingProgress; 

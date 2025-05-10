@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState } from 'react';
+import React, { createContext, useContext, useState, useEffect } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { 
   RawMaterial, 
@@ -14,12 +14,12 @@ import {
 } from '../types';
 import { toast } from '@/hooks/use-toast';
 import { createSalesOrder, fetchSalesOrders } from '../services/salesOrderService';
+import { fetchBatches, createBatch, updateBatchStage as apiUpdateBatchStage } from '../services/manufacturingService';
+import { productService, ManufacturingStage as BackendStage } from '../services/productService';
+import { rawMaterialService } from '../services/rawMaterial.service';
 
 // Import mock data
-import { rawMaterialsMock } from '../data/mockRawMaterials';
-import { finishedProductsMock } from '../data/mockFinishedProducts';
 import { salesOrdersMock } from '../data/mockSalesOrders';
-import { manufacturingBatchesMock } from '../data/mockManufacturingBatches';
 import { purchaseOrdersMock } from '../data/mockPurchaseOrders';
 
 // Some initial suppliers
@@ -65,6 +65,7 @@ interface FactoryContextType {
   
   // Manufacturing Batches
   manufacturingBatches: ManufacturingBatch[];
+  setManufacturingBatches: React.Dispatch<React.SetStateAction<ManufacturingBatch[]>>;
   addManufacturingBatch: (batch: Omit<ManufacturingBatch, 'id'>) => void;
   updateManufacturingStage: (id: string, stage: string) => void;
 
@@ -81,6 +82,10 @@ interface FactoryContextType {
 
   // New methods for partial fulfillment
   checkProductAvailability: (product: OrderProduct) => { available: number, toManufacture: number };
+
+  // Helper to filter batches
+  getActiveBatches: (batches: ManufacturingBatch[]) => ManufacturingBatch[];
+  getCompletedBatches: (batches: ManufacturingBatch[]) => ManufacturingBatch[];
 }
 
 // Create context with default values
@@ -94,12 +99,95 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
     isTracked: true
   }));
   
-  const [rawMaterials, setRawMaterials] = useState<RawMaterial[]>(rawMaterialsMock);
-  const [finishedProducts, setFinishedProducts] = useState<FinishedProduct[]>(finishedProductsMock);
+  const [rawMaterials, setRawMaterials] = useState<RawMaterial[]>([]);
+  const [finishedProducts, setFinishedProducts] = useState<FinishedProduct[]>([]);
   const [salesOrders, setSalesOrders] = useState<SalesOrder[]>(initialSalesOrders);
-  const [manufacturingBatches, setManufacturingBatches] = useState<ManufacturingBatch[]>(manufacturingBatchesMock);
+  const [manufacturingBatches, setManufacturingBatches] = useState<ManufacturingBatch[]>([]);
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>(purchaseOrdersMock);
   const [suppliers, setSuppliers] = useState<Supplier[]>(suppliersMock);
+  const [backendStages, setBackendStages] = useState<BackendStage[]>([]);
+  
+  useEffect(() => {
+    // Fetch manufacturing batches
+    fetchBatches()
+      .then(batches => setManufacturingBatches(batches.map(b => {
+        // Parse and normalize stageCompletionDates
+        let stageCompletionDates = b.stage_completion_dates;
+        if (typeof stageCompletionDates === 'string') {
+          try {
+            stageCompletionDates = JSON.parse(stageCompletionDates);
+          } catch {
+            stageCompletionDates = {};
+          }
+        }
+        // Ensure all required stage keys are present
+        const defaultStages = ['cutting', 'assembly', 'testing', 'packaging', 'completed'];
+        const safeStageCompletionDates = defaultStages.reduce((acc, key) => {
+          acc[key] = stageCompletionDates && key in stageCompletionDates ? stageCompletionDates[key] : null;
+          return acc;
+        }, {} as Record<string, string | null>);
+        // Parse and normalize dates
+        const parseDate = (d: any) => {
+          if (!d) return '';
+          const dateObj = typeof d === 'string' ? new Date(d) : d;
+          return isNaN(dateObj.getTime()) ? '' : dateObj.toISOString().split('T')[0];
+        };
+        // Lookup product name if not present
+        let productName = b.product_name || b.productName || '';
+        if (!productName && finishedProducts && b.product_id) {
+          const found = finishedProducts.find(p => p.id === String(b.product_id));
+          if (found) productName = found.name;
+        }
+        return {
+          id: String(b.tracking_id || b.id || ''),
+          tracking_id: b.tracking_id,
+          batchNumber: b.batch_number || b.batchNumber || b.tracking_id || b.id || '',
+          productId: String(b.product_id || b.productId || ''),
+          productName,
+          quantity: b.quantity_in_process ?? b.quantity ?? 1,
+          currentStage: b.current_stage || b.currentStage || 'cutting',
+          startDate: parseDate(b.start_date || b.startDate),
+          estimatedCompletionDate: parseDate(b.estimated_completion_date || b.estimatedCompletionDate),
+          stageCompletionDates: safeStageCompletionDates,
+          progress: b.progress ?? 0,
+          status: b.status || 'in_progress',
+          linkedSalesOrderId: b.linked_sales_order_id ? String(b.linked_sales_order_id) : (b.linkedSalesOrderId ? String(b.linkedSalesOrderId) : undefined),
+          rawMaterialsUsed: b.rawMaterialsUsed || [],
+          rawMaterialsNeeded: b.rawMaterialsNeeded || [],
+          notes: b.notes || '',
+        };
+      })))
+      .catch(() => toast({ title: 'Error', description: 'Failed to load manufacturing batches', variant: 'destructive' }));
+    // Fetch products
+    productService.getAllProducts()
+      .then(products => setFinishedProducts(products.map(p => ({
+        id: String(p.product_id),
+        name: p.product_name,
+        category: '', // Set as needed
+        quantity: 0, // Set as needed or fetch from inventory
+        price: p.price,
+        lastUpdated: p.created_at || new Date().toISOString(),
+        billOfMaterials: [], // Set as needed
+        manufacturingSteps: [] // Set as needed
+      }))))
+      .catch(() => toast({ title: 'Error', description: 'Failed to load products', variant: 'destructive' }));
+    // Fetch raw materials
+    rawMaterialService.getAllRawMaterials()
+      .then(materials => setRawMaterials(materials.map(m => ({
+        id: String(m.material_id),
+        name: m.material_name,
+        unit: m.unit,
+        quantity: m.current_stock,
+        pricePerUnit: m.unit_price,
+        lastUpdated: m.updated_at,
+        minThreshold: m.minimum_stock
+      }))))
+      .catch(() => toast({ title: 'Error', description: 'Failed to load raw materials', variant: 'destructive' }));
+    // Fetch stages from backend on mount
+    productService.getManufacturingStages()
+      .then(stages => setBackendStages(stages))
+      .catch(() => setBackendStages([]));
+  }, []);
   
   // Supplier functions
   const addSupplier = (supplier: Omit<Supplier, 'id'>) => {
@@ -319,7 +407,8 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 completed: null
               },
               progress: 20,
-              linkedSalesOrderId: order.id
+              linkedSalesOrderId: order.id,
+              status: 'in_progress'
             };
             
             batchIds.push(batchId);
@@ -495,7 +584,8 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
                       completed: null
                     },
                     progress: 20,
-                    linkedSalesOrderId: order.id
+                    linkedSalesOrderId: order.id,
+                    status: 'in_progress'
                   };
                   
                   setManufacturingBatches(prev => [...prev, newBatch]);
@@ -522,129 +612,98 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
   
   // Manufacturing Batches functions
-  const addManufacturingBatch = (batch: Omit<ManufacturingBatch, 'id'>) => {
-    const newBatch: ManufacturingBatch = {
-      ...batch,
-      id: uuidv4()
-    };
-    
-    // Check if raw materials are available
-    const product = finishedProducts.find(p => p.id === batch.productId);
-    if (product) {
-      const materialsAvailable = checkRawMaterialsAvailability(product, batch.quantity);
-      
-      if (!materialsAvailable) {
-        toast({
-          title: "Raw Materials Shortage",
-          description: `Insufficient raw materials for manufacturing ${product.name}.`,
-          variant: "destructive"
-        });
-        return;
-      }
-      
-      // Deduct raw materials for manufacturing
-      deductRawMaterialsForManufacturing(product, batch.quantity);
+  const addManufacturingBatch = async (batch: Omit<ManufacturingBatch, 'id'>) => {
+    try {
+      // Find the initial stage (first in sequence)
+      const initialStage = backendStages[0];
+      // Prepare backend batch object
+      const backendBatch = {
+        batch_number: batch.batchNumber,
+        product_id: batch.productId,
+        product_name: batch.productName,
+        quantity_in_process: batch.quantity,
+        start_date: batch.startDate ? new Date(batch.startDate).toISOString() : new Date().toISOString(),
+        estimated_completion_date: batch.estimatedCompletionDate ? new Date(batch.estimatedCompletionDate).toISOString() : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+        stage_completion_dates: batch.stageCompletionDates || { [initialStage?.stage_name?.toLowerCase() || 'cutting']: null },
+        progress: batch.progress ?? 0,
+        current_stage_id: initialStage?.stage_id,
+        status: batch.status || 'in_progress',
+        linked_sales_order_id: batch.linkedSalesOrderId || null
+      };
+      const created = await createBatch(backendBatch);
+      setManufacturingBatches(prev => [...prev, created]);
+      toast({ title: 'Manufacturing Batch Created', description: `Batch ${batch.batchNumber} has been created successfully.` });
+    } catch (err) {
+      toast({ title: 'Error', description: 'Failed to create manufacturing batch', variant: 'destructive' });
     }
-    
-    setManufacturingBatches([...manufacturingBatches, newBatch]);
-    toast({
-      title: "Manufacturing Batch Created",
-      description: `Batch ${batch.batchNumber} has been created successfully.`
-    });
   };
   
-  const updateManufacturingStage = (id: string, stage: string) => {
-    const now = new Date().toISOString();
-    
-    setManufacturingBatches(
-      manufacturingBatches.map(batch => {
-        if (batch.id === id) {
-          // Calculate progress based on stages
+  const updateManufacturingStage = async (id: string, stage: string) => {
+    try {
+      // Find the batch to update
+      const batch = manufacturingBatches.find(b => b.id === id || b.tracking_id === id);
+      if (!batch) throw new Error('Batch not found');
+      // Calculate progress and update stageCompletionDates
           const stages = ['cutting', 'assembly', 'testing', 'packaging', 'completed'];
           const currentStageIndex = stages.indexOf(stage);
-          const totalStages = stages.length - 1; // Exclude 'completed' for progress calc
-          const progress = stage === 'completed' 
-            ? 100 
-            : Math.round((currentStageIndex / totalStages) * 100);
-          
-          // Update completion dates
-          const updatedCompletionDates = { ...batch.stageCompletionDates };
-          
-          // Mark current stage as completed
-          updatedCompletionDates[stage] = now;
-          
-          // If moving to completed, update inventory
-          if (stage === 'completed' && batch.currentStage !== 'completed') {
-            const productIndex = finishedProducts.findIndex(p => p.id === batch.productId);
-            
-            if (productIndex !== -1) {
-              const updatedProducts = [...finishedProducts];
-              updatedProducts[productIndex] = {
-                ...updatedProducts[productIndex],
-                quantity: updatedProducts[productIndex].quantity + batch.quantity,
-                lastUpdated: now
-              };
-              
-              setFinishedProducts(updatedProducts);
-              
-              // If linked to a sales order, update the order status
-              if (batch.linkedSalesOrderId) {
-                setSalesOrders(prevOrders => 
-                  prevOrders.map(order => {
-                    if (order.id === batch.linkedSalesOrderId) {
-                      // Check if this was a partial fulfillment order
-                      if (order.partialFulfillment && order.partialFulfillment.length > 0) {
-                        // Find the product in the partial fulfillment
-                        const updatedPartialFulfillment = order.partialFulfillment.map(item => {
-                          if (item.productId === batch.productId) {
-                            // Move the manufactured quantity to in-stock
-                            return {
-                              ...item,
-                              inStockQuantity: item.inStockQuantity + batch.quantity,
-                              manufacturingQuantity: Math.max(0, item.manufacturingQuantity - batch.quantity)
-                            };
-                          }
-                          return item;
-                        });
-                        
-                        // Check if all manufacturing is complete
-                        const allManufacturingComplete = updatedPartialFulfillment.every(
-                          item => item.manufacturingQuantity === 0
-                        );
-                        
-                        // If all manufacturing is complete, set order to confirmed
-                        return { 
-                          ...order, 
-                          partialFulfillment: updatedPartialFulfillment,
-                          status: allManufacturingComplete ? 'confirmed' : 'partially_in_stock' 
-                        };
-                      }
-                      
-                      // Set the order status to confirmed (in stock) since manufacturing is complete
-                      return { ...order, status: 'confirmed' };
-                    }
-                    return order;
-                  })
-                );
-              }
-            }
-          }
-          
-          return {
-            ...batch,
-            currentStage: stage,
-            progress,
-            stageCompletionDates: updatedCompletionDates
-          };
+      const totalStages = stages.length - 1;
+      const progress = stage === 'completed' ? 100 : Math.round((currentStageIndex / totalStages) * 100);
+      const now = new Date().toISOString();
+      const updatedCompletionDates = { ...batch.stageCompletionDates, [stage]: now };
+      const update = {
+        current_stage_id: currentStageIndex + 1, // assuming stage ids are 1-based and ordered
+        progress,
+        stage_completion_dates: updatedCompletionDates,
+        status: stage === 'completed' ? 'completed' : 'in_progress'
+      };
+      const updated = await apiUpdateBatchStage(batch.tracking_id || batch.id, update);
+      // Map backend batch to frontend ManufacturingBatch type
+      let stageCompletionDates = updated.stage_completion_dates;
+      if (typeof stageCompletionDates === 'string') {
+        try {
+          stageCompletionDates = JSON.parse(stageCompletionDates);
+        } catch {
+          stageCompletionDates = {};
         }
-        return batch;
-      })
-    );
-    
-    toast({
-      title: "Manufacturing Stage Updated",
-      description: `Stage has been updated to ${stage}.`
-    });
+      }
+      const defaultStages = ['cutting', 'assembly', 'testing', 'packaging', 'completed'];
+      const safeStageCompletionDates = defaultStages.reduce((acc, key) => {
+        acc[key] = stageCompletionDates && key in stageCompletionDates ? stageCompletionDates[key] : null;
+        return acc;
+      }, {} as Record<string, string | null>);
+      const parseDate = (d: any) => {
+        if (!d) return '';
+        const dateObj = typeof d === 'string' ? new Date(d) : d;
+        return isNaN(dateObj.getTime()) ? '' : dateObj.toISOString().split('T')[0];
+      };
+      let productName = updated.product_name || updated.productName || '';
+      if (!productName && finishedProducts && updated.product_id) {
+        const found = finishedProducts.find(p => p.id === String(updated.product_id));
+        if (found) productName = found.name;
+      }
+      const mappedBatch = {
+        id: String(updated.tracking_id || updated.id || ''),
+        tracking_id: updated.tracking_id,
+        batchNumber: updated.batch_number || updated.batchNumber || updated.tracking_id || updated.id || '',
+        productId: String(updated.product_id || updated.productId || ''),
+        productName,
+        quantity: updated.quantity_in_process ?? updated.quantity ?? 1,
+        currentStage: (updated.status === 'completed' || stage === 'completed') ? 'completed' : (updated.current_stage || updated.currentStage || stage),
+        startDate: parseDate(updated.start_date || updated.startDate),
+        estimatedCompletionDate: parseDate(updated.estimated_completion_date || updated.estimatedCompletionDate),
+        stageCompletionDates: safeStageCompletionDates,
+        progress: updated.progress ?? 0,
+        status: updated.status || 'in_progress',
+        linkedSalesOrderId: updated.linked_sales_order_id ? String(updated.linked_sales_order_id) : (updated.linkedSalesOrderId ? String(updated.linkedSalesOrderId) : undefined),
+        rawMaterialsUsed: updated.rawMaterialsUsed || [],
+        rawMaterialsNeeded: updated.rawMaterialsNeeded || [],
+        notes: updated.notes || '',
+      };
+      setManufacturingBatches(prev => prev.map(b => ((b.tracking_id || b.id) === (mappedBatch.tracking_id || mappedBatch.id) ? mappedBatch : b)));
+      toast({ title: 'Manufacturing Stage Updated', description: `Stage has been updated to ${stage}.` });
+    } catch (err) {
+      toast({ title: 'Error', description: 'Failed to update manufacturing stage', variant: 'destructive' });
+    }
   };
 
   // Purchase Orders functions
@@ -691,8 +750,6 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
                   quantity: purchaseMaterial.quantity,
                   pricePerUnit: purchaseMaterial.pricePerUnit,
                   lastUpdated: new Date().toISOString(),
-                  supplierId: order.supplierId,
-                  supplierName: order.supplierName
                 };
                 
                 updatedMaterials.push(newMaterial);
@@ -714,6 +771,10 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
     });
   };
 
+  // Helper to filter batches
+  const getActiveBatches = (batches: ManufacturingBatch[]) => batches.filter(batch => batch.status !== 'completed' && batch.currentStage !== 'completed');
+  const getCompletedBatches = (batches: ManufacturingBatch[]) => batches.filter(batch => batch.status === 'completed' || batch.currentStage === 'completed');
+
   const value: FactoryContextType = {
     rawMaterials,
     addRawMaterial,
@@ -725,6 +786,7 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
     addSalesOrder,
     updateSalesOrderStatus,
     manufacturingBatches,
+    setManufacturingBatches,
     addManufacturingBatch,
     updateManufacturingStage,
     purchaseOrders,
@@ -734,7 +796,9 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
     addSupplier,
     updateSupplier,
     deleteSupplier,
-    checkProductAvailability
+    checkProductAvailability,
+    getActiveBatches,
+    getCompletedBatches,
   };
   
   return (

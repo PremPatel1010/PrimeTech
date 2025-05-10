@@ -12,8 +12,6 @@ import { FactoryProvider } from "./context/FactoryContext";
 
 // Pages
 import Dashboard from "./pages/Dashboard";
-import SalesOrders from "./pages/SalesOrders";
-import NewSalesOrder from "./pages/NewSalesOrder";
 import ViewOrderStatus from "./pages/ViewOrderStatus";
 import Inventory from "./pages/Inventory";
 import Manufacturing from "./pages/Manufacturing";
@@ -55,9 +53,7 @@ const App: React.FC = () => {
                 }
               >
                 <Route path="/dashboard" element={<Dashboard />} />
-                <Route path="/sales" element={<Navigate to="/sales/orders" replace />} />
-                <Route path="/sales/orders" element={<SalesOrders />} />
-                <Route path="/sales/new" element={<NewSalesOrder />} />
+                <Route path="/sales" element={<Navigate to="/sales/status" replace />} />
                 <Route path="/sales/status" element={<ViewOrderStatus />} />
                 <Route path="/inventory" element={<Inventory />} />
                 <Route path="/manufacturing" element={<Manufacturing />} />

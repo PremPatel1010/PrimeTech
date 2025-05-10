@@ -1,5 +1,4 @@
-
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useFactory } from '../context/FactoryContext';
 import { formatCurrency, formatDate } from '../utils/calculations';
 import { Check, Hammer, Truck, AlertCircle, History } from 'lucide-react';
@@ -13,7 +12,7 @@ import {
 } from '@/components/ui/table';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { SalesOrder, OrderStatus, FinishedProduct, PartialFulfillment } from '../types';
+import { SalesOrder, OrderStatus, FinishedProduct, PartialFulfillment, OrderProduct } from '../types';
 import {
   Drawer,
   DrawerClose,
@@ -44,41 +43,88 @@ import {
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
+import { fetchSalesOrders, updateSalesOrder } from '../services/salesOrderService';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { productService, Product } from '../services/productService';
 
 const ViewOrderStatus: React.FC = () => {
-  const { salesOrders, finishedProducts, updateSalesOrderStatus, manufacturingBatches, checkProductAvailability } = useFactory();
+  const { finishedProducts, updateSalesOrderStatus, manufacturingBatches, checkProductAvailability, addSalesOrder } = useFactory();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<OrderStatus | 'all'>('all');
   const [selectedOrder, setSelectedOrder] = useState<SalesOrder | null>(null);
   const [isUpdateDialogOpen, setIsUpdateDialogOpen] = useState(false);
   const [isPartialDetailsOpen, setIsPartialDetailsOpen] = useState(false);
+  const [orders, setOrders] = useState<SalesOrder[]>([]);
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [newOrder, setNewOrder] = useState<Partial<SalesOrder>>({
+    orderNumber: `SO-${new Date().getFullYear()}-001`,
+    date: new Date().toISOString().split('T')[0],
+    customerName: '',
+    products: [],
+    status: 'pending',
+    totalValue: 0
+  });
+  const [selectedProduct, setSelectedProduct] = useState<string>('');
+  const [productQuantity, setProductQuantity] = useState<number>(1);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [editOrder, setEditOrder] = useState<SalesOrder | null>(null);
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [orderTab, setOrderTab] = useState<'active' | 'history'>('active');
+  
+  useEffect(() => {
+    fetchSalesOrders().then((data) => {
+      const mapped = data.map((order: any) => ({
+        id: order.sales_order_id || order.id,
+        orderNumber: order.order_number,
+        date: order.order_date,
+        customerName: order.customer_name,
+        products: (order.order_items || order.products || []).map((p: any) => {
+          return {
+            ...p,
+            price: p.price || p.unit_price || 0,
+            quantity: typeof p.quantity === 'number' ? p.quantity : 0
+          };
+        }),
+        status: order.status,
+        totalValue: order.total_amount,
+        discount: order.discount,
+        gst: order.gst,
+        partialFulfillment: order.partialFulfillment || [],
+      }));
+      setOrders(mapped);
+    });
+  }, []);
+  
+  useEffect(() => {
+    productService.getAllProducts().then(setProducts);
+  }, []);
   
   // Separate active and completed orders
-  const activeOrders = salesOrders.filter(order => 
+  const activeOrders = orders.filter(order => 
     order.status !== 'completed' && 
     order.status !== 'delivered' && 
     order.status !== 'cancelled'
   );
   
-  const historyOrders = salesOrders.filter(order => 
+  const historyOrders = orders.filter(order => 
     order.status === 'completed' || 
     order.status === 'delivered' || 
     order.status === 'cancelled'
   );
   
   const filteredActiveOrders = activeOrders.filter(order => {
-    const matchesSearch = order.orderNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      order.customerName.toLowerCase().includes(searchTerm.toLowerCase());
-    
+    const matchesSearch = (order.orderNumber?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
+      (order.customerName?.toLowerCase() || '').includes(searchTerm.toLowerCase());
     const matchesStatus = selectedStatus === 'all' || order.status === selectedStatus;
-    
     return matchesSearch && matchesStatus;
   });
   
   const filteredHistoryOrders = historyOrders.filter(order => {
-    const matchesSearch = order.orderNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      order.customerName.toLowerCase().includes(searchTerm.toLowerCase());
-    
+    const matchesSearch = (order.orderNumber?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
+      (order.customerName?.toLowerCase() || '').includes(searchTerm.toLowerCase());
     return matchesSearch;
   });
   
@@ -172,245 +218,606 @@ const ViewOrderStatus: React.FC = () => {
     });
   };
 
-  const handleStatusChange = (newStatus: OrderStatus) => {
+  const handleStatusChange = async (newStatus: OrderStatus) => {
     if (!selectedOrder) return;
-
-    // If trying to mark as confirmed (in stock), check product availability
-    if (newStatus === 'confirmed' && !checkProductAvailabilityForOrder(selectedOrder)) {
-      // If products not available, automatically set to manufacturing instead
-      updateSalesOrderStatus(selectedOrder.id, 'in_production');
-      toast({
-        title: "Status set to Manufacturing",
-        description: "Products are not in stock. Order has been sent to manufacturing."
+    setIsUpdating(true);
+    try {
+      const updatedOrder = { ...selectedOrder, status: newStatus };
+      await updateSalesOrder(selectedOrder.id, updatedOrder as SalesOrder);
+      setIsUpdateDialogOpen(false);
+      setSelectedOrder(null);
+      fetchSalesOrders().then((data) => {
+        const mapped = data.map((order: any) => ({
+          id: order.sales_order_id || order.id,
+          orderNumber: order.order_number,
+          date: order.order_date,
+          customerName: order.customer_name,
+          products: (order.order_items || order.products || []).map((p: any) => ({
+            ...p,
+            price: p.price || p.unit_price || 0,
+            quantity: typeof p.quantity === 'number' ? p.quantity : 0
+          })),
+          status: order.status,
+          totalValue: order.total_amount,
+          discount: order.discount,
+          gst: order.gst,
+          partialFulfillment: order.partialFulfillment || [],
+        }));
+        setOrders(mapped);
       });
-    } else {
-      // Otherwise update to the selected status
-      updateSalesOrderStatus(selectedOrder.id, newStatus);
-      toast({
-        title: "Status Updated",
-        description: `Order status changed to ${getStatusLabel(newStatus)}.`
-      });
+    } finally {
+      setIsUpdating(false);
     }
-    
-    setIsUpdateDialogOpen(false);
+  };
+  
+  // Add getStatusBadgeColor for sales order statuses
+  const getStatusBadgeColor = (status: OrderStatus) => {
+    switch(status) {
+      case 'confirmed':
+        return 'bg-green-100 text-green-800';
+      case 'pending':
+        return 'bg-yellow-100 text-yellow-800';
+      case 'in_production':
+        return 'bg-blue-100 text-blue-800';
+      case 'partially_in_stock':
+        return 'bg-amber-100 text-amber-800';
+      case 'awaiting_materials':
+        return 'bg-red-100 text-red-800';
+      case 'delivered':
+        return 'bg-blue-100 text-blue-800';
+      case 'completed':
+        return 'bg-green-200 text-green-900';
+      case 'cancelled':
+        return 'bg-red-100 text-red-800';
+      default:
+        return 'bg-gray-100 text-gray-800';
+    }
+  };
+  
+  const handleAddProduct = () => {
+    if (selectedProduct && productQuantity > 0) {
+      const product = products.find(p => String(p.product_id) === selectedProduct);
+      if (product) {
+        const orderProduct = {
+          productId: String(product.product_id),
+          productName: product.product_name,
+          productCategory: product.product_code || '',
+          quantity: productQuantity,
+          price: product.price || 0
+        };
+        const updatedProducts = [...(newOrder.products || []), orderProduct];
+        const totalValue = updatedProducts.reduce((total, p) => total + (p.quantity * (p.price || 0)), 0);
+        setNewOrder({
+          ...newOrder,
+          products: updatedProducts,
+          totalValue
+        });
+        setSelectedProduct('');
+        setProductQuantity(1);
+      }
+    }
+  };
+
+  const handleRemoveProduct = (index: number) => {
+    const updatedProducts = [...(newOrder.products || [])];
+    updatedProducts.splice(index, 1);
+    const totalValue = updatedProducts.reduce((total, p) => total + (p.quantity * (p.price || 0)), 0);
+    setNewOrder({
+      ...newOrder,
+      products: updatedProducts,
+      totalValue
+    });
+  };
+
+  const handleCreateOrder = async () => {
+    if (
+      newOrder.orderNumber &&
+      newOrder.customerName &&
+      newOrder.products &&
+      newOrder.products.length > 0 &&
+      typeof newOrder.totalValue === 'number'
+    ) {
+      setIsProcessing(true);
+      try {
+        await addSalesOrder(newOrder as Omit<SalesOrder, 'id'>);
+        setIsDialogOpen(false);
+        resetNewOrder();
+        // Refetch orders from backend
+        fetchSalesOrders().then((data) => {
+          const mapped = data.map((order: any) => ({
+            id: order.sales_order_id || order.id,
+            orderNumber: order.order_number,
+            date: order.order_date,
+            customerName: order.customer_name,
+            products: (order.order_items || order.products || []).map((p: any) => ({
+              ...p,
+              price: p.price || p.unit_price || 0,
+              quantity: typeof p.quantity === 'number' ? p.quantity : 0
+            })),
+            status: order.status,
+            totalValue: order.total_amount,
+            discount: order.discount,
+            gst: order.gst,
+            partialFulfillment: order.partialFulfillment || [],
+          }));
+          setOrders(mapped);
+        });
+      } finally {
+        setIsProcessing(false);
+      }
+    }
+  };
+
+  const resetNewOrder = () => {
+    setNewOrder({
+      orderNumber: `SO-${new Date().getFullYear()}-001`,
+      date: new Date().toISOString().split('T')[0],
+      customerName: '',
+      products: [],
+      status: 'pending',
+      totalValue: 0
+    });
+    setSelectedProduct('');
+    setProductQuantity(1);
+  };
+
+  const handleEditClick = (order: SalesOrder) => {
+    setEditOrder(order);
+    setIsEditDialogOpen(true);
+  };
+
+  const handleEditOrderChange = (field: keyof SalesOrder, value: any) => {
+    if (!editOrder) return;
+    setEditOrder({ ...editOrder, [field]: value });
+  };
+
+  const handleEditProductChange = (idx: number, field: keyof OrderProduct, value: any) => {
+    if (!editOrder) return;
+    const updatedProducts = [...editOrder.products];
+    updatedProducts[idx] = { ...updatedProducts[idx], [field]: value };
+    setEditOrder({ ...editOrder, products: updatedProducts });
+  };
+
+  const handleEditAddProduct = () => {
+    if (!editOrder) return;
+    setEditOrder({
+      ...editOrder,
+      products: [
+        ...editOrder.products,
+        { productId: '', productName: '', quantity: 1, price: 0 }
+      ]
+    });
+  };
+
+  const handleEditRemoveProduct = (idx: number) => {
+    if (!editOrder) return;
+    const updatedProducts = [...editOrder.products];
+    updatedProducts.splice(idx, 1);
+    setEditOrder({ ...editOrder, products: updatedProducts });
+  };
+
+  const handleEditSave = async () => {
+    if (!editOrder) return;
+    setIsUpdating(true);
+    try {
+      // Map products to backend expected fields
+      const mappedOrder = {
+        ...editOrder,
+        products: editOrder.products.map((p) => {
+          const mapped: any = { ...p };
+          mapped.product_id = (p as any).productId || '';
+          mapped.product_category = (p as any).productCategory || '';
+          mapped.unit_price = p.price || 0;
+          mapped.quantity = p.quantity || 0;
+          return mapped;
+        })
+      };
+      await updateSalesOrder(editOrder.id, mappedOrder);
+      setIsEditDialogOpen(false);
+      setEditOrder(null);
+      fetchSalesOrders().then((data) => {
+        const mapped = data.map((order: any) => ({
+          id: order.sales_order_id || order.id,
+          orderNumber: order.order_number,
+          date: order.order_date,
+          customerName: order.customer_name,
+          products: (order.order_items || order.products || []).map((p: any) => {
+            return {
+              ...p,
+              price: p.price || p.unit_price || 0,
+              quantity: typeof p.quantity === 'number' ? p.quantity : 0
+            };
+          }),
+          status: order.status,
+          totalValue: order.total_amount,
+          discount: order.discount,
+          gst: order.gst,
+          partialFulfillment: order.partialFulfillment || [],
+        }));
+        setOrders(mapped);
+      });
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  const handleCardStatusChange = async (order: SalesOrder, newStatus: OrderStatus) => {
+    setIsUpdating(true);
+    try {
+      await updateSalesOrder(order.id, { status: newStatus });
+      fetchSalesOrders().then((data) => {
+        const mapped = data.map((order: any) => ({
+          id: order.sales_order_id || order.id,
+          orderNumber: order.order_number,
+          date: order.order_date,
+          customerName: order.customer_name,
+          products: (order.order_items || order.products || []).map((p: any) => {
+            return {
+              ...p,
+              price: p.price || p.unit_price || 0,
+              quantity: typeof p.quantity === 'number' ? p.quantity : 0
+            };
+          }),
+          status: order.status,
+          totalValue: order.total_amount,
+          discount: order.discount,
+          gst: order.gst,
+          partialFulfillment: order.partialFulfillment || [],
+        }));
+        setOrders(mapped);
+      });
+    } finally {
+      setIsUpdating(false);
+    }
   };
   
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h1 className="text-2xl font-bold text-factory-gray-900">Order Status</h1>
-        <div className="flex items-center space-x-2">
-          <div className="w-64">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <h1 className="text-2xl font-bold text-factory-gray-900">Sales Orders</h1>
+        <Button 
+          onClick={() => setIsDialogOpen(true)}
+          className="bg-factory-primary hover:bg-factory-primary/90"
+        >
+          Add New Order
+        </Button>
+      </div>
+      {/* Search and Filter - move above tab bar */}
+      <div className="flex flex-col sm:flex-row gap-4 mb-4">
+        <div className="relative flex-grow">
+          <Input 
+            placeholder="Search by order number or customer name..." 
+            className="pl-10"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
+        </div>
+        <Select 
+          value={selectedStatus} 
+          onValueChange={(val) => setSelectedStatus(val as OrderStatus | 'all')}
+        >
+          <SelectTrigger className="w-[180px]">
+            <SelectValue placeholder="Filter by status" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Status</SelectItem>
+            <SelectItem value="pending">Pending</SelectItem>
+            <SelectItem value="completed">Completed</SelectItem>
+            <SelectItem value="cancelled">Cancelled</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      {/* Tab Bar for Active/History */}
+      <div className="flex gap-4 mb-6">
+        <Button
+          variant={orderTab === 'active' ? 'default' : 'outline'}
+          className={orderTab === 'active' ? 'bg-factory-primary text-white' : ''}
+          onClick={() => setOrderTab('active')}
+        >
+          Active Orders
+        </Button>
+        <Button
+          variant={orderTab === 'history' ? 'default' : 'outline'}
+          className={orderTab === 'history' ? 'bg-factory-primary text-white' : ''}
+          onClick={() => setOrderTab('history')}
+        >
+          Order History
+        </Button>
+      </div>
+      {/* Orders List by Tab */}
+      {orderTab === 'active' ? (
+        <div className="space-y-4">
+          {filteredActiveOrders.length > 0 ? (
+            filteredActiveOrders.map((order) => (
+              <Card key={order.id} className="overflow-hidden">
+                <CardHeader className="bg-factory-gray-50 py-4">
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                    <div className="flex items-center gap-3">
+                      <CardTitle className="text-lg">{order.orderNumber}</CardTitle>
+                    </div>
+                    <Badge className={getStatusBadgeColor(order.status)}>
+                      {getStatusLabel(order.status)}
+                    </Badge>
+                  </div>
+                </CardHeader>
+                <CardContent className="p-4 sm:p-6">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                    <div>
+                      <p className="text-sm text-factory-gray-500">Customer</p>
+                      <p className="font-medium">{order.customerName}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-factory-gray-500">Order Date</p>
+                      <p className="font-medium">{formatDate(order.date)}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-factory-gray-500">Status</p>
+                      <p className="font-medium">{getStatusLabel(order.status)}</p>
+                    </div>
+                  </div>
+                  <div className="border-t pt-4">
+                    <h4 className="font-medium mb-2">Products</h4>
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Product Name</TableHead>
+                            <TableHead>Quantity</TableHead>
+                            <TableHead>Unit Price</TableHead>
+                            <TableHead className="text-right">Total</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {(order.products || []).map((product, idx) => (
+                            <TableRow key={idx}>
+                              <TableCell className="font-medium">{product.productName}</TableCell>
+                              <TableCell>{product.quantity}</TableCell>
+                              <TableCell>{formatCurrency(product.price || 0)}</TableCell>
+                              <TableCell className="text-right">
+                                {formatCurrency((product.quantity || 0) * (product.price || 0))}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </div>
+                  <div className="pt-2 flex justify-end space-x-2">
+                    <Select value={order.status} onValueChange={val => handleCardStatusChange(order, val as OrderStatus)}>
+                      <SelectTrigger className="w-[120px]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="pending">Pending</SelectItem>
+                        <SelectItem value="completed">Completed</SelectItem>
+                        <SelectItem value="cancelled">Cancelled</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Button variant="outline" size="sm" onClick={() => handleEditClick(order)}>
+                      Edit
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            ))
+          ) : (
+            <div className="text-center py-12 bg-white rounded-lg border">
+              <p className="text-factory-gray-500">No active orders found.</p>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {filteredHistoryOrders.length > 0 ? (
+            filteredHistoryOrders.map((order) => (
+              <Card key={order.id} className="overflow-hidden">
+                <CardHeader className="bg-factory-gray-50 py-4">
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                    <div className="flex items-center gap-3">
+                      <CardTitle className="text-lg">{order.orderNumber}</CardTitle>
+                    </div>
+                    <Badge className={getStatusBadgeColor(order.status)}>
+                      {getStatusLabel(order.status)}
+                    </Badge>
+                  </div>
+                </CardHeader>
+                <CardContent className="p-4 sm:p-6">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                    <div>
+                      <p className="text-sm text-factory-gray-500">Customer</p>
+                      <p className="font-medium">{order.customerName}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-factory-gray-500">Order Date</p>
+                      <p className="font-medium">{formatDate(order.date)}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-factory-gray-500">Status</p>
+                      <p className="font-medium">{getStatusLabel(order.status)}</p>
+                    </div>
+                  </div>
+                  <div className="border-t pt-4">
+                    <h4 className="font-medium mb-2">Products</h4>
+                    <div className="overflow-x-auto">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Product Name</TableHead>
+                            <TableHead>Quantity</TableHead>
+                            <TableHead>Unit Price</TableHead>
+                            <TableHead className="text-right">Total</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {(order.products || []).map((product, idx) => (
+                            <TableRow key={idx}>
+                              <TableCell className="font-medium">{product.productName}</TableCell>
+                              <TableCell>{product.quantity}</TableCell>
+                              <TableCell>{formatCurrency(product.price || 0)}</TableCell>
+                              <TableCell className="text-right">
+                                {formatCurrency((product.quantity || 0) * (product.price || 0))}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  </div>
+                  <div className="pt-2 flex justify-end space-x-2">
+                    <Select value={order.status} onValueChange={val => handleCardStatusChange(order, val as OrderStatus)}>
+                      <SelectTrigger className="w-[120px]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="pending">Pending</SelectItem>
+                        <SelectItem value="completed">Completed</SelectItem>
+                        <SelectItem value="cancelled">Cancelled</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Button variant="outline" size="sm" onClick={() => handleEditClick(order)}>
+                      Edit
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            ))
+          ) : (
+            <div className="text-center py-12 bg-white rounded-lg border">
+              <p className="text-factory-gray-500">No order history found.</p>
+            </div>
+          )}
+        </div>
+      )}
+      {/* Add Sales Order Dialog */}
+      <Dialog open={isDialogOpen} onOpenChange={(open) => { if (!isProcessing) setIsDialogOpen(open); }}>
+        <DialogContent className="sm:max-w-[600px]">
+          <DialogHeader>
+            <DialogTitle>Create New Sales Order</DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="orderNumber">Order Number</Label>
+                <Input 
+                  id="orderNumber" 
+                  value={newOrder.orderNumber} 
+                  onChange={(e) => setNewOrder({...newOrder, orderNumber: e.target.value})}
+                  placeholder="SO-2023-001"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="orderDate">Order Date</Label>
+                <Input 
+                  id="orderDate" 
+                  type="date" 
+                  value={newOrder.date} 
+                  onChange={(e) => setNewOrder({...newOrder, date: e.target.value})}
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="customerName">Customer Name</Label>
+              <Input 
+                id="customerName" 
+                value={newOrder.customerName} 
+                onChange={(e) => setNewOrder({...newOrder, customerName: e.target.value})}
+                placeholder="Customer name"
+              />
+            </div>
+            <h4 className="font-medium mb-2">Add Products</h4>
+            <div className="grid grid-cols-3 gap-4 mb-4">
+              <div className="col-span-3 md:col-span-1 space-y-2">
+                <Label htmlFor="product">Product</Label>
+                <Select 
+                  value={selectedProduct}
+                  onValueChange={setSelectedProduct}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select product" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {products.map((product) => (
+                      <SelectItem key={product.product_id} value={String(product.product_id)}>{product.product_name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="quantity">Quantity</Label>
             <Input
-              placeholder="Search by order number or customer name..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+                  id="quantity" 
+                  type="number" 
+                  min="1"
+                  value={productQuantity} 
+                  onChange={(e) => setProductQuantity(parseInt(e.target.value) || 0)}
             />
           </div>
-          
-          <Drawer>
-            <DrawerTrigger asChild>
-              <Button variant="outline">Filter by Status</Button>
-            </DrawerTrigger>
-            <DrawerContent>
-              <div className="mx-auto w-full max-w-sm">
-                <DrawerHeader>
-                  <DrawerTitle>Filter Orders by Status</DrawerTitle>
-                  <DrawerDescription>
-                    Select a status to filter the orders list.
-                  </DrawerDescription>
-                </DrawerHeader>
-                
-                <div className="p-4">
-                  <RadioGroup 
-                    value={selectedStatus} 
-                    onValueChange={(value) => setSelectedStatus(value as OrderStatus | 'all')}
-                    className="gap-4"
-                  >
-                    <div className="flex items-center space-x-2">
-                      <RadioGroupItem value="all" id="all" />
-                      <Label htmlFor="all">All Orders</Label>
+              <div className="flex items-end">
+                <Button 
+                  onClick={handleAddProduct}
+                  className="bg-factory-primary hover:bg-factory-primary/90 w-full"
+                >
+                  Add Product
+                </Button>
                     </div>
-                    
-                    <div className="flex items-center space-x-2">
-                      <RadioGroupItem value="pending" id="pending" />
-                      <Label htmlFor="pending" className="flex items-center gap-2">
-                        <div className="h-4 w-4 rounded-full bg-yellow-400"></div>
-                        Pending
-                      </Label>
                     </div>
-                    
-                    <div className="flex items-center space-x-2">
-                      <RadioGroupItem value="confirmed" id="confirmed" />
-                      <Label htmlFor="confirmed" className="flex items-center gap-2">
-                        <Check className="h-4 w-4 text-green-500" />
-                        In Stock
-                      </Label>
+            {(newOrder.products || []).length > 0 && (
+              <div className="border rounded-md p-4">
+                <h4 className="font-medium mb-2">Order Products</h4>
+                <div className="max-h-[200px] overflow-y-auto">
+                  {newOrder.products?.map((product, idx) => (
+                    <div key={idx} className="flex justify-between items-center py-2 border-b last:border-0">
+                      <div>
+                        <p className="font-medium">{product.productName}</p>
+                        <div className="flex gap-2 items-center">
+                          <p className="text-sm text-factory-gray-500">
+                            {product.quantity} x {formatCurrency(product.price || 0)}
+                          </p>
                     </div>
-                    
-                    <div className="flex items-center space-x-2">
-                      <RadioGroupItem value="in_production" id="in_production" />
-                      <Label htmlFor="in_production" className="flex items-center gap-2">
-                        <Hammer className="h-4 w-4 text-amber-500" />
-                        In Manufacturing
-                      </Label>
                     </div>
-                    
-                    <div className="flex items-center space-x-2">
-                      <RadioGroupItem value="partially_in_stock" id="partially_in_stock" />
-                      <Label htmlFor="partially_in_stock" className="flex items-center gap-2">
-                        <div className="h-4 w-4 rounded-full bg-blue-400 border-2 border-amber-400"></div>
-                        Partially In Stock
-                      </Label>
+                      <p className="font-medium mr-4">
+                        {formatCurrency((product.quantity || 0) * (product.price || 0))}
+                      </p>
+                      <Button 
+                        variant="ghost" 
+                        size="icon"
+                        onClick={() => handleRemoveProduct(idx)}
+                      >
+                        X
+                      </Button>
                     </div>
-                    
-                    <div className="flex items-center space-x-2">
-                      <RadioGroupItem value="awaiting_materials" id="awaiting_materials" />
-                      <Label htmlFor="awaiting_materials" className="flex items-center gap-2">
-                        <AlertCircle className="h-4 w-4 text-red-500" />
-                        Awaiting Materials
-                      </Label>
+                  ))}
                     </div>
-                  </RadioGroup>
+                <div className="mt-4 flex justify-between">
+                  <p className="font-medium">Total</p>
+                  <p className="font-bold">{formatCurrency(newOrder.totalValue || 0)}</p>
                 </div>
-                
-                <DrawerFooter>
-                  <DrawerClose asChild>
-                    <Button>Apply Filter</Button>
-                  </DrawerClose>
-                </DrawerFooter>
               </div>
-            </DrawerContent>
-          </Drawer>
-        </div>
-      </div>
-      
-      <Tabs defaultValue="active" className="w-full">
-        <TabsList className="grid w-full grid-cols-2">
-          <TabsTrigger value="active">Active Orders</TabsTrigger>
-          <TabsTrigger value="history">Order History</TabsTrigger>
-        </TabsList>
-        
-        <TabsContent value="active" className="mt-4">
-          <div className="bg-white rounded-md border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Order Number</TableHead>
-                  <TableHead>Customer</TableHead>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Total Value</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Progress</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredActiveOrders.length > 0 ? (
-                  filteredActiveOrders.map((order) => (
-                    <TableRow key={order.id}>
-                      <TableCell className="font-medium">{order.orderNumber}</TableCell>
-                      <TableCell>{order.customerName}</TableCell>
-                      <TableCell>{formatDate(order.date)}</TableCell>
-                      <TableCell>{formatCurrency(order.totalValue)}</TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          {getStatusIcon(order.status)}
-                          <span>{getStatusLabel(order.status)}</span>
-                        </div>
-                        
-                        {order.status === 'partially_in_stock' && (
-                          <div className="mt-1">
-                            <div className="flex justify-between text-xs text-blue-700 mb-1">
-                              <span>In stock: {getPartialFulfillmentProgress(order)}%</span>
-                            </div>
-                            <Progress value={getPartialFulfillmentProgress(order)} className="h-1.5" />
-                          </div>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <div className="w-full bg-gray-200 rounded-full h-2.5">
-                          <div 
-                            className="bg-factory-primary h-2.5 rounded-full" 
-                            style={{ width: `${getStatusProgress(order.status)}%` }}
-                          ></div>
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-right space-x-2">
-                        {order.status === 'partially_in_stock' && (
-                          <Button 
-                            variant="outline" 
-                            size="sm"
-                            onClick={() => showPartialDetails(order)}
-                            className="mr-2"
-                          >
-                            Details
-                          </Button>
-                        )}
-                        
-                        <Button 
-                          variant="outline" 
-                          size="sm"
-                          onClick={() => handleUpdateStatus(order)}
-                        >
-                          Update Status
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))
-                ) : (
-                  <TableRow>
-                    <TableCell colSpan={7} className="text-center py-4 text-gray-500">
-                      No active orders found
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
+            )}
           </div>
-        </TabsContent>
-        
-        <TabsContent value="history" className="mt-4">
-          <div className="bg-white rounded-md border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Order Number</TableHead>
-                  <TableHead>Customer</TableHead>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Total Value</TableHead>
-                  <TableHead>Final Status</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredHistoryOrders.length > 0 ? (
-                  filteredHistoryOrders.map((order) => (
-                    <TableRow key={order.id}>
-                      <TableCell className="font-medium">{order.orderNumber}</TableCell>
-                      <TableCell>{order.customerName}</TableCell>
-                      <TableCell>{formatDate(order.date)}</TableCell>
-                      <TableCell>{formatCurrency(order.totalValue)}</TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          {getStatusIcon(order.status)}
-                          <span>{getStatusLabel(order.status)}</span>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))
-                ) : (
-                  <TableRow>
-                    <TableCell colSpan={5} className="text-center py-4 text-gray-500">
-                      No order history found
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </div>
-        </TabsContent>
-      </Tabs>
-
+          <DialogFooter>
+            <Button 
+              variant="outline" 
+              onClick={() => {
+                if (!isProcessing) {
+                  setIsDialogOpen(false);
+                  resetNewOrder();
+                }
+              }}
+              disabled={isProcessing}
+            >
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleCreateOrder}
+              className="bg-factory-primary hover:bg-factory-primary/90"
+              disabled={!(newOrder.customerName && newOrder.products && newOrder.products.length > 0) || isProcessing}
+            >
+              {isProcessing ? 'Processing...' : 'Create Order'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       {/* Status Update Dialog */}
       <Dialog open={isUpdateDialogOpen} onOpenChange={setIsUpdateDialogOpen}>
         <DialogContent>
@@ -420,132 +827,91 @@ const ViewOrderStatus: React.FC = () => {
               Select a new status for order {selectedOrder?.orderNumber}.
             </DialogDescription>
           </DialogHeader>
-          
           <div className="py-4">
-            <Select onValueChange={(value) => handleStatusChange(value as OrderStatus)}>
+            <Select onValueChange={(value) => handleStatusChange(value as OrderStatus)} value={selectedOrder?.status}>
               <SelectTrigger>
                 <SelectValue placeholder="Select new status" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="pending">Pending</SelectItem>
-                <SelectItem value="confirmed">In Stock</SelectItem>
-                <SelectItem value="in_production">In Manufacturing</SelectItem>
-                <SelectItem value="delivered">Dispatched</SelectItem>
                 <SelectItem value="completed">Completed</SelectItem>
                 <SelectItem value="cancelled">Cancelled</SelectItem>
               </SelectContent>
             </Select>
-
-            {selectedOrder && (
-              <div className="mt-4">
-                <div className="text-sm text-muted-foreground">
-                  {checkProductAvailabilityForOrder(selectedOrder) 
-                    ? (
-                      <div className="flex items-center gap-1 text-green-600">
-                        <Check className="h-4 w-4" />
-                        <span>All products in stock</span>
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-1 text-amber-600">
-                        <Hammer className="h-4 w-4" />
-                        <span>Products not available - will be sent to manufacturing</span>
-                      </div>
-                    )}
-                </div>
-              </div>
-            )}
+            {isUpdating && <div className="mt-2 text-blue-600">Updating...</div>}
           </div>
-          
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsUpdateDialogOpen(false)}>
+            <Button variant="outline" onClick={() => setIsUpdateDialogOpen(false)} disabled={isUpdating}>
               Cancel
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      
-      {/* Partial Fulfillment Detail Dialog */}
-      <Dialog open={isPartialDetailsOpen} onOpenChange={setIsPartialDetailsOpen}>
-        <DialogContent className="sm:max-w-[600px]">
+      {/* Edit Order Dialog */}
+      <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+        <DialogContent className="sm:max-w-[700px]">
           <DialogHeader>
-            <DialogTitle>Order Partial Fulfillment Details</DialogTitle>
-            <DialogDescription>
-              Order {selectedOrder?.orderNumber} - {selectedOrder?.customerName}
-            </DialogDescription>
+            <DialogTitle>Edit Sales Order</DialogTitle>
           </DialogHeader>
-          
-          <div className="py-4">
-            {selectedOrder && selectedOrder.partialFulfillment && (
-              <div className="space-y-4">
-                <div className="flex justify-between text-sm font-medium">
-                  <span>Total Fulfillment:</span>
-                  <span>{getPartialFulfillmentProgress(selectedOrder)}%</span>
+          {editOrder && (
+            <div className="grid gap-4 py-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="edit-order-number">Order Number</Label>
+                  <Input id="edit-order-number" value={editOrder.orderNumber} onChange={e => handleEditOrderChange('orderNumber', e.target.value)} />
                 </div>
-                <Progress value={getPartialFulfillmentProgress(selectedOrder)} className="h-2 mb-4" />
-                
-                <div className="border rounded-md divide-y">
-                  <div className="bg-gray-50 px-4 py-2 grid grid-cols-4 text-sm font-medium">
-                    <div>Product</div>
-                    <div className="text-center">Total</div>
-                    <div className="text-center">In Stock</div>
-                    <div className="text-center">Manufacturing</div>
-                  </div>
-                  
-                  {selectedOrder.partialFulfillment.map((item, idx) => (
-                    <div key={idx} className="px-4 py-3 grid grid-cols-4 text-sm items-center">
-                      <div>{item.productName}</div>
-                      <div className="text-center">{item.totalQuantity}</div>
-                      <div className="text-center font-medium text-green-700">{item.inStockQuantity}</div>
-                      <div className="text-center font-medium text-amber-700">{item.manufacturingQuantity}</div>
-                    </div>
-                  ))}
-                </div>
-                
-                <div>
-                  <h4 className="text-sm font-medium mb-2">Manufacturing Batches</h4>
-                  {selectedOrder.partialFulfillment.some(item => 
-                    item.manufacturingBatchIds && item.manufacturingBatchIds.length > 0
-                  ) ? (
-                    <div className="border rounded-md divide-y">
-                      {manufacturingBatches
-                        .filter(batch => batch.linkedSalesOrderId === selectedOrder.id)
-                        .map(batch => (
-                          <div key={batch.id} className="p-3">
-                            <div className="flex justify-between items-center">
-                              <div>
-                                <p className="font-medium">{batch.productName}</p>
-                                <p className="text-xs text-gray-500">Batch: {batch.batchNumber}</p>
-                              </div>
-                              <div className="text-right">
-                                <p className="text-sm">Quantity: {batch.quantity}</p>
-                                <p className="text-xs text-gray-500">
-                                  Stage: {batch.currentStage.charAt(0).toUpperCase() + batch.currentStage.slice(1)}
-                                </p>
-                              </div>
-                            </div>
-                            <div className="mt-2">
-                              <div className="w-full bg-gray-200 rounded-full h-1.5">
-                                <div 
-                                  className="bg-amber-500 h-1.5 rounded-full" 
-                                  style={{ width: `${batch.progress}%` }}
-                                ></div>
-                              </div>
-                            </div>
-                          </div>
-                        ))
-                      }
-                    </div>
-                  ) : (
-                    <p className="text-sm text-gray-500">No manufacturing batches linked to this order.</p>
-                  )}
+                <div className="space-y-2">
+                  <Label htmlFor="edit-order-date">Order Date</Label>
+                  <Input id="edit-order-date" type="date" value={editOrder.date} onChange={e => handleEditOrderChange('date', e.target.value)} />
                 </div>
               </div>
-            )}
-          </div>
-          
+              <div className="space-y-2">
+                <Label htmlFor="edit-customer-name">Customer Name</Label>
+                <Input id="edit-customer-name" value={editOrder.customerName} onChange={e => handleEditOrderChange('customerName', e.target.value)} />
+              </div>
+              <h4 className="font-medium mb-2">Edit Products</h4>
+              <div className="space-y-2">
+                {editOrder.products.map((product, idx) => (
+                  <div key={idx} className="flex gap-2 items-center mb-2">
+                    <Input
+                      className="w-1/3"
+                      value={product.productName}
+                      onChange={e => handleEditProductChange(idx, 'productName', e.target.value)}
+                      placeholder="Product Name"
+                    />
+                    <Input
+                      className="w-1/6"
+                      type="number"
+                      min="1"
+                      value={product.quantity}
+                      onChange={e => handleEditProductChange(idx, 'quantity', parseInt(e.target.value) || 0)}
+                      placeholder="Qty"
+                    />
+                    <Input
+                      className="w-1/6"
+                      type="number"
+                      min="0"
+                      value={product.price}
+                      onChange={e => handleEditProductChange(idx, 'price', parseFloat(e.target.value) || 0)}
+                      placeholder="Unit Price"
+                    />
+                    <Button variant="ghost" size="icon" onClick={() => handleEditRemoveProduct(idx)}>
+                      X
+                    </Button>
+                  </div>
+                ))}
+                <Button variant="outline" size="sm" onClick={handleEditAddProduct}>
+                  Add Product
+                </Button>
+              </div>
+            </div>
+          )}
           <DialogFooter>
-            <Button onClick={() => setIsPartialDetailsOpen(false)}>
-              Close
+            <Button variant="outline" onClick={() => setIsEditDialogOpen(false)} disabled={isUpdating}>
+              Cancel
+            </Button>
+            <Button onClick={handleEditSave} className="bg-factory-primary hover:bg-factory-primary/90" disabled={isUpdating}>
+              {isUpdating ? 'Saving...' : 'Save Changes'}
             </Button>
           </DialogFooter>
         </DialogContent>

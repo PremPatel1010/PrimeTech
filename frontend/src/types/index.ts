@@ -119,6 +119,7 @@ export interface ManufacturingStep {
 
 export interface ManufacturingBatch {
   id: string;
+  tracking_id?: string;
   batchNumber: string;
   productId: string;
   productName: string;

@@ -87,4 +87,66 @@ export const completeManufacturing = async (req, res) => {
     }
     res.status(500).json({ message: 'Error completing manufacturing' });
   }
+};
+
+// Get all manufacturing batches
+export const getAllBatches = async (req, res) => {
+  try {
+    const batches = await ManufacturingProgress.getAllBatches();
+    res.json(batches);
+  } catch (error) {
+    console.error('Error in getAllBatches:', error);
+    res.status(500).json({ message: 'Error fetching manufacturing batches' });
+  }
+};
+
+// Create a new manufacturing batch
+export const createBatch = async (req, res) => {
+  try {
+    const batch = await ManufacturingProgress.createBatch(req.body);
+    res.status(201).json(batch);
+  } catch (error) {
+    console.error('Error in createBatch:', error);
+    res.status(500).json({ message: 'Error creating manufacturing batch' });
+  }
+};
+
+// Update a batch's stage and progress
+export const updateBatchStage = async (req, res) => {
+  try {
+    const { trackingId } = req.params;
+    const updated = await ManufacturingProgress.updateBatchStage(trackingId, req.body);
+    if (!updated) {
+      return res.status(404).json({ message: 'Batch not found' });
+    }
+    res.json(updated);
+  } catch (error) {
+    console.error('Error in updateBatchStage:', error);
+    res.status(500).json({ message: 'Error updating batch stage' });
+  }
+};
+
+// Edit a manufacturing batch
+export const editBatch = async (req, res) => {
+  try {
+    const { trackingId } = req.params;
+    const update = req.body;
+    const updated = await ManufacturingProgress.editBatch(trackingId, update);
+    res.json(updated);
+  } catch (error) {
+    console.error('Error in editBatch:', error);
+    res.status(500).json({ message: 'Error editing manufacturing batch' });
+  }
+};
+
+// Delete a manufacturing batch
+export const deleteBatch = async (req, res) => {
+  try {
+    const { trackingId } = req.params;
+    await ManufacturingProgress.deleteBatch(trackingId);
+    res.json({ message: 'Batch deleted' });
+  } catch (error) {
+    console.error('Error in deleteBatch:', error);
+    res.status(500).json({ message: 'Error deleting manufacturing batch' });
+  }
 }; 

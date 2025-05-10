@@ -82,6 +82,12 @@ class SalesOrder {
           throw new Error(`Product with ID ${item.product_id} does not exist`);
         }
 
+        // Map product_category to valid component_type for manufacturing stages
+        let componentType = (item.product_category || '').toLowerCase();
+        if (!['motor', 'pump', 'combined'].includes(componentType)) {
+          componentType = 'combined';
+        }
+
         // Create order item
         const orderItemResult = await client.query(`
           INSERT INTO sales.sales_order_items 
@@ -98,10 +104,10 @@ class SalesOrder {
           FROM manufacturing.stages
           WHERE component_type = $1
           ORDER BY sequence
-        `, [item.product_category]);
+        `, [componentType]);
 
         if (stagesResult.rows.length === 0) {
-          throw new Error(`No manufacturing stages found for product category: ${item.product_category}`);
+          throw new Error(`No manufacturing stages found for product category: ${componentType}`);
         }
 
         // Create manufacturing progress with first stage

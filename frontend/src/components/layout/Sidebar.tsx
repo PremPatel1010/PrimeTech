@@ -109,24 +109,14 @@ const Sidebar: React.FC = () => {
           />
           
           {/* Sales Orders Dropdown */}
-          <NavDropdown
-            icon={<ShoppingCart size={20} />}
-            text="Sales Orders"
-            isActive={isSalesActive}
-          >
-            <NavItem
-              to="/sales/new"
-              icon={<Plus size={16} />}
-              text="Add New Order"
-              isActive={currentPath === '/sales/new'}
-            />
+          
             <NavItem
               to="/sales/status"
-              icon={<Eye size={16} />}
-              text="View Order Status"
+              icon={<Eye size={20} />}
+              text="Sales Orders"
               isActive={currentPath === '/sales/status'}
             />
-          </NavDropdown>
+          
           
           <NavItem 
             to="/purchase" 
