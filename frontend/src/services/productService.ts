@@ -12,6 +12,7 @@ export interface Product {
   cost_price?: number;
   status?: string;
   created_at?: string;
+  bom_items?: BOMItem[];
 }
 
 export interface BOMItem {

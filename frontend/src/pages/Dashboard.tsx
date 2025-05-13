@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import StatCard from '../components/ui-custom/StatCard';
 import ProgressBar from '../components/ui-custom/ProgressBar';
 import { useFactory } from '../context/FactoryContext';
@@ -20,7 +20,6 @@ import {
   Hammer
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { stockAlerts, dailySalesData } from '../data/mockData';
 import { Progress } from '@/components/ui/progress';
 import { 
   ResponsiveContainer, 
@@ -32,14 +31,16 @@ import {
   Tooltip
 } from 'recharts';
 import { OrderStatus } from '../types';
+import axiosInstance from '@/utils/axios';
 
 const Dashboard: React.FC = () => {
   const { 
     rawMaterials, 
     finishedProducts, 
-    salesOrders, 
+    salesOrders = [], 
     manufacturingBatches 
   } = useFactory();
+  const [salesTrend, setSalesTrend] = useState<{ date: string, sales: number }[]>([]);
   
   const rawMaterialValue = calculateRawMaterialValue(rawMaterials);
   const finishedProductValue = calculateFinishedProductValue(finishedProducts);
@@ -54,6 +55,44 @@ const Dashboard: React.FC = () => {
     order.status !== 'delivered' && 
     order.status !== 'cancelled'
   );
+
+  // Manufacturing efficiency: percent of completed batches
+  const completedBatches = manufacturingBatches.filter(b => b.currentStage === 'completed');
+  const efficiency = manufacturingBatches.length > 0 ? Math.round((completedBatches.length / manufacturingBatches.length) * 100) : 0;
+
+  // Stock alerts: raw materials and finished products below minThreshold
+  const stockAlerts = [
+    ...rawMaterials.filter(m => m.minThreshold !== undefined && m.quantity < m.minThreshold).map(m => ({
+      id: m.id,
+      itemName: m.name,
+      itemType: 'raw',
+      currentQuantity: m.quantity,
+      minThreshold: m.minThreshold!,
+      status: m.quantity === 0 ? 'critical' : 'warning',
+    })),
+    ...finishedProducts.filter(p => p.minThreshold !== undefined && p.quantity < p.minThreshold).map(p => ({
+      id: p.id,
+      itemName: p.name,
+      itemType: 'finished',
+      currentQuantity: p.quantity,
+      minThreshold: p.minThreshold!,
+      status: p.quantity === 0 ? 'critical' : 'warning',
+    })),
+  ];
+
+  // Fetch sales trend from backend
+  useEffect(() => {
+    const today = new Date();
+    const startDate = '2000-01-01';
+    const endDate = today.toISOString().slice(0, 10);
+    axiosInstance.get('/api/revenue-analysis/trends', {
+      params: { periodType: 'daily', startDate, endDate }
+    }).then(res => {
+      if (res.data && res.data.success && Array.isArray(res.data.data)) {
+        setSalesTrend(res.data.data.map((d: any) => ({ date: d.start_date, sales: Number(d.total_revenue) })));
+      }
+    }).catch(() => setSalesTrend([]));
+  }, []);
 
   // Get status icon component
   const getStatusIcon = (status: OrderStatus) => {
@@ -159,9 +198,9 @@ const Dashboard: React.FC = () => {
         />
         <StatCard 
           title="Manufacturing Efficiency" 
-          value="87%" 
+          value={`${efficiency}%`} 
           icon={<TrendingUp size={20} />}
-          trend={{ value: 5, positive: true }} 
+          trend={{ value: efficiency - 80, positive: efficiency >= 80 }} 
         />
       </div>
 
@@ -175,7 +214,7 @@ const Dashboard: React.FC = () => {
           <CardContent>
             <div className="h-[300px]">
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={dailySalesData}>
+                <LineChart data={salesTrend}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis 
                     dataKey="date" 

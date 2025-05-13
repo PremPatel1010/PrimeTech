@@ -24,7 +24,7 @@ const formatDate = (date: string | undefined) => {
 };
 
 const Manufacturing: React.FC = () => {
-  const { manufacturingBatches, finishedProducts, salesOrders, rawMaterials, addManufacturingBatch, updateManufacturingStage, setManufacturingBatches, getActiveBatches, getCompletedBatches } = useFactory();
+ const { manufacturingBatches, finishedProducts, backendProducts, salesOrders, rawMaterials, addManufacturingBatch, updateManufacturingStage, setManufacturingBatches, getActiveBatches, getCompletedBatches } = useFactory(); 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [backendStages, setBackendStages] = useState<BackendStage[]>([]);
   const [newBatch, setNewBatch] = useState<Partial<ManufacturingBatch>>({
@@ -94,45 +94,72 @@ const Manufacturing: React.FC = () => {
 
   // Get raw materials needed for a product
   const getRawMaterialsNeeded = (productId: string, quantity: number) => {
-    const product = finishedProducts.find(p => p.id === productId);
-    if (!product || !product.billOfMaterials) return [];
-    
-    return product.billOfMaterials.map(item => {
-      const material = rawMaterials.find(m => m.id === item.materialId);
-      const totalNeeded = item.quantityRequired * quantity;
+    const product = backendProducts.find((p: any) => String(p.product_id) === productId);
+    if (!product || !product.bom_items) return [];
+    return product.bom_items.map((item: any) => {
+      const material = rawMaterials.find(m => m.id === String(item.material_id));
+      const totalNeeded = item.quantity_required * quantity;
       const available = material ? material.quantity : 0;
-      
       return {
-        materialId: item.materialId,
-        materialName: item.materialName,
+        materialId: String(item.material_id),
+        materialName: item.material_name || '',
         needed: totalNeeded,
         available,
         missing: Math.max(0, totalNeeded - available),
-        unit: item.unitOfMeasure
+        unit: material ? material.unit : ''
       };
     });
   };
-  
-  const handleProductChange = (productId: string) => {
-    const product = finishedProducts.find(p => p.id === productId);
-    setNewBatch({
-      ...newBatch,
-      productId,
-      productName: product?.name || ''
-    });
+
+  // Calculate the maximum possible quantity that can be manufactured with current raw materials
+  const getMaxPossibleQuantity = (productId: string) => {
+    const product = backendProducts.find((p: any) => String(p.product_id) === productId);
+    if (!product || !product.bom_items) return 0;
+    let maxQty = Infinity;
+    for (const item of product.bom_items) {
+      const material = rawMaterials.find(m => m.id === String(item.material_id));
+      if (!material) return 0;
+      const possible = Math.floor(material.quantity / item.quantity_required);
+      if (possible < maxQty) maxQty = possible;
+    }
+    return isFinite(maxQty) ? maxQty : 0;
   };
 
   // Check if raw materials are available for manufacturing
   const checkRawMaterialsAvailability = () => {
-    if (!newBatch.productId) return { available: true, missing: [] };
-    
+    if (!newBatch.productId) return { available: true, missing: [], maxPossible: 0 };
+    const product = backendProducts.find((p: any) => String(p.product_id) === newBatch.productId);
+    if (!product || !product.bom_items || product.bom_items.length === 0) {
+      return { available: false, missing: [], maxPossible: 0 };
+    }
+    if (!rawMaterials || rawMaterials.length === 0) {
+      const missing = product.bom_items.map((item: any) => ({
+        materialId: String(item.material_id),
+        materialName: item.material_name || '',
+        needed: item.quantity_required * (newBatch.quantity || 0),
+        available: 0,
+        missing: item.quantity_required * (newBatch.quantity || 0),
+        unit: ''
+      }));
+      return { available: false, missing, maxPossible: 0 };
+    }
     const materialsNeeded = getRawMaterialsNeeded(newBatch.productId, newBatch.quantity || 0);
-    const missingMaterials = materialsNeeded.filter(m => m.missing > 0);
-    
+    const missingMaterials = materialsNeeded.filter(m => m.missing > 0 || m.available === 0);
+    const maxPossible = getMaxPossibleQuantity(newBatch.productId);
     return {
       available: missingMaterials.length === 0,
-      missing: missingMaterials
+      missing: missingMaterials,
+      maxPossible
     };
+  };
+  
+  const handleProductChange = (productId: string) => {
+    const product = backendProducts.find((p: any) => String(p.product_id) === productId);
+    setNewBatch({
+      ...newBatch,
+      productId,
+      productName: product?.product_name || ''
+    });
   };
   
   const handleEditBatch = (batch: ManufacturingBatch) => {
@@ -508,8 +535,10 @@ const Manufacturing: React.FC = () => {
                   <SelectValue placeholder="Select product" />
                 </SelectTrigger>
                 <SelectContent>
-                  {finishedProducts.map((product) => (
-                    <SelectItem key={product.id} value={product.id}>{product.name}</SelectItem>
+                  {backendProducts.map(product => (
+                    <SelectItem key={String(product.product_id)} value={String(product.product_id)}>
+                      {product.product_name}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -520,32 +549,32 @@ const Manufacturing: React.FC = () => {
               <div className="border rounded-md p-3">
                 <h4 className="text-sm font-medium mb-2">Raw Materials Check</h4>
                 {(() => {
-                  const { available, missing } = checkRawMaterialsAvailability();
-                  
-                  if (available) {
+                  const check = checkRawMaterialsAvailability();
+                  if (check.available) {
                     return (
-                      <div className="flex items-center gap-2 text-green-700 text-sm">
+                      <div className="flex items-center text-green-600 gap-2">
                         <CheckCircle className="h-4 w-4" />
-                        <span>All raw materials are available for manufacturing</span>
+                        All raw materials are available for manufacturing
                       </div>
                     );
                   } else {
                     return (
-                      <div>
-                        <div className="flex items-center gap-2 text-red-700 text-sm mb-2">
+                      <div className="flex flex-col gap-2 text-yellow-700">
+                        <div className="flex items-center gap-2">
                           <AlertCircle className="h-4 w-4" />
-                          <span>Insufficient raw materials for manufacturing</span>
+                          Not enough raw materials for the requested quantity.
                         </div>
-                        <div className="space-y-1 max-h-[100px] overflow-y-auto">
-                          {missing.map((material, idx) => (
-                            <div key={idx} className="grid grid-cols-3 text-xs">
-                              <div className="col-span-2">{material.materialName}</div>
-                              <div className="text-right text-red-600">
-                                Missing: {material.missing} {material.unit}
-                              </div>
-                            </div>
+                        <div>
+                          <span>Maximum possible quantity: </span>
+                          <span className="font-semibold">{check.maxPossible}</span>
+                        </div>
+                        <ul className="ml-4 list-disc text-xs">
+                          {check.missing.map(m => (
+                            <li key={m.materialId}>
+                              {m.materialName}: Need {m.needed}, Available {m.available} {m.unit}
+                            </li>
                           ))}
-                        </div>
+                        </ul>
                       </div>
                     );
                   }

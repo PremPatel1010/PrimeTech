@@ -56,6 +56,8 @@ CREATE TABLE inventory.finished_products (
     finished_product_id SERIAL PRIMARY KEY,
     product_id INTEGER NOT NULL REFERENCES products.product(product_id) ON DELETE CASCADE,
     quantity_available INTEGER NOT NULL DEFAULT 0,
+    unit_price DECIMAL(10,2) DEFAULT 0,
+    total_price DECIMAL(12,2) GENERATED ALWAYS AS (quantity_available * unit_price) STORED,
     minimum_stock INTEGER NOT NULL DEFAULT 5,
     storage_location VARCHAR(100), -- Optional: rack/bin info
     status VARCHAR(20) CHECK (status IN ('available', 'reserved', 'dispatched')) DEFAULT 'available',
@@ -93,7 +95,8 @@ CREATE TABLE sales.sales_order_items (
     product_id INTEGER REFERENCES products.product(product_id),
     quantity INTEGER NOT NULL,
     unit_price DECIMAL(10, 2) NOT NULL,
-    total_price DECIMAL(10, 2) GENERATED ALWAYS AS (quantity * unit_price) STORED
+    total_price DECIMAL(10, 2) GENERATED ALWAYS AS (quantity * unit_price) STORED,
+    fulfilled_from_inventory BOOLEAN DEFAULT FALSE
 );
 
 -- ========================

@@ -262,4 +262,14 @@ export const updateStatus = async (req, res) => {
       error: error.message
     });
   }
+};
+
+// Add this after other exports
+export const getNextOrderNumber = async (req, res) => {
+  try {
+    const nextOrderNumber = await SalesOrder.getNextOrderNumber();
+    res.json({ nextOrderNumber });
+  } catch (error) {
+    res.status(500).json({ message: 'Error generating next order number', error: error.message });
+  }
 }; 

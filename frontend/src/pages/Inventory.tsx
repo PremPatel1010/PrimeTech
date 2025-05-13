@@ -14,9 +14,11 @@ import { AlertTriangle, Package, Search, ArrowDown, ArrowUp, Plus, Edit, Refresh
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { rawMaterialService, CreateRawMaterialDTO } from '../services/rawMaterial.service';
 import { useToast } from '@/components/ui/use-toast';
+import { useQuery as useProductsQuery } from '@tanstack/react-query';
+import { productService } from '../services/productService';
 
 const Inventory: React.FC = () => {
-  const { finishedProducts, addFinishedProduct } = useFactory();
+  const { finishedProducts, addFinishedProduct, updateFinishedProduct, setFinishedProducts, deleteFinishedProduct, dispatchFinishedProduct } = useFactory();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   
@@ -50,10 +52,28 @@ const Inventory: React.FC = () => {
   const [deleteMaterialId, setDeleteMaterialId] = useState<number | null>(null);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
 
+  // Add state for edit, delete, and dispatch dialogs
+  const [editProduct, setEditProduct] = useState<null | typeof finishedProducts[0]>(null);
+  const [isEditProductDialogOpen, setIsEditProductDialogOpen] = useState(false);
+  const [deleteProductId, setDeleteProductId] = useState<string | null>(null);
+  const [isDeleteProductDialogOpen, setIsDeleteProductDialogOpen] = useState(false);
+  const [dispatchProduct, setDispatchProduct] = useState<null | typeof finishedProducts[0]>(null);
+  const [isDispatchDialogOpen, setIsDispatchDialogOpen] = useState(false);
+  const [dispatchQuantity, setDispatchQuantity] = useState(1);
+
+  // Add state for selecting a backend product when adding a finished product
+  const [selectedBackendProductId, setSelectedBackendProductId] = useState<number | null>(null);
+
   // Fetch raw materials
   const { data: rawMaterials = [], isLoading } = useQuery({
     queryKey: ['rawMaterials'],
     queryFn: rawMaterialService.getAllRawMaterials
+  });
+  
+  // Fetch backend products
+  const { data: backendProducts = [] } = useProductsQuery({
+    queryKey: ['backendProducts'],
+    queryFn: productService.getAllProducts
   });
   
   // Create raw material mutation
@@ -139,8 +159,12 @@ const Inventory: React.FC = () => {
     createRawMaterialMutation.mutate(newRawMaterial);
   };
   
-  const handleAddFinishedProduct = () => {
-    addFinishedProduct(newProduct);
+  const handleAddFinishedProduct = async () => {
+    if (!selectedBackendProductId) return;
+    await addFinishedProduct({
+      ...newProduct,
+      productId: selectedBackendProductId
+    });
     setIsProductDialogOpen(false);
     setNewProduct({
       name: '',
@@ -148,6 +172,7 @@ const Inventory: React.FC = () => {
       quantity: 0,
       price: 0
     });
+    setSelectedBackendProductId(null);
   };
   
   return (
@@ -291,6 +316,7 @@ const Inventory: React.FC = () => {
                         <TableHead>Unit Price</TableHead>
                         <TableHead className="text-right">Total Value</TableHead>
                         <TableHead className="text-right">Last Updated</TableHead>
+                        <TableHead className="text-right">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -304,6 +330,11 @@ const Inventory: React.FC = () => {
                             {formatCurrency(product.quantity * product.price)}
                           </TableCell>
                           <TableCell className="text-right">{formatDate(product.lastUpdated)}</TableCell>
+                          <TableCell className="text-right">
+                            <Button size="sm" variant="outline" onClick={async () => { setEditProduct(product); setIsEditProductDialogOpen(true); }}>Edit</Button>
+                            <Button size="sm" variant="destructive" className="ml-2" onClick={async () => { setDeleteProductId(product.id); setIsDeleteProductDialogOpen(true); }}>Delete</Button>
+                            <Button size="sm" className="ml-2 bg-blue-600 hover:bg-blue-700 text-white" onClick={async () => { setDispatchProduct(product); setIsDispatchDialogOpen(true); setDispatchQuantity(1); }}>Dispatch</Button>
+                          </TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
@@ -445,58 +476,49 @@ const Inventory: React.FC = () => {
           </DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="space-y-2">
-              <Label htmlFor="product-name">Product Name</Label>
-              <Input
-                id="product-name"
-                placeholder="Enter product name"
-                value={newProduct.name}
-                onChange={(e) => setNewProduct({...newProduct, name: e.target.value})}
-              />
+              <Label htmlFor="backend-product">Select Product</Label>
+              <select
+                id="backend-product"
+                value={selectedBackendProductId ?? ''}
+                onChange={e => setSelectedBackendProductId(Number(e.target.value) || null)}
+                className="w-full border rounded px-2 py-1"
+              >
+                <option value="">Select a product</option>
+                {backendProducts.map((p: any) => (
+                  <option key={p.product_id} value={p.product_id}>{p.product_name}</option>
+                ))}
+              </select>
             </div>
-            
             <div className="space-y-2">
-              <Label htmlFor="product-category">Category</Label>
+              <Label htmlFor="product-quantity">Initial Stock</Label>
               <Input
-                id="product-category"
-                placeholder="e.g., Appliance, Electronic, Mechanical"
-                value={newProduct.category}
-                onChange={(e) => setNewProduct({...newProduct, category: e.target.value})}
+                id="product-quantity"
+                type="number"
+                placeholder="0"
+                min="0"
+                value={newProduct.quantity}
+                onChange={(e) => setNewProduct({...newProduct, quantity: parseFloat(e.target.value) || 0})}
               />
             </div>
-            
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="product-quantity">Initial Stock</Label>
-                <Input
-                  id="product-quantity"
-                  type="number"
-                  placeholder="0"
-                  min="0"
-                  value={newProduct.quantity}
-                  onChange={(e) => setNewProduct({...newProduct, quantity: parseFloat(e.target.value) || 0})}
-                />
-              </div>
-              
-              <div className="space-y-2">
-                <Label htmlFor="product-price">Price</Label>
-                <Input
-                  id="product-price"
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  placeholder="0.00"
-                  value={newProduct.price}
-                  onChange={(e) => setNewProduct({...newProduct, price: parseFloat(e.target.value) || 0})}
-                />
-              </div>
+            <div className="space-y-2">
+              <Label htmlFor="product-price">Price</Label>
+              <Input
+                id="product-price"
+                type="number"
+                step="0.01"
+                min="0"
+                placeholder="0.00"
+                value={newProduct.price}
+                onChange={(e) => setNewProduct({...newProduct, price: parseFloat(e.target.value) || 0})}
+              />
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsProductDialogOpen(false)}>Cancel</Button>
-            <Button 
+            <Button
               className="bg-factory-primary hover:bg-factory-primary/90"
               onClick={handleAddFinishedProduct}
-              disabled={!newProduct.name || !newProduct.category || newProduct.price <= 0}
+              disabled={!selectedBackendProductId || newProduct.price <= 0}
             >
               Add Product
             </Button>
@@ -567,6 +589,89 @@ const Inventory: React.FC = () => {
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsDeleteDialogOpen(false)}>Cancel</Button>
             <Button className="bg-red-600 hover:bg-red-700 text-white" onClick={() => deleteRawMaterialMutation.mutate(deleteMaterialId!)} disabled={!deleteMaterialId}>Delete</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Finished Product Dialog */}
+      <Dialog open={isEditProductDialogOpen} onOpenChange={setIsEditProductDialogOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Edit Finished Product</DialogTitle>
+          </DialogHeader>
+          {editProduct && (
+            <div className="grid gap-4 py-4">
+              <div className="space-y-2">
+                <Label htmlFor="edit-product-name">Product Name</Label>
+                <Input id="edit-product-name" value={editProduct.name} onChange={e => setEditProduct({ ...editProduct, name: e.target.value })} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-product-category">Category</Label>
+                <Input id="edit-product-category" value={editProduct.category} onChange={e => setEditProduct({ ...editProduct, category: e.target.value })} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-product-quantity">Quantity</Label>
+                <Input id="edit-product-quantity" type="number" min="0" value={editProduct.quantity} onChange={e => setEditProduct({ ...editProduct, quantity: parseInt(e.target.value) || 0 })} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="edit-product-price">Unit Price</Label>
+                <Input id="edit-product-price" type="number" min="0" step="0.01" value={editProduct.price} onChange={e => setEditProduct({ ...editProduct, price: parseFloat(e.target.value) || 0 })} />
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsEditProductDialogOpen(false)}>Cancel</Button>
+            <Button onClick={async () => {
+              if (editProduct) {
+                await updateFinishedProduct(editProduct.id, editProduct);
+                setIsEditProductDialogOpen(false);
+              }
+            }} className="bg-factory-primary hover:bg-factory-primary/90">Save Changes</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Finished Product Dialog */}
+      <Dialog open={isDeleteProductDialogOpen} onOpenChange={setIsDeleteProductDialogOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Delete Finished Product</DialogTitle>
+          </DialogHeader>
+          <div>Are you sure you want to delete this finished product?</div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsDeleteProductDialogOpen(false)}>Cancel</Button>
+            <Button variant="destructive" onClick={async () => {
+              if (deleteProductId) {
+                await deleteFinishedProduct(deleteProductId);
+                setIsDeleteProductDialogOpen(false);
+              }
+            }}>Delete</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dispatch Finished Product Dialog */}
+      <Dialog open={isDispatchDialogOpen} onOpenChange={setIsDispatchDialogOpen}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Dispatch Finished Product</DialogTitle>
+          </DialogHeader>
+          {dispatchProduct && (
+            <div className="grid gap-4 py-4">
+              <div className="space-y-2">
+                <Label htmlFor="dispatch-quantity">Quantity to Dispatch</Label>
+                <Input id="dispatch-quantity" type="number" min="1" max={dispatchProduct.quantity} value={dispatchQuantity} onChange={e => setDispatchQuantity(Math.max(1, Math.min(dispatchProduct.quantity, parseInt(e.target.value) || 1)))} />
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsDispatchDialogOpen(false)}>Cancel</Button>
+            <Button onClick={async () => {
+              if (dispatchProduct && dispatchQuantity > 0 && dispatchQuantity <= dispatchProduct.quantity) {
+                await dispatchFinishedProduct(dispatchProduct.id, dispatchQuantity);
+                setIsDispatchDialogOpen(false);
+              }
+            }} className="bg-blue-600 hover:bg-blue-700 text-white">Dispatch</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -1,6 +1,7 @@
 import pool from '../db/db.js';
 import ManufacturingProgress from './manufacturingProgress.model.js';
 import ManufacturingStage from './manufacturingStage.model.js';
+import FinishedProduct from './finishedProduct.model.js';
 
 class SalesOrder {
   static async getAllSalesOrders() {
@@ -71,7 +72,7 @@ class SalesOrder {
 
       const salesOrderId = orderResult.rows[0].sales_order_id;
 
-      // Create order items and manufacturing progress
+      // Create order items and handle inventory/manufacturing
       for (const item of orderData.items) {
         // Verify product exists before proceeding
         const productCheck = await client.query(`
@@ -82,40 +83,79 @@ class SalesOrder {
           throw new Error(`Product with ID ${item.product_id} does not exist`);
         }
 
+        // Check finished product inventory
+        const inventoryRows = await FinishedProduct.getProductInventory(item.product_id);
+        let availableQty = 0;
+        let finishedProductId = null;
+        if (inventoryRows && inventoryRows.length > 0) {
+          availableQty = inventoryRows[0].quantity_available;
+          finishedProductId = inventoryRows[0].finished_product_id;
+        }
+
+        let toManufacture = 0;
+        let toDeduct = 0;
+        if (availableQty >= item.quantity) {
+          // Enough inventory, deduct all
+          toDeduct = item.quantity;
+        } else if (availableQty > 0) {
+          // Partial inventory, deduct what is available, manufacture the rest
+          toDeduct = availableQty;
+          toManufacture = item.quantity - availableQty;
+        } else {
+          // No inventory, manufacture all
+          toManufacture = item.quantity;
+        }
+
+        // Deduct from inventory if possible
+        if (toDeduct > 0 && finishedProductId) {
+          await FinishedProduct.updateQuantity(finishedProductId, -toDeduct);
+        }
+
         // Map product_category to valid component_type for manufacturing stages
         let componentType = (item.product_category || '').toLowerCase();
         if (!['motor', 'pump', 'combined'].includes(componentType)) {
           componentType = 'combined';
         }
 
-        // Create order item
-        const orderItemResult = await client.query(`
-          INSERT INTO sales.sales_order_items 
-          (sales_order_id, product_category, product_id, quantity, unit_price)
-          VALUES ($1, $2, $3, $4, $5)
-          RETURNING item_id
-        `, [salesOrderId, item.product_category, item.product_id, item.quantity, item.unit_price]);
-
-        const orderItemId = orderItemResult.rows[0].item_id;
-        
-        // Get stages for this product type
-        const stagesResult = await client.query(`
-          SELECT stage_id, component_type, stage_name, sequence
-          FROM manufacturing.stages
-          WHERE component_type = $1
-          ORDER BY sequence
-        `, [componentType]);
-
-        if (stagesResult.rows.length === 0) {
-          throw new Error(`No manufacturing stages found for product category: ${componentType}`);
+        // Create order item for deducted quantity (from inventory)
+        if (toDeduct > 0) {
+          const orderItemResult = await client.query(`
+            INSERT INTO sales.sales_order_items 
+            (sales_order_id, product_category, product_id, quantity, unit_price, fulfilled_from_inventory)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            RETURNING item_id
+          `, [salesOrderId, item.product_category, item.product_id, toDeduct, item.unit_price, true]);
         }
 
-        // Create manufacturing progress with first stage
-        await client.query(`
-          INSERT INTO manufacturing.product_manufacturing 
-          (sales_order_id, sales_order_item_id, product_id, current_stage_id, quantity_in_process, status)
-          VALUES ($1, $2, $3, $4, $5, 'in_progress')
-        `, [salesOrderId, orderItemId, item.product_id, stagesResult.rows[0].stage_id, item.quantity]);
+        // Create order item and manufacturing progress for quantity to manufacture
+        if (toManufacture > 0) {
+          const orderItemResult = await client.query(`
+            INSERT INTO sales.sales_order_items 
+            (sales_order_id, product_category, product_id, quantity, unit_price, fulfilled_from_inventory)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            RETURNING item_id
+          `, [salesOrderId, item.product_category, item.product_id, toManufacture, item.unit_price, false]);
+          const orderItemId = orderItemResult.rows[0].item_id;
+
+          // Get stages for this product type
+          const stagesResult = await client.query(`
+            SELECT stage_id, component_type, stage_name, sequence
+            FROM manufacturing.stages
+            WHERE component_type = $1
+            ORDER BY sequence
+          `, [componentType]);
+
+          if (stagesResult.rows.length === 0) {
+            throw new Error(`No manufacturing stages found for product category: ${componentType}`);
+          }
+
+          // Create manufacturing progress with first stage
+          await client.query(`
+            INSERT INTO manufacturing.product_manufacturing 
+            (sales_order_id, sales_order_item_id, product_id, current_stage_id, quantity_in_process, status)
+            VALUES ($1, $2, $3, $4, $5, 'in_progress')
+          `, [salesOrderId, orderItemId, item.product_id, stagesResult.rows[0].stage_id, toManufacture]);
+        }
       }
 
       await client.query('COMMIT');
@@ -269,6 +309,24 @@ class SalesOrder {
     );
     console.log("result", result.rows[0])
     return result.rows[0];
+  }
+
+  static async getNextOrderNumber() {
+    const year = new Date().getFullYear();
+    const prefix = `SO-${year}-`;
+    const result = await pool.query(
+      `SELECT order_number FROM sales.sales_order WHERE order_number LIKE $1 ORDER BY order_number DESC LIMIT 1`,
+      [`${prefix}%`]
+    );
+    let nextNumber = 1;
+    if (result.rows.length > 0) {
+      const lastOrderNumber = result.rows[0].order_number;
+      const match = lastOrderNumber.match(/SO-\d{4}-(\d+)/);
+      if (match) {
+        nextNumber = parseInt(match[1], 10) + 1;
+      }
+    }
+    return `${prefix}${String(nextNumber).padStart(3, '0')}`;
   }
 }
 

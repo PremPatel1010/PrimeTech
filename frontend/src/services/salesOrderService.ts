@@ -68,4 +68,9 @@ export const updateSalesOrder = async (id: string, order: Partial<SalesOrder>) =
 
 export const deleteSalesOrder = async (id: string) => {
   return axiosInstance.delete(`/sales-orders/${id}`);
+};
+
+export const fetchNextOrderNumber = async () => {
+  const res = await axiosInstance.get('/sales-orders/next-order-number');
+  return res.data.nextOrderNumber;
 }; 

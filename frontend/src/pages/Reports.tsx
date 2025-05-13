@@ -1,5 +1,4 @@
-
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useFactory } from '../context/FactoryContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -10,7 +9,6 @@ import {
   calculateTotalSales,
   formatCurrency 
 } from '../utils/calculations';
-import { stockAlerts, dailySalesData, manufacturingProgressData } from '../data/mockData';
 import { 
   ResponsiveContainer, 
   LineChart, 
@@ -26,12 +24,14 @@ import {
   Pie,
   Cell
 } from 'recharts';
+import axios from 'axios';
 
 const COLORS = ['#1E3A8A', '#2563EB', '#4F46E5', '#6366F1', '#8B5CF6'];
 
 const Reports: React.FC = () => {
   const { rawMaterials, finishedProducts, salesOrders, manufacturingBatches } = useFactory();
   const [timeRange, setTimeRange] = useState('all');
+  const [salesTrend, setSalesTrend] = useState<{ date: string, sales: number }[]>([]);
   
   // Calculate key metrics
   const rawMaterialValue = calculateRawMaterialValue(rawMaterials);
@@ -60,6 +60,54 @@ const Reports: React.FC = () => {
     { name: 'Raw Materials', value: rawMaterialValue },
     { name: 'Finished Products', value: finishedProductValue }
   ];
+  
+  useEffect(() => {
+    // Map timeRange to periodType and dates
+    let periodType = 'daily';
+    let startDate = '';
+    let endDate = '';
+    const today = new Date();
+    switch (timeRange) {
+      case 'week': {
+        const start = new Date(today);
+        start.setDate(today.getDate() - 7);
+        startDate = start.toISOString().slice(0, 10);
+        endDate = today.toISOString().slice(0, 10);
+        break;
+      }
+      case 'month': {
+        const start = new Date(today.getFullYear(), today.getMonth(), 1);
+        startDate = start.toISOString().slice(0, 10);
+        endDate = today.toISOString().slice(0, 10);
+        break;
+      }
+      case 'quarter': {
+        const quarter = Math.floor(today.getMonth() / 3);
+        const start = new Date(today.getFullYear(), quarter * 3, 1);
+        startDate = start.toISOString().slice(0, 10);
+        endDate = today.toISOString().slice(0, 10);
+        break;
+      }
+      case 'year': {
+        const start = new Date(today.getFullYear(), 0, 1);
+        startDate = start.toISOString().slice(0, 10);
+        endDate = today.toISOString().slice(0, 10);
+        break;
+      }
+      default: {
+        // All time: use a very early start date
+        startDate = '2000-01-01';
+        endDate = today.toISOString().slice(0, 10);
+      }
+    }
+    axios.get('/api/revenue-analysis/trends', {
+      params: { periodType, startDate, endDate }
+    }).then(res => {
+      if (res.data && res.data.success && Array.isArray(res.data.data)) {
+        setSalesTrend(res.data.data.map((d: any) => ({ date: d.start_date, sales: Number(d.total_revenue) })));
+      }
+    }).catch(() => setSalesTrend([]));
+  }, [timeRange]);
   
   return (
     <div className="space-y-6">
@@ -185,7 +233,7 @@ const Reports: React.FC = () => {
               <CardContent>
                 <div className="h-[300px]">
                   <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={dailySalesData}>
+                    <LineChart data={salesTrend}>
                       <CartesianGrid strokeDasharray="3 3" />
                       <XAxis 
                         dataKey="date" 

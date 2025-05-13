@@ -1,4 +1,3 @@
-
 import { RawMaterial, FinishedProduct, ManufacturingBatch, SalesOrder, OrderStatus } from '../types';
 
 // Calculate total value of raw materials
@@ -21,7 +20,8 @@ export const calculateManufacturingProgress = (batch: ManufacturingBatch): numbe
 };
 
 // Calculate total sales value
-export const calculateTotalSales = (orders: SalesOrder[], status?: OrderStatus): number => {
+export const calculateTotalSales = (orders: SalesOrder[] | undefined | null, status?: OrderStatus): number => {
+  if (!Array.isArray(orders)) return 0;
   return orders
     .filter(order => status ? order.status === status : true)
     .reduce((total, order) => {

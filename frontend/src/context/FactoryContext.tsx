@@ -17,34 +17,13 @@ import { createSalesOrder, fetchSalesOrders } from '../services/salesOrderServic
 import { fetchBatches, createBatch, updateBatchStage as apiUpdateBatchStage } from '../services/manufacturingService';
 import { productService, ManufacturingStage as BackendStage } from '../services/productService';
 import { rawMaterialService } from '../services/rawMaterial.service';
+import { useAuth } from '../contexts/AuthContext';
+import { finishedProductService, FinishedProductAPI } from '../services/finishedProduct.service';
 
-// Import mock data
-import { salesOrdersMock } from '../data/mockSalesOrders';
-import { purchaseOrdersMock } from '../data/mockPurchaseOrders';
+
 
 // Some initial suppliers
-const suppliersMock: Supplier[] = [
-  {
-    id: "sup-001",
-    name: "Prime Materials Inc.",
-    contactPerson: "John Smith",
-    email: "john@primematerials.com",
-    phone: "555-123-4567",
-    address: "123 Supply St, Industry Park, CA 90210",
-    materials: ["mat-001", "mat-002"],
-    notes: "Reliable supplier for metal components."
-  },
-  {
-    id: "sup-002",
-    name: "Global Electronics",
-    contactPerson: "Sara Johnson",
-    email: "sara@globalelectronics.com",
-    phone: "555-987-6543",
-    address: "456 Circuit Ave, Tech City, NY 10001",
-    materials: ["mat-003", "mat-004"],
-    notes: "Specializes in electronic components."
-  }
-];
+
 
 // Define the context type
 interface FactoryContextType {
@@ -55,8 +34,11 @@ interface FactoryContextType {
   
   // Finished Products
   finishedProducts: FinishedProduct[];
-  addFinishedProduct: (product: Omit<FinishedProduct, 'id' | 'lastUpdated'>) => void;
+  addFinishedProduct: (product: Omit<FinishedProduct, 'id' | 'lastUpdated'> & { productId: number }) => void;
   updateFinishedProduct: (id: string, updates: Partial<FinishedProduct>) => void;
+  setFinishedProducts: React.Dispatch<React.SetStateAction<FinishedProduct[]>>;
+  deleteFinishedProduct: (id: string) => void;
+  dispatchFinishedProduct: (id: string, quantity: number) => void;
   
   // Sales Orders
   salesOrders: SalesOrder[];
@@ -75,10 +57,7 @@ interface FactoryContextType {
   updatePurchaseOrderStatus: (id: string, status: PurchaseOrderStatus) => void;
 
   // Suppliers
-  suppliers: Supplier[];
-  addSupplier: (supplier: Omit<Supplier, 'id'>) => void;
-  updateSupplier: (id: string, updates: Partial<Supplier>) => void;
-  deleteSupplier: (id: string) => void;
+  
 
   // New methods for partial fulfillment
   checkProductAvailability: (product: OrderProduct) => { available: number, toManufacture: number };
@@ -86,6 +65,10 @@ interface FactoryContextType {
   // Helper to filter batches
   getActiveBatches: (batches: ManufacturingBatch[]) => ManufacturingBatch[];
   getCompletedBatches: (batches: ManufacturingBatch[]) => ManufacturingBatch[];
+
+  // Backend products
+  backendProducts: any[];
+  setBackendProducts: React.Dispatch<React.SetStateAction<any[]>>;
 }
 
 // Create context with default values
@@ -93,21 +76,25 @@ const FactoryContext = createContext<FactoryContextType | undefined>(undefined);
 
 // Provider component
 export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { authState } = useAuth();
+  const isAuthenticated = !!authState.token;
+
   // Initialize state with mock data and ensure all orders are properly tracked
-  const initialSalesOrders = salesOrdersMock.map(order => ({
-    ...order,
-    isTracked: true
-  }));
   
   const [rawMaterials, setRawMaterials] = useState<RawMaterial[]>([]);
   const [finishedProducts, setFinishedProducts] = useState<FinishedProduct[]>([]);
-  const [salesOrders, setSalesOrders] = useState<SalesOrder[]>(initialSalesOrders);
+  const [salesOrders, setSalesOrders] = useState<SalesOrder[]>();
   const [manufacturingBatches, setManufacturingBatches] = useState<ManufacturingBatch[]>([]);
-  const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>(purchaseOrdersMock);
-  const [suppliers, setSuppliers] = useState<Supplier[]>(suppliersMock);
+  const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>();
   const [backendStages, setBackendStages] = useState<BackendStage[]>([]);
+  const [backendProducts, setBackendProducts] = useState<any[]>([]);
   
   useEffect(() => {
+    // Only fetch data if user is authenticated
+    if (!isAuthenticated) {
+      return;
+    }
+
     // Fetch manufacturing batches
     fetchBatches()
       .then(batches => setManufacturingBatches(batches.map(b => {
@@ -160,16 +147,7 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
       .catch(() => toast({ title: 'Error', description: 'Failed to load manufacturing batches', variant: 'destructive' }));
     // Fetch products
     productService.getAllProducts()
-      .then(products => setFinishedProducts(products.map(p => ({
-        id: String(p.product_id),
-        name: p.product_name,
-        category: '', // Set as needed
-        quantity: 0, // Set as needed or fetch from inventory
-        price: p.price,
-        lastUpdated: p.created_at || new Date().toISOString(),
-        billOfMaterials: [], // Set as needed
-        manufacturingSteps: [] // Set as needed
-      }))))
+      .then(products => setBackendProducts(products))
       .catch(() => toast({ title: 'Error', description: 'Failed to load products', variant: 'destructive' }));
     // Fetch raw materials
     rawMaterialService.getAllRawMaterials()
@@ -187,43 +165,54 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
     productService.getManufacturingStages()
       .then(stages => setBackendStages(stages))
       .catch(() => setBackendStages([]));
-  }, []);
+    // Fetch finished products from backend
+    finishedProductService.getAll()
+      .then(products => setFinishedProducts(products.map(fp => {
+        // Try to get price from backendProducts if not present in finished product
+        let price = fp.price || 0;
+        if (!price && backendProducts && backendProducts.length > 0) {
+          const prod = backendProducts.find((p: any) => String(p.product_id) === String(fp.product_id));
+          if (prod && prod.price) price = prod.price;
+        }
+        return {
+          id: String(fp.finished_product_id),
+          name: fp.product_name || '',
+          category: fp.category || '',
+          quantity: fp.quantity_available,
+          price,
+          lastUpdated: fp.added_on || new Date().toISOString(),
+          billOfMaterials: [],
+          manufacturingSteps: []
+        };
+      })))
+      .catch(() => toast({ title: 'Error', description: 'Failed to load finished products', variant: 'destructive' }));
+    // Fetch sales orders from backend
+    fetchSalesOrders()
+      .then(data => {
+        const mapped = data.map((order: any) => ({
+          id: order.sales_order_id || order.id,
+          orderNumber: order.order_number,
+          date: order.order_date,
+          customerName: order.customer_name,
+          products: (order.order_items || order.products || []).map((p: any) => ({
+            ...p,
+            price: p.price || p.unit_price || 0,
+            quantity: typeof p.quantity === 'number' ? p.quantity : 0
+          })),
+          status: order.status,
+          totalValue: order.total_amount,
+          discount: order.discount,
+          gst: order.gst,
+          partialFulfillment: order.partialFulfillment || [],
+        }));
+        setSalesOrders(mapped);
+      })
+      .catch(() => setSalesOrders([]));
+  }, [isAuthenticated]);
   
   // Supplier functions
-  const addSupplier = (supplier: Omit<Supplier, 'id'>) => {
-    const newSupplier: Supplier = {
-      ...supplier,
-      id: `sup-${new Date().getTime().toString().slice(-4)}`
-    };
-    
-    setSuppliers([...suppliers, newSupplier]);
-    toast({
-      title: "Supplier Added",
-      description: `${supplier.name} has been added to suppliers.`
-    });
-  };
+ 
   
-  const updateSupplier = (id: string, updates: Partial<Supplier>) => {
-    setSuppliers(
-      suppliers.map(supplier => 
-        supplier.id === id 
-          ? { ...supplier, ...updates } 
-          : supplier
-      )
-    );
-    toast({
-      title: "Supplier Updated",
-      description: "Supplier information has been updated successfully."
-    });
-  };
-  
-  const deleteSupplier = (id: string) => {
-    setSuppliers(suppliers.filter(supplier => supplier.id !== id));
-    toast({
-      title: "Supplier Deleted",
-      description: "Supplier has been removed."
-    });
-  };
   
   // Raw Materials functions
   const addRawMaterial = (material: Omit<RawMaterial, 'id' | 'lastUpdated'>) => {
@@ -259,36 +248,78 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
   
   // Finished Products functions
-  const addFinishedProduct = (product: Omit<FinishedProduct, 'id' | 'lastUpdated'>) => {
-    const newProduct: FinishedProduct = {
-      ...product,
-      id: uuidv4(),
-      lastUpdated: new Date().toISOString()
-    };
-    
-    setFinishedProducts([...finishedProducts, newProduct]);
-    toast({
-      title: "Product Added",
-      description: `${product.name} has been added to products.`
-    });
+  const addFinishedProduct = async (product: Omit<FinishedProduct, 'id' | 'lastUpdated'> & { productId: number }) => {
+    try {
+      const created = await finishedProductService.create({
+        product_id: product.productId,
+        quantity_available: product.quantity,
+        status: 'available',
+        // Add more fields as needed
+      });
+      setFinishedProducts(prev => [...prev, {
+        id: String(created.finished_product_id),
+        name: created.product_name || '',
+        category: created.category || '',
+        quantity: created.quantity_available,
+        price: created.price || 0,
+        lastUpdated: created.added_on || new Date().toISOString(),
+        billOfMaterials: [],
+        manufacturingSteps: []
+      }]);
+      toast({ title: 'Product Added', description: `${product.name} has been added to products.` });
+    } catch {
+      toast({ title: 'Error', description: 'Failed to add finished product', variant: 'destructive' });
+    }
   };
   
-  const updateFinishedProduct = (id: string, updates: Partial<FinishedProduct>) => {
-    setFinishedProducts(
-      finishedProducts.map(product => 
-        product.id === id 
-          ? { 
-              ...product, 
-              ...updates, 
-              lastUpdated: new Date().toISOString() 
-            } 
-          : product
-      )
-    );
-    toast({
-      title: "Product Updated",
-      description: "The product has been updated successfully."
-    });
+  const updateFinishedProduct = async (id: string, updates: Partial<FinishedProduct>) => {
+    try {
+      const fp = finishedProducts.find(p => p.id === id);
+      if (!fp) return;
+      const updated = await finishedProductService.update(parseInt(id), {
+        quantity_available: updates.quantity ?? fp.quantity,
+        // Add more fields as needed
+      });
+      setFinishedProducts(
+        finishedProducts.map(product =>
+          product.id === id
+            ? {
+                ...product,
+                ...updates,
+                quantity: updated.quantity_available,
+                lastUpdated: updated.added_on || new Date().toISOString()
+              }
+            : product
+        )
+      );
+      toast({ title: 'Product Updated', description: 'The product has been updated successfully.' });
+    } catch {
+      toast({ title: 'Error', description: 'Failed to update finished product', variant: 'destructive' });
+    }
+  };
+
+  const deleteFinishedProduct = async (id: string) => {
+    try {
+      await finishedProductService.delete(parseInt(id));
+      setFinishedProducts(prev => prev.filter(p => p.id !== id));
+      toast({ title: 'Product Deleted', description: 'The product has been deleted.' });
+    } catch {
+      toast({ title: 'Error', description: 'Failed to delete finished product', variant: 'destructive' });
+    }
+  };
+
+  const dispatchFinishedProduct = async (id: string, quantity: number) => {
+    try {
+      const fp = finishedProducts.find(p => p.id === id);
+      if (!fp) return;
+      const updated = await finishedProductService.update(parseInt(id), {
+        quantity_available: fp.quantity - quantity
+      });
+      setFinishedProducts(prev => prev.map(p => p.id === id ? { ...p, quantity: updated.quantity_available, lastUpdated: updated.added_on || new Date().toISOString() } : p));
+      toast({ title: 'Product Dispatched', description: 'The product has been dispatched.' });
+    } catch {
+      toast({ title: 'Error', description: 'Failed to dispatch finished product', variant: 'destructive' });
+    }
   };
 
   // Helper function to check product availability
@@ -644,8 +675,8 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const batch = manufacturingBatches.find(b => b.id === id || b.tracking_id === id);
       if (!batch) throw new Error('Batch not found');
       // Calculate progress and update stageCompletionDates
-          const stages = ['cutting', 'assembly', 'testing', 'packaging', 'completed'];
-          const currentStageIndex = stages.indexOf(stage);
+      const stages = ['cutting', 'assembly', 'testing', 'packaging', 'completed'];
+      const currentStageIndex = stages.indexOf(stage);
       const totalStages = stages.length - 1;
       const progress = stage === 'completed' ? 100 : Math.round((currentStageIndex / totalStages) * 100);
       const now = new Date().toISOString();
@@ -700,6 +731,91 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
         notes: updated.notes || '',
       };
       setManufacturingBatches(prev => prev.map(b => ((b.tracking_id || b.id) === (mappedBatch.tracking_id || mappedBatch.id) ? mappedBatch : b)));
+
+      // --- NEW LOGIC: Deduct raw materials when batch enters manufacturing (not completed) ---
+      if (stage !== 'completed') {
+        // Only deduct if not already deducted for this batch
+        if (!batch.rawMaterialsUsed || batch.rawMaterialsUsed.length === 0) {
+          const backendProduct = backendProducts.find(p => String(p.product_id) === batch.productId);
+          if (backendProduct && backendProduct.bom_items) {
+            const updatedMaterials = [...rawMaterials];
+            const usedMaterials: any[] = [];
+            for (const item of backendProduct.bom_items) {
+              const materialIndex = updatedMaterials.findIndex(m => m.id === String(item.material_id));
+              if (materialIndex !== -1) {
+                const requiredQuantity = item.quantity_required * batch.quantity;
+                updatedMaterials[materialIndex] = {
+                  ...updatedMaterials[materialIndex],
+                  quantity: Math.max(0, updatedMaterials[materialIndex].quantity - requiredQuantity),
+                  lastUpdated: new Date().toISOString()
+                };
+                usedMaterials.push({
+                  materialId: String(item.material_id),
+                  materialName: item.material_name || '',
+                  quantityUsed: requiredQuantity,
+                  unit: updatedMaterials[materialIndex].unit
+                });
+                // Persist to backend
+                rawMaterialService.updateRawMaterial(parseInt(updatedMaterials[materialIndex].id), { current_stock: updatedMaterials[materialIndex].quantity });
+              }
+            }
+            setRawMaterials(updatedMaterials);
+            // Save used materials in batch for tracking
+            setManufacturingBatches(prev => prev.map(b =>
+              (b.id === batch.id || b.tracking_id === batch.tracking_id)
+                ? { ...b, rawMaterialsUsed: usedMaterials }
+                : b
+            ));
+          }
+        }
+      }
+
+      // --- NEW LOGIC: Add finished products to inventory when batch is completed ---
+      if (stage === 'completed') {
+        // Add or update finished product in backend
+        const backendProduct = backendProducts.find(p => String(p.product_id) === batch.productId);
+        if (backendProduct) {
+          // Try to find if finished product already exists in backend
+          const existing = finishedProducts.find(p => p.id === batch.productId);
+          if (existing) {
+            // Update existing finished product in backend, always send price
+            await finishedProductService.update(parseInt(existing.id), {
+              quantity_available: existing.quantity + batch.quantity,
+              price: backendProduct.price || 0
+            });
+          } else {
+            // Create new finished product in backend
+            await finishedProductService.create({
+              product_id: backendProduct.product_id,
+              quantity_available: batch.quantity,
+              status: 'available',
+              price: backendProduct.price || 0,
+              category: backendProduct.category || '',
+            });
+          }
+          // Refetch finished products from backend
+          const products = await finishedProductService.getAll();
+          setFinishedProducts(products.map(fp => {
+            // Try to get price from backendProducts if not present in finished product
+            let price = fp.price || 0;
+            if (!price && backendProducts && backendProducts.length > 0) {
+              const prod = backendProducts.find((p: any) => String(p.product_id) === String(fp.product_id));
+              if (prod && prod.price) price = prod.price;
+            }
+            return {
+              id: String(fp.finished_product_id),
+              name: fp.product_name || '',
+              category: fp.category || '',
+              quantity: fp.quantity_available,
+              price,
+              lastUpdated: fp.added_on || new Date().toISOString(),
+              billOfMaterials: [],
+              manufacturingSteps: []
+            };
+          }));
+        }
+      }
+
       toast({ title: 'Manufacturing Stage Updated', description: `Stage has been updated to ${stage}.` });
     } catch (err) {
       toast({ title: 'Error', description: 'Failed to update manufacturing stage', variant: 'destructive' });
@@ -782,6 +898,9 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
     finishedProducts,
     addFinishedProduct,
     updateFinishedProduct,
+    setFinishedProducts,
+    deleteFinishedProduct,
+    dispatchFinishedProduct,
     salesOrders,
     addSalesOrder,
     updateSalesOrderStatus,
@@ -792,13 +911,11 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
     purchaseOrders,
     addPurchaseOrder,
     updatePurchaseOrderStatus,
-    suppliers,
-    addSupplier,
-    updateSupplier,
-    deleteSupplier,
     checkProductAvailability,
     getActiveBatches,
     getCompletedBatches,
+    backendProducts,
+    setBackendProducts,
   };
   
   return (

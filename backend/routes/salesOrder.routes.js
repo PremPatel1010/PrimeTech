@@ -5,7 +5,8 @@ import {
   createSalesOrder,
   updateSalesOrder,
   deleteSalesOrder,
-  updateStatus
+  updateStatus,
+  getNextOrderNumber
 } from '../controllers/salesOrder.controller.js';
 import { authenticate } from '../middleware/auth.middleware.js';
 
@@ -29,5 +30,8 @@ router.delete('/:salesOrderId', authenticate, deleteSalesOrder);
 
 // Update sales order status
 router.put('/:id/status', updateStatus);
+
+// Get next order number
+router.get('/next-order-number', getNextOrderNumber);
 
 export default router; 
