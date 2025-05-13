@@ -25,4 +25,9 @@ export async function editBatch(trackingId: string, update: any) {
 export async function deleteBatch(trackingId: string) {
   const res = await axiosInstance.delete(`/manufacturing-progress/batches/${trackingId}`);
   return res.data;
+}
+
+export async function completeManufacturing(orderId: string, orderItemId: string) {
+  const res = await axiosInstance.put(`/manufacturing-progress/order/${orderId}/item/${orderItemId}/complete`);
+  return res.data;
 } 

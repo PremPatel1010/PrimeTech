@@ -4,7 +4,8 @@ import {
   getPurchaseOrder,
   createPurchaseOrder,
   updatePurchaseOrder,
-  deletePurchaseOrder
+  deletePurchaseOrder,
+  getNextOrderNumber
 } from '../controllers/purchaseOrder.controller.js';
 import { authenticate } from '../middleware/auth.middleware.js';
 
@@ -12,6 +13,9 @@ const router = express.Router();
 
 // Get all purchase orders
 router.get('/', authenticate, getAllPurchaseOrders);
+
+// Add route for next order number
+router.get('/next-order-number', getNextOrderNumber);
 
 // Get a single purchase order
 router.get('/:poId', authenticate, getPurchaseOrder);

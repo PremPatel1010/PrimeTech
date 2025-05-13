@@ -88,7 +88,7 @@ const Manufacturing: React.FC = () => {
         ];
 
   // Get orders awaiting materials for manufacturing
-  const ordersAwaitingMaterials = salesOrders.filter(order => 
+  const ordersAwaitingMaterials = (salesOrders || []).filter(order => 
     order.status === 'awaiting_materials'
   );
 

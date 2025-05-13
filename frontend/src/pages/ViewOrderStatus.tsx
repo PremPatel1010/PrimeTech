@@ -43,7 +43,7 @@ import {
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
-import { fetchSalesOrders, updateSalesOrder, fetchNextOrderNumber } from '../services/salesOrderService';
+import { fetchSalesOrders, updateSalesOrder, fetchNextOrderNumber, deleteSalesOrder } from '../services/salesOrderService';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { productService, Product } from '../services/productService';
@@ -62,6 +62,8 @@ const ViewOrderStatus: React.FC = () => {
     orderNumber: `SO-${new Date().getFullYear()}-001`,
     date: new Date().toISOString().split('T')[0],
     customerName: '',
+    discount: 0,
+    gst: 18,
     products: [],
     status: 'pending',
     totalValue: 0
@@ -73,6 +75,11 @@ const ViewOrderStatus: React.FC = () => {
   const [editOrder, setEditOrder] = useState<SalesOrder | null>(null);
   const [isUpdating, setIsUpdating] = useState(false);
   const [orderTab, setOrderTab] = useState<'active' | 'history'>('active');
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [orderToDelete, setOrderToDelete] = useState<SalesOrder | null>(null);
+  const [activePage, setActivePage] = useState(1);
+  const [activeHistoryPage, setActiveHistoryPage] = useState(1);
+  const ORDERS_PER_PAGE = 5;
   
   useEffect(() => {
     fetchSalesOrders().then((data) => {
@@ -127,6 +134,21 @@ const ViewOrderStatus: React.FC = () => {
       (order.customerName?.toLowerCase() || '').includes(searchTerm.toLowerCase());
     return matchesSearch;
   });
+  
+  // Paginate filtered orders
+  const paginatedActiveOrders = filteredActiveOrders.slice((activePage - 1) * ORDERS_PER_PAGE, activePage * ORDERS_PER_PAGE);
+  const totalPages = Math.ceil(filteredActiveOrders.length / ORDERS_PER_PAGE);
+  
+  const paginatedHistoryOrders = filteredHistoryOrders.slice((activeHistoryPage - 1) * ORDERS_PER_PAGE, activeHistoryPage * ORDERS_PER_PAGE);
+  const totalHistoryPages = Math.ceil(filteredHistoryOrders.length / ORDERS_PER_PAGE);
+  
+  // Reset page when filter/search/tab changes
+  useEffect(() => {
+    setActivePage(1);
+  }, [searchTerm, selectedStatus, orderTab]);
+  useEffect(() => {
+    setActiveHistoryPage(1);
+  }, [searchTerm, orderTab]);
   
   const getStatusIcon = (status: OrderStatus) => {
     switch (status) {
@@ -362,6 +384,8 @@ const ViewOrderStatus: React.FC = () => {
       orderNumber: `SO-${new Date().getFullYear()}-001`,
       date: new Date().toISOString().split('T')[0],
       customerName: '',
+      discount: 0,
+      gst: 18,
       products: [],
       status: 'pending',
       totalValue: 0
@@ -479,6 +503,64 @@ const ViewOrderStatus: React.FC = () => {
       setIsUpdating(false);
     }
   };
+
+  const handleDeleteClick = (order: SalesOrder) => {
+    setOrderToDelete(order);
+    setIsDeleteDialogOpen(true);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (orderToDelete) {
+      await deleteSalesOrder(orderToDelete.id);
+      setIsDeleteDialogOpen(false);
+      setOrderToDelete(null);
+      fetchSalesOrders().then((data) => {
+        const mapped = data.map((order: any) => ({
+          id: order.sales_order_id || order.id,
+          orderNumber: order.order_number,
+          date: order.order_date,
+          customerName: order.customer_name,
+          products: (order.order_items || order.products || []).map((p: any) => ({
+            ...p,
+            price: p.price || p.unit_price || 0,
+            quantity: typeof p.quantity === 'number' ? p.quantity : 0
+          })),
+          status: order.status,
+          totalValue: order.total_amount,
+          discount: order.discount,
+          gst: order.gst,
+          partialFulfillment: order.partialFulfillment || [],
+        }));
+        setOrders(mapped);
+      });
+    }
+  };
+  
+  const ProductAvailabilityInfo = ({ productId, quantity, finishedProducts }) => {
+    const productInventory = finishedProducts.find(p => String(p.product_id) === String(productId));
+    const available = productInventory ? productInventory.quantity_available : 0;
+    const ready = Math.min(quantity, available);
+    const toManufacture = Math.max(0, quantity - available);
+    return (
+      <div className="flex gap-2 items-center mt-1">
+        {ready > 0 && (
+          <span className="inline-block px-2 py-1 rounded bg-green-100 text-green-800 text-xs font-semibold border border-green-200">
+            {ready} Ready
+          </span>
+        )}
+        {toManufacture > 0 && (
+          <span className="inline-block px-2 py-1 rounded bg-yellow-100 text-yellow-800 text-xs font-semibold border border-yellow-200">
+            {toManufacture} Manufacturing
+          </span>
+        )}
+        {(ready === 0 && toManufacture === 0) && (
+          <span className="inline-block px-2 py-1 rounded bg-gray-100 text-gray-800 text-xs font-semibold border border-gray-200">
+            No stock info
+          </span>
+        )}
+      </div>
+    );
+  };
   
   return (
     <div className="space-y-6">
@@ -536,8 +618,8 @@ const ViewOrderStatus: React.FC = () => {
       {/* Orders List by Tab */}
       {orderTab === 'active' ? (
         <div className="space-y-4">
-          {filteredActiveOrders.length > 0 ? (
-            filteredActiveOrders.map((order) => (
+          {paginatedActiveOrders.length > 0 ? (
+            paginatedActiveOrders.map((order) => (
               <React.Fragment key={order.id}>
                 <Card className="overflow-hidden">
                   <CardHeader className="bg-factory-gray-50 py-4">
@@ -580,7 +662,7 @@ const ViewOrderStatus: React.FC = () => {
                           <TableBody>
                             {(order.products || []).map((product, idx) => (
                               <TableRow key={idx}>
-                                <TableCell className="font-medium">{product.productName}</TableCell>
+                                <TableCell className="font-medium">{product.productName || (product as any)["product_name"] || product.productId}</TableCell>
                                 <TableCell>{product.quantity}</TableCell>
                                 <TableCell>{formatCurrency(product.price || 0)}</TableCell>
                                 <TableCell className="text-right">
@@ -605,6 +687,9 @@ const ViewOrderStatus: React.FC = () => {
                       </Select>
                       <Button variant="outline" size="sm" onClick={() => handleEditClick(order)}>
                         Edit
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => handleDeleteClick(order)} color="red">
+                        Delete
                       </Button>
                     </div>
                   </CardContent>
@@ -659,11 +744,25 @@ const ViewOrderStatus: React.FC = () => {
               <p className="text-factory-gray-500">No active orders found.</p>
             </div>
           )}
+          {/* Pagination for active orders */}
+          {totalPages > 1 && (
+            <div className="flex justify-center mt-6 gap-2">
+              {Array.from({ length: totalPages }, (_, i) => (
+                <button
+                  key={i + 1}
+                  className={`px-3 py-1 rounded border ${activePage === i + 1 ? 'bg-factory-primary text-white' : 'bg-white text-factory-primary border-factory-primary'}`}
+                  onClick={() => setActivePage(i + 1)}
+                >
+                  {i + 1}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       ) : (
         <div className="space-y-4">
-          {filteredHistoryOrders.length > 0 ? (
-            filteredHistoryOrders.map((order) => (
+          {paginatedHistoryOrders.length > 0 ? (
+            paginatedHistoryOrders.map((order) => (
               <Card key={order.id} className="overflow-hidden">
                 <CardHeader className="bg-factory-gray-50 py-4">
                   <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
@@ -705,7 +804,7 @@ const ViewOrderStatus: React.FC = () => {
                         <TableBody>
                           {(order.products || []).map((product, idx) => (
                             <TableRow key={idx}>
-                              <TableCell className="font-medium">{product.productName}</TableCell>
+                              <TableCell className="font-medium">{product.productName || (product as any)["product_name"] || product.productId}</TableCell>
                               <TableCell>{product.quantity}</TableCell>
                               <TableCell>{formatCurrency(product.price || 0)}</TableCell>
                               <TableCell className="text-right">
@@ -731,6 +830,9 @@ const ViewOrderStatus: React.FC = () => {
                     <Button variant="outline" size="sm" onClick={() => handleEditClick(order)}>
                       Edit
                     </Button>
+                    <Button variant="outline" size="sm" onClick={() => handleDeleteClick(order)} color="red">
+                      Delete
+                    </Button>
                   </div>
                 </CardContent>
               </Card>
@@ -740,11 +842,25 @@ const ViewOrderStatus: React.FC = () => {
               <p className="text-factory-gray-500">No order history found.</p>
             </div>
           )}
+          {/* Pagination for order history */}
+          {totalHistoryPages > 1 && (
+            <div className="flex justify-center mt-6 gap-2">
+              {Array.from({ length: totalHistoryPages }, (_, i) => (
+                <button
+                  key={i + 1}
+                  className={`px-3 py-1 rounded border ${activeHistoryPage === i + 1 ? 'bg-factory-primary text-white' : 'bg-white text-factory-primary border-factory-primary'}`}
+                  onClick={() => setActiveHistoryPage(i + 1)}
+                >
+                  {i + 1}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       )}
       {/* Add Sales Order Dialog */}
       <Dialog open={isDialogOpen} onOpenChange={(open) => { if (!isProcessing) setIsDialogOpen(open); }}>
-        <DialogContent className="sm:max-w-[600px]">
+        <DialogContent className="sm:max-w-[600px] max-h-[80vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Create New Sales Order</DialogTitle>
           </DialogHeader>
@@ -778,6 +894,26 @@ const ViewOrderStatus: React.FC = () => {
                 placeholder="Customer name"
               />
             </div>
+            <div className="space-y-2">
+              <Label htmlFor="discount">Discount (%)</Label>
+              <Input
+                id="discount"
+                type="number"
+                value={newOrder.discount}
+                onChange={e => setNewOrder({ ...newOrder, discount: Number(e.target.value) })}
+                className="mb-2"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="gst">GST (%)</Label>
+              <Input
+                id="gst"
+                type="number"
+                value={newOrder.gst}
+                onChange={e => setNewOrder({ ...newOrder, gst: Number(e.target.value) })}
+                className="mb-4"
+              />
+            </div>
             <h4 className="font-medium mb-2">Add Products</h4>
             <div className="grid grid-cols-3 gap-4 mb-4">
               <div className="col-span-3 md:col-span-1 space-y-2">
@@ -806,6 +942,13 @@ const ViewOrderStatus: React.FC = () => {
                   onChange={(e) => setProductQuantity(parseInt(e.target.value) || 0)}
             />
           </div>
+              {selectedProduct && productQuantity > 0 && (
+                <ProductAvailabilityInfo
+                  productId={selectedProduct}
+                  quantity={productQuantity}
+                  finishedProducts={finishedProducts}
+                />
+              )}
               <div className="flex items-end">
                 <Button 
                   onClick={handleAddProduct}
@@ -927,12 +1070,19 @@ const ViewOrderStatus: React.FC = () => {
               <div className="space-y-2">
                 {editOrder.products.map((product, idx) => (
                   <div key={idx} className="flex gap-2 items-center mb-2">
-                    <Input
-                      className="w-1/3"
-                      value={product.productName}
-                      onChange={e => handleEditProductChange(idx, 'productName', e.target.value)}
-                      placeholder="Product Name"
-                    />
+                    <Select
+                      value={product.productId}
+                      onValueChange={val => handleEditProductChange(idx, 'productId', val)}
+                    >
+                      <SelectTrigger className="w-1/3">
+                        <SelectValue placeholder="Select product" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {products.map((prod) => (
+                          <SelectItem key={prod.product_id} value={String(prod.product_id)}>{prod.product_name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                     <Input
                       className="w-1/6"
                       type="number"
@@ -966,6 +1116,25 @@ const ViewOrderStatus: React.FC = () => {
             </Button>
             <Button onClick={handleEditSave} className="bg-factory-primary hover:bg-factory-primary/90" disabled={isUpdating}>
               {isUpdating ? 'Saving...' : 'Save Changes'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      {/* Delete Order Dialog */}
+      <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Sales Order</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete order {orderToDelete?.orderNumber}?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsDeleteDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleDeleteConfirm} className="bg-red-600 hover:bg-red-700 text-white">
+              Delete
             </Button>
           </DialogFooter>
         </DialogContent>

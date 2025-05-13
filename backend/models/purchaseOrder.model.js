@@ -1,4 +1,5 @@
 import pool from '../db/db.js';
+import RawMaterial from './rawMaterial.model.js';
 
 class PurchaseOrder {
   // Get all purchase orders
@@ -74,6 +75,8 @@ class PurchaseOrder {
     supplier_id,
     status, 
     payment_details,
+    discount,
+    gst,
     items 
   }) {
     const client = await pool.connect();
@@ -83,8 +86,8 @@ class PurchaseOrder {
       // Insert purchase order header
       const poQuery = `
         INSERT INTO purchase.purchase_order 
-        (order_number, order_date, supplier_id, status, payment_details)
-        VALUES ($1, $2, $3, $4, $5)
+        (order_number, order_date, supplier_id, status, payment_details, discount, gst)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
         RETURNING *
       `;
       const poValues = [
@@ -92,7 +95,9 @@ class PurchaseOrder {
         order_date, 
         supplier_id,
         status, 
-        payment_details
+        payment_details,
+        discount || 0,
+        gst || 18
       ];
       
       const poResult = await client.query(poQuery, poValues);
@@ -136,6 +141,10 @@ class PurchaseOrder {
     try {
       await client.query('BEGIN');
 
+      // Get the current status before updating
+      const currentOrder = await client.query('SELECT status FROM purchase.purchase_order WHERE purchase_order_id = $1', [poId]);
+      const prevStatus = currentOrder.rows[0]?.status;
+
       // Update purchase order header
       const setClauses = [];
       const values = [];
@@ -164,6 +173,16 @@ class PurchaseOrder {
       if (updateData.payment_details !== undefined) {
         setClauses.push(`payment_details = $${paramCount}`);
         values.push(updateData.payment_details);
+        paramCount++;
+      }
+      if (updateData.discount !== undefined) {
+        setClauses.push(`discount = $${paramCount}`);
+        values.push(updateData.discount);
+        paramCount++;
+      }
+      if (updateData.gst !== undefined) {
+        setClauses.push(`gst = $${paramCount}`);
+        values.push(updateData.gst);
         paramCount++;
       }
 
@@ -203,6 +222,28 @@ class PurchaseOrder {
         }
       }
 
+      // If status changed to 'arrived', add materials to inventory
+      if (updateData.status === 'arrived' && prevStatus !== 'arrived') {
+        // Get all materials for this purchase order
+        const materialsRes = await client.query(
+          `SELECT material_id, quantity FROM purchase.purchase_order_items WHERE purchase_order_id = $1`,
+          [poId]
+        );
+        for (const mat of materialsRes.rows) {
+          // Get current stock
+          const material = await client.query(
+            `SELECT current_stock FROM inventory.raw_materials WHERE material_id = $1`,
+            [mat.material_id]
+          );
+          const currentStock = material.rows[0]?.current_stock || 0;
+          // Update stock
+          await client.query(
+            `UPDATE inventory.raw_materials SET current_stock = $1 WHERE material_id = $2`,
+            [Number(currentStock) + Number(mat.quantity), mat.material_id]
+          );
+        }
+      }
+
       await client.query('COMMIT');
       return await this.getPurchaseOrderById(poId);
     } catch (error) {
@@ -233,6 +274,24 @@ class PurchaseOrder {
     } finally {
       client.release();
     }
+  }
+
+  static async getNextOrderNumber() {
+    const year = new Date().getFullYear();
+    const prefix = `PO-${year}-`;
+    const result = await pool.query(
+      `SELECT order_number FROM purchase.purchase_order WHERE order_number LIKE $1 ORDER BY order_number DESC LIMIT 1`,
+      [`${prefix}%`]
+    );
+    let nextNumber = 1;
+    if (result.rows.length > 0) {
+      const lastOrderNumber = result.rows[0].order_number;
+      const match = lastOrderNumber.match(/PO-\d{4}-(\d+)/);
+      if (match) {
+        nextNumber = parseInt(match[1], 10) + 1;
+      }
+    }
+    return `${prefix}${String(nextNumber).padStart(3, '0')}`;
   }
 }
 

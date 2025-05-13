@@ -154,11 +154,18 @@ class ManufacturingProgress {
       `, [orderId, orderItemId]);
 
       // Add to finished products inventory
+      // Get unit_price from sales order item
+      const soiRes = await client.query(`
+        SELECT unit_price FROM sales.sales_order_items WHERE item_id = $1`, [orderItemId]);
+      const unit_price = soiRes.rows[0]?.unit_price || 0;
+      const total_price = unit_price * progress.quantity;
       const finishedProductData = {
         product_id: progress.product_id,
         quantity_available: progress.quantity,
         status: 'available',
-        storage_location: 'Default Storage' // You might want to make this configurable
+        storage_location: 'Default Storage',
+        unit_price,
+        total_price
       };
 
       // Check if product already exists in inventory
@@ -170,23 +177,17 @@ class ManufacturingProgress {
 
       if (existingInventory.rows.length > 0) {
         // Update existing inventory
-        await client.query(`
-          UPDATE inventory.finished_products 
-          SET quantity_available = quantity_available + $1
-          WHERE product_id = $2
-        `, [progress.quantity, progress.product_id]);
+        const finishedProductId = existingInventory.rows[0].finished_product_id;
+        await FinishedProduct.updateFinishedProduct(finishedProductId, {
+          quantity_available: existingInventory.rows[0].quantity_available + progress.quantity,
+          unit_price,
+          total_price: (existingInventory.rows[0].total_price || 0) + total_price,
+          status: 'available',
+          storage_location: 'Default Storage'
+        });
       } else {
         // Create new inventory entry
-        await client.query(`
-          INSERT INTO inventory.finished_products 
-          (product_id, quantity_available, status, storage_location)
-          VALUES ($1, $2, $3, $4)
-        `, [
-          progress.product_id,
-          progress.quantity,
-          'available',
-          'Default Storage'
-        ]);
+        await FinishedProduct.createFinishedProduct(finishedProductData);
       }
 
       await client.query('COMMIT');
@@ -220,8 +221,18 @@ class ManufacturingProgress {
   // Get all manufacturing batches
   static async getAllBatches() {
     const result = await pool.query(`
-      SELECT * FROM manufacturing.product_manufacturing
-      ORDER BY updated_at DESC
+      SELECT 
+        mp.*, 
+        soi.product_id, 
+        soi.quantity as order_quantity, 
+        so.order_number, 
+        so.customer_name, 
+        p.product_name
+      FROM manufacturing.product_manufacturing mp
+      LEFT JOIN sales.sales_order_items soi ON mp.sales_order_item_id = soi.item_id
+      LEFT JOIN sales.sales_order so ON mp.sales_order_id = so.sales_order_id
+      LEFT JOIN products.product p ON soi.product_id = p.product_id
+      ORDER BY mp.updated_at DESC
     `);
     return result.rows;
   }

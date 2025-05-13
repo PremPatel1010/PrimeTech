@@ -14,6 +14,7 @@ import { Plus, FileText, Upload, Search, Download, Filter } from 'lucide-react';
 import { supplierService } from '../services/supplierService';
 import { rawMaterialService } from '../services/rawMaterial.service';
 import { toast } from '@/hooks/use-toast';
+import axiosInstance from '@/utils/axios';
 
 const PurchaseOrders: React.FC = () => {
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
@@ -23,10 +24,13 @@ const PurchaseOrders: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [newOrder, setNewOrder] = useState<Omit<PurchaseOrder, 'purchase_order_id'>>({
-    order_number: `PO-${new Date().getFullYear()}-001`,
+    order_number: '',
     order_date: new Date().toISOString().split('T')[0],
     supplier_id: 0,
     status: 'ordered',
+    discount: 0,
+    gst: 18,
+    total_amount: 0,
     materials: []
   });
   const [newMaterial, setNewMaterial] = useState<PurchaseMaterial>({
@@ -38,6 +42,8 @@ const PurchaseOrders: React.FC = () => {
   const [editOrder, setEditOrder] = useState<PurchaseOrder | null>(null);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [deleteOrderId, setDeleteOrderId] = useState<number | null>(null);
+  const [activePage, setActivePage] = useState(1);
+  const ORDERS_PER_PAGE = 5;
 
   useEffect(() => {
     loadPurchaseOrders();
@@ -88,6 +94,9 @@ const PurchaseOrders: React.FC = () => {
     return matchesSearchTerm && matchesStatus;
   });
 
+  const paginatedOrders = filteredOrders.slice((activePage - 1) * ORDERS_PER_PAGE, activePage * ORDERS_PER_PAGE);
+  const totalPages = Math.ceil(filteredOrders.length / ORDERS_PER_PAGE);
+
   const handleAddMaterial = () => {
     if (newMaterial.material_id && newMaterial.quantity && newMaterial.unit_price) {
       const material: PurchaseMaterial = {
@@ -122,13 +131,30 @@ const PurchaseOrders: React.FC = () => {
   };
 
   const handleCreateOrder = async () => {
+    console.log('handleCreateOrder called');
+    const subtotal = (newOrder.materials || []).reduce((sum, m) => sum + (m.quantity * m.unit_price), 0);
+    const discountAmount = subtotal * (Number(newOrder.discount) / 100);
+    const gstAmount = (subtotal - discountAmount) * (Number(newOrder.gst) / 100);
+    const calculatedFinal = subtotal - discountAmount + gstAmount;
+    const finalPrice = newOrder.total_amount && newOrder.total_amount !== calculatedFinal ? newOrder.total_amount : calculatedFinal;
+    console.log('Debug values:', {
+      order_date: newOrder.order_date,
+      supplier_id: newOrder.supplier_id,
+      materials: newOrder.materials,
+      finalPrice,
+      order_number: newOrder.order_number
+    });
     if (
-      newOrder.order_number &&
+      newOrder.order_date &&
       newOrder.supplier_id &&
       newOrder.materials &&
-      newOrder.materials.length > 0
+      newOrder.materials.length > 0 &&
+      finalPrice > 0 &&
+      newOrder.order_number
     ) {
-      await purchaseOrderService.create(newOrder);
+      const postBody = { ...newOrder, total_amount: finalPrice, materials: newOrder.materials };
+      console.log('Sending POST body:', postBody);
+      await purchaseOrderService.create(postBody);
       setIsDialogOpen(false);
       resetNewOrder();
       loadPurchaseOrders();
@@ -137,10 +163,13 @@ const PurchaseOrders: React.FC = () => {
 
   const resetNewOrder = () => {
     setNewOrder({
-      order_number: `PO-${new Date().getFullYear()}-001`,
+      order_number: '',
       order_date: new Date().toISOString().split('T')[0],
       supplier_id: 0,
       status: 'ordered',
+      discount: 0,
+      gst: 18,
+      total_amount: 0,
       materials: []
     });
   };
@@ -192,12 +221,29 @@ const PurchaseOrders: React.FC = () => {
     toast({ title: 'Status updated' });
   };
 
+  const handleOpenDialog = async () => {
+    try {
+      const res = await axiosInstance.get('/purchase-orders/next-order-number');
+      console.log('Next order number:', res.data);
+      setNewOrder((prev) => ({ ...prev, order_number: res.data.nextOrderNumber }));
+      setIsDialogOpen(true);
+    } catch (error) {
+      console.error('Error fetching next order number:', error);
+    }
+  };
+
+  const subtotal = (newOrder.materials || []).reduce((sum, m) => sum + (m.quantity * m.unit_price), 0);
+  const discountAmount = subtotal * (Number(newOrder.discount) / 100);
+  const gstAmount = (subtotal - discountAmount) * (Number(newOrder.gst) / 100);
+  const calculatedFinal = subtotal - discountAmount + gstAmount;
+  const finalPrice = newOrder.total_amount && newOrder.total_amount !== calculatedFinal ? newOrder.total_amount : calculatedFinal;
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <h1 className="text-2xl font-bold text-factory-gray-900">Purchase Orders</h1>
         <Button 
-          onClick={() => setIsDialogOpen(true)}
+          onClick={handleOpenDialog}
           className="bg-factory-primary hover:bg-factory-primary/90"
         >
           <Plus className="mr-2 h-4 w-4" />
@@ -232,8 +278,8 @@ const PurchaseOrders: React.FC = () => {
       </div>
       {/* Purchase Orders List */}
       <div className="space-y-4">
-        {filteredOrders.length > 0 ? (
-          filteredOrders.map((order) => (
+        {paginatedOrders.length > 0 ? (
+          paginatedOrders.map((order) => (
             <Card key={order.purchase_order_id} className="overflow-hidden">
               <CardHeader className="bg-factory-gray-50 py-4">
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
@@ -267,7 +313,7 @@ const PurchaseOrders: React.FC = () => {
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead>Material ID</TableHead>
+                          <TableHead>Material</TableHead>
                           <TableHead>Quantity</TableHead>
                           <TableHead>Unit</TableHead>
                           <TableHead>Unit Price</TableHead>
@@ -277,7 +323,10 @@ const PurchaseOrders: React.FC = () => {
                       <TableBody>
                         {(order.materials || []).map((material, idx) => (
                           <TableRow key={idx}>
-                            <TableCell className="font-medium">{material.material_name || material.material_id}</TableCell>
+                            <TableCell className="font-medium">
+                              {material.material_id}
+                              {material.material_name ? ` - ${material.material_name}` : ''}
+                            </TableCell>
                             <TableCell>{material.quantity}</TableCell>
                             <TableCell>{material.unit}</TableCell>
                             <TableCell>{formatCurrency(material.unit_price)}</TableCell>
@@ -319,31 +368,36 @@ const PurchaseOrders: React.FC = () => {
           </div>
         )}
       </div>
+      {/* Pagination UI at bottom */}
+      {totalPages > 1 && (
+        <div className="flex justify-center mt-6 gap-2">
+          {Array.from({ length: totalPages }, (_, i) => (
+            <button
+              key={i + 1}
+              className={`px-3 py-1 rounded border ${activePage === i + 1 ? 'bg-factory-primary text-white' : 'bg-white text-factory-primary border-factory-primary'}`}
+              onClick={() => setActivePage(i + 1)}
+            >
+              {i + 1}
+            </button>
+          ))}
+        </div>
+      )}
       {/* Create Purchase Order Dialog */}
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="sm:max-w-[600px]">
+        <DialogContent className="sm:max-w-[600px] max-h-[80vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Create Purchase Order</DialogTitle>
           </DialogHeader>
           <div className="grid gap-4 py-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="orderNumber">Order Number</Label>
-                <Input 
-                  id="orderNumber" 
-                  value={newOrder.order_number} 
-                  onChange={(e) => setNewOrder({...newOrder, order_number: e.target.value})}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="date">Order Date</Label>
-                <Input 
-                  id="date" 
-                  type="date" 
-                  value={newOrder.order_date} 
-                  onChange={(e) => setNewOrder({...newOrder, order_date: e.target.value})}
-                />
-              </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="date">Order Date</Label>
+              <Input 
+                id="date" 
+                type="date" 
+                value={newOrder.order_date} 
+                onChange={(e) => setNewOrder({...newOrder, order_date: e.target.value})}
+              />
             </div>
             <div className="space-y-2">
               <Label htmlFor="supplier">Select Supplier</Label>
@@ -492,6 +546,52 @@ const PurchaseOrders: React.FC = () => {
                 )}
               </div>
             </div>
+            <div className="space-y-2">
+              <Label htmlFor="discount">Discount (%)</Label>
+              <Input
+                id="discount"
+                type="number"
+                value={newOrder.discount}
+                onChange={e => setNewOrder({ ...newOrder, discount: Number(e.target.value) })}
+                className="mb-2"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="gst">GST (%)</Label>
+              <Input
+                id="gst"
+                type="number"
+                value={newOrder.gst}
+                onChange={e => setNewOrder({ ...newOrder, gst: Number(e.target.value) })}
+                className="mb-4"
+              />
+            </div>
+            {/* Pricing/Bill Section */}
+            <div className="border rounded-md p-4 mt-2 bg-gray-50">
+              <div className="flex justify-between mb-1">
+                <span>Subtotal</span>
+                <span>{formatCurrency(subtotal)}</span>
+              </div>
+              <div className="flex justify-between mb-1">
+                <span>Discount</span>
+                <span>-{formatCurrency(discountAmount)}</span>
+              </div>
+              <div className="flex justify-between mb-1">
+                <span>GST</span>
+                <span>+{formatCurrency(gstAmount)}</span>
+              </div>
+              <div className="flex justify-between items-center mt-2 font-bold">
+                <span>Final Price</span>
+                <Input
+                  type="number"
+                  value={finalPrice}
+                  onChange={e => setNewOrder({ ...newOrder, total_amount: Number(e.target.value) })}
+                  className="w-32 text-right font-bold"
+                  min={0}
+                  step={0.01}
+                />
+              </div>
+            </div>
           </div>
           <DialogFooter>
             <Button 
@@ -506,10 +606,11 @@ const PurchaseOrders: React.FC = () => {
             <Button 
               onClick={handleCreateOrder}
               disabled={
-                !newOrder.order_number || 
-                !newOrder.supplier_id || 
-                !newOrder.materials || 
-                newOrder.materials.length === 0
+                !newOrder.order_date ||
+                !newOrder.supplier_id ||
+                !newOrder.materials ||
+                newOrder.materials.length === 0 ||
+                finalPrice <= 0
               }
             >
               Create Order

@@ -34,6 +34,8 @@ export const createPurchaseOrder = async (req, res) => {
       supplier_id,
       status,
       payment_details,
+      discount,
+      gst,
       materials // frontend sends 'materials' not 'items'
     } = req.body;
 
@@ -80,6 +82,8 @@ export const createPurchaseOrder = async (req, res) => {
       supplier_id,
       status,
       payment_details,
+      discount,
+      gst,
       items
     });
 
@@ -102,6 +106,8 @@ export const updatePurchaseOrder = async (req, res) => {
       supplier_id, 
       status, 
       payment_details,
+      discount,
+      gst,
       materials, // Accept materials from frontend
       items // Keep items for backward compatibility
     } = req.body;
@@ -122,6 +128,8 @@ export const updatePurchaseOrder = async (req, res) => {
       supplier_id,
       status,
       payment_details,
+      discount,
+      gst,
       items: itemsToUpdate
     });
 
@@ -155,5 +163,14 @@ export const deletePurchaseOrder = async (req, res) => {
   } catch (error) {
     console.error('Error in deletePurchaseOrder:', error);
     res.status(500).json({ message: 'Error deleting purchase order', error: error.message });
+  }
+};
+
+export const getNextOrderNumber = async (req, res) => {
+  try {
+    const nextOrderNumber = await PurchaseOrder.getNextOrderNumber();
+    res.json({ nextOrderNumber });
+  } catch (error) {
+    res.status(500).json({ message: 'Error generating next order number', error: error.message });
   }
 }; 

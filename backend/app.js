@@ -15,6 +15,7 @@ import manufacturingProgressRoutes from './routes/manufacturingProgress.routes.j
 import finishedProductRoutes from './routes/finishedProduct.routes.js';
 import revenueAnalysisRoutes from './routes/revenueAnalysis.routes.js';
 import notificationRoutes from './routes/notification.routes.js';
+import kpiRoutes from './routes/kpi.routes.js';
 
 dotenv.config();
 
@@ -39,6 +40,7 @@ app.use('/api/manufacturing-progress', manufacturingProgressRoutes);
 app.use('/api/finished-products', finishedProductRoutes);
 app.use('/api/revenue-analysis', revenueAnalysisRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/kpi', kpiRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {

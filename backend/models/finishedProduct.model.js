@@ -50,14 +50,15 @@ class FinishedProduct {
       // Create finished product entry
       const result = await client.query(`
         INSERT INTO inventory.finished_products 
-        (product_id, quantity_available, storage_location, status)
-        VALUES ($1, $2, $3, $4)
+        (product_id, quantity_available, storage_location, status, unit_price)
+        VALUES ($1, $2, $3, $4, $5)
         RETURNING *
       `, [
         productData.product_id,
         productData.quantity_available,
         productData.storage_location,
-        productData.status || 'available'
+        productData.status || 'available',
+        productData.unit_price || 0
       ]);
 
       await client.query('COMMIT');
@@ -78,7 +79,8 @@ class FinishedProduct {
       const {
         quantity_available,
         storage_location,
-        status
+        status,
+        unit_price
       } = updateData;
 
       const updateFields = [];
@@ -98,6 +100,11 @@ class FinishedProduct {
       if (status !== undefined) {
         updateFields.push(`status = $${paramCount}`);
         values.push(status);
+        paramCount++;
+      }
+      if (unit_price !== undefined) {
+        updateFields.push(`unit_price = $${paramCount}`);
+        values.push(unit_price);
         paramCount++;
       }
 

@@ -94,6 +94,8 @@ CREATE TABLE sales.sales_order_items (
     product_category VARCHAR(100),
     product_id INTEGER REFERENCES products.product(product_id),
     quantity INTEGER NOT NULL,
+    discount DECIMAL(5,2) DEFAULT 0,
+    gst DECIMAL(5,2) DEFAULT 18,
     unit_price DECIMAL(10, 2) NOT NULL,
     total_price DECIMAL(10, 2) GENERATED ALWAYS AS (quantity * unit_price) STORED,
     fulfilled_from_inventory BOOLEAN DEFAULT FALSE
@@ -109,6 +111,8 @@ CREATE TABLE purchase.purchase_order (
     supplier_id INTEGER REFERENCES purchase.suppliers(supplier_id) ON DELETE SET NULL,
     status VARCHAR(20) CHECK (status IN ('ordered', 'arrived', 'cancelled')) DEFAULT 'ordered',
     payment_details TEXT,
+    discount DECIMAL(5,2) DEFAULT 0,
+    gst DECIMAL(5,2) DEFAULT 18,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -367,5 +371,7 @@ CREATE TRIGGER check_finished_products_stock
 AFTER INSERT OR UPDATE ON inventory.finished_products
 FOR EACH ROW
 EXECUTE FUNCTION inventory.check_stock_levels();
+
+
 
 

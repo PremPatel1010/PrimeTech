@@ -35,7 +35,6 @@ export const getSalesOrder = async (req, res) => {
 export const createSalesOrder = async (req, res) => {
   try {
     const {
-      order_number,
       order_date,
       customer_name,
       discount,
@@ -45,9 +44,6 @@ export const createSalesOrder = async (req, res) => {
     } = req.body;
 
     // Validate required fields
-    if (!order_number) {
-      return res.status(400).json({ message: 'Order number is required' });
-    }
     if (!order_date) {
       return res.status(400).json({ message: 'Order date is required' });
     }
@@ -92,12 +88,15 @@ export const createSalesOrder = async (req, res) => {
       }
     }
 
+    // Always generate a unique order number
+    const order_number = await SalesOrder.getNextOrderNumber();
+
     const salesOrderData = {
       order_number,
       order_date,
       customer_name,
-      discount: discount || 0,
-      gst: gst || 18,
+      discount,
+      gst,
       total_amount,
       items
     };
@@ -119,48 +118,38 @@ export const updateSalesOrder = async (req, res) => {
       return res.status(400).json({ message: 'Invalid sales order ID' });
     }
 
-    const {
-      order_number,
-      order_date,
-      customer_name,
-      discount,
-      gst,
-      total_amount,
-      status,
-      items
-    } = req.body;
+    const updateData = req.body;
 
     // Validate order date format if provided
-    if (order_date) {
+    if (updateData.order_date) {
       const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
-      if (!dateRegex.test(order_date)) {
+      if (!dateRegex.test(updateData.order_date)) {
         return res.status(400).json({ message: 'Invalid order date format. Use YYYY-MM-DD' });
       }
     }
 
     // Validate numeric fields if provided
-    if (discount !== undefined && (isNaN(discount) || discount < 0 || discount > 100)) {
+    if (updateData.discount !== undefined && (isNaN(updateData.discount) || updateData.discount < 0 || updateData.discount > 100)) {
       return res.status(400).json({ message: 'Discount must be a number between 0 and 100' });
     }
-    if (gst !== undefined && (isNaN(gst) || gst < 0 || gst > 100)) {
+    if (updateData.gst !== undefined && (isNaN(updateData.gst) || updateData.gst < 0 || updateData.gst > 100)) {
       return res.status(400).json({ message: 'GST must be a number between 0 and 100' });
     }
-    if (total_amount !== undefined && (isNaN(total_amount) || total_amount < 0)) {
+    if (updateData.total_amount !== undefined && (isNaN(updateData.total_amount) || updateData.total_amount < 0)) {
       return res.status(400).json({ message: 'Total amount must be a positive number' });
     }
 
     // Validate status if provided
-    if (status && !['pending', 'completed', 'cancelled'].includes(status)) {
+    if (updateData.status && !['pending', 'completed', 'cancelled'].includes(updateData.status)) {
       return res.status(400).json({ message: 'Invalid status. Must be pending, completed, or cancelled' });
     }
 
     // Validate items if provided
-    if (items) {
-      if (!Array.isArray(items) || items.length === 0) {
+    if (updateData.items) {
+      if (!Array.isArray(updateData.items) || updateData.items.length === 0) {
         return res.status(400).json({ message: 'At least one item is required' });
       }
-
-      for (const item of items) {
+      for (const item of updateData.items) {
         if (!item.product_category) {
           return res.status(400).json({ message: 'Product category is required for each item' });
         }
@@ -175,17 +164,6 @@ export const updateSalesOrder = async (req, res) => {
         }
       }
     }
-
-    const updateData = {
-      order_number,
-      order_date,
-      customer_name,
-      discount,
-      gst,
-      total_amount,
-      status,
-      items
-    };
 
     const salesOrder = await SalesOrder.updateSalesOrder(salesOrderId, updateData);
     

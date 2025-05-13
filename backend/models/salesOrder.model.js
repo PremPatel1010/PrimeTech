@@ -7,8 +7,17 @@ class SalesOrder {
   static async getAllSalesOrders() {
     const result = await pool.query(`
       SELECT so.*, 
-        (SELECT json_agg(items.*) 
-         FROM sales.sales_order_items items 
+        (SELECT json_agg(json_build_object(
+            'item_id', items.item_id,
+            'product_category', items.product_category,
+            'product_id', items.product_id,
+            'quantity', items.quantity,
+            'unit_price', items.unit_price,
+            'fulfilled_from_inventory', items.fulfilled_from_inventory,
+            'product_name', p.product_name
+        ))
+         FROM sales.sales_order_items items
+         LEFT JOIN products.product p ON items.product_id = p.product_id
          WHERE items.sales_order_id = so.sales_order_id) as order_items
       FROM sales.sales_order so
       ORDER BY so.created_at DESC
@@ -25,15 +34,16 @@ class SalesOrder {
           so.*,
           COALESCE(
             (
-              SELECT json_agg(
-                json_build_object(
-                  'product_category', soi.product_category,
-                  'product_id', soi.product_id,
-                  'quantity', soi.quantity,
-                  'unit_price', soi.unit_price
-                )
-              )
+              SELECT json_agg(json_build_object(
+                'product_category', soi.product_category,
+                'product_id', soi.product_id,
+                'quantity', soi.quantity,
+                'unit_price', soi.unit_price,
+                'fulfilled_from_inventory', soi.fulfilled_from_inventory,
+                'product_name', p.product_name
+              ))
               FROM sales.sales_order_items soi
+              LEFT JOIN products.product p ON soi.product_id = p.product_id
               WHERE soi.sales_order_id = so.sales_order_id
             ),
             '[]'::json
@@ -57,17 +67,17 @@ class SalesOrder {
 
       // Create sales order
       const orderResult = await client.query(`
-        INSERT INTO sales.sales_order
-        (order_number, order_date, customer_name, discount, gst, total_amount)
-        VALUES ($1, $2, $3, $4, $5, $6)
-        RETURNING *
+        INSERT INTO sales.sales_order (order_number, order_date, customer_name, discount, gst, total_amount, status)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        RETURNING sales_order_id
       `, [
         orderData.order_number,
         orderData.order_date,
         orderData.customer_name,
-        orderData.discount,
-        orderData.gst,
-        orderData.total_amount
+        orderData.discount || 0,
+        orderData.gst || 18,
+        orderData.total_amount,
+        orderData.status || 'pending'
       ]);
 
       const salesOrderId = orderResult.rows[0].sales_order_id;

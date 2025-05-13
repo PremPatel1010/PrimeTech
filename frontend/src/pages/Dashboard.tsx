@@ -41,6 +41,11 @@ const Dashboard: React.FC = () => {
     manufacturingBatches 
   } = useFactory();
   const [salesTrend, setSalesTrend] = useState<{ date: string, sales: number }[]>([]);
+  const [inventoryValues, setInventoryValues] = useState({ raw_material_value: 0, finished_product_value: 0 });
+  const [manufacturingEfficiency, setManufacturingEfficiency] = useState({ efficiency_percentage: 0, avg_completion_days: 0 });
+  const [orderStatusDistribution, setOrderStatusDistribution] = useState<{ status: string, count: number }[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   
   const rawMaterialValue = calculateRawMaterialValue(rawMaterials);
   const finishedProductValue = calculateFinishedProductValue(finishedProducts);
@@ -80,18 +85,53 @@ const Dashboard: React.FC = () => {
     })),
   ];
 
-  // Fetch sales trend from backend
+  // Fetch all KPIs
   useEffect(() => {
-    const today = new Date();
-    const startDate = '2000-01-01';
-    const endDate = today.toISOString().slice(0, 10);
-    axiosInstance.get('/api/revenue-analysis/trends', {
-      params: { periodType: 'daily', startDate, endDate }
-    }).then(res => {
-      if (res.data && res.data.success && Array.isArray(res.data.data)) {
-        setSalesTrend(res.data.data.map((d: any) => ({ date: d.start_date, sales: Number(d.total_revenue) })));
+    const fetchKPIs = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+
+        // Fetch inventory values
+        const inventoryRes = await axiosInstance.get('/kpi/inventory-values');
+        if (inventoryRes.data.success) {
+          setInventoryValues(inventoryRes.data.data);
+        }
+
+        // Fetch manufacturing efficiency
+        const efficiencyRes = await axiosInstance.get('/kpi/manufacturing-efficiency');
+        if (efficiencyRes.data.success) {
+          setManufacturingEfficiency(efficiencyRes.data.data);
+        }
+
+        // Fetch order status distribution
+        const distributionRes = await axiosInstance.get('/kpi/order-status-distribution');
+        if (distributionRes.data.success) {
+          setOrderStatusDistribution(distributionRes.data.data);
+        }
+
+        // Fetch sales trend
+        const today = new Date();
+        const startDate = '2000-01-01';
+        const endDate = today.toISOString().slice(0, 10);
+        const trendRes = await axiosInstance.get('/kpi/sales-trend', {
+          params: { periodType: 'day', startDate, endDate }
+        });
+        if (trendRes.data.success) {
+          setSalesTrend(trendRes.data.data.map((d: any) => ({
+            date: d.period_start,
+            sales: Number(d.total_revenue)
+          })));
+        }
+      } catch (err) {
+        console.error('Error fetching KPIs:', err);
+        setError('Failed to load dashboard data. Please try again later.');
+      } finally {
+        setLoading(false);
       }
-    }).catch(() => setSalesTrend([]));
+    };
+
+    fetchKPIs();
   }, []);
 
   // Get status icon component
@@ -178,206 +218,223 @@ const Dashboard: React.FC = () => {
         </p>
       </div>
 
-      {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard 
-          title="Raw Material Value" 
-          value={formatCurrency(rawMaterialValue)} 
-          icon={<Package size={20} />} 
-        />
-        <StatCard 
-          title="Finished Products Value" 
-          value={formatCurrency(finishedProductValue)} 
-          icon={<Factory size={20} />} 
-        />
-        <StatCard 
-          title="Total Sales" 
-          value={formatCurrency(totalSales)} 
-          icon={<ShoppingCart size={20} />}
-          trend={{ value: 12, positive: true }} 
-        />
-        <StatCard 
-          title="Manufacturing Efficiency" 
-          value={`${efficiency}%`} 
-          icon={<TrendingUp size={20} />}
-          trend={{ value: efficiency - 80, positive: efficiency >= 80 }} 
-        />
-      </div>
+      {error && (
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
+          {error}
+        </div>
+      )}
 
-      {/* Charts Section */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Sales Chart */}
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-lg font-medium">Daily Sales</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="h-[300px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={salesTrend}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis 
-                    dataKey="date" 
-                    tickFormatter={(value) => {
-                      const date = new Date(value);
-                      return `${date.getMonth() + 1}/${date.getDate()}`;
-                    }}
-                  />
-                  <YAxis />
-                  <Tooltip 
-                    formatter={(value: any) => [`$${value}`, 'Sales']}
-                    labelFormatter={(label) => {
-                      const date = new Date(label);
-                      return `${date.toLocaleDateString()}`;
-                    }}
-                  />
-                  <Line 
-                    type="monotone" 
-                    dataKey="sales" 
-                    stroke="#1E3A8A" 
-                    strokeWidth={2} 
-                    dot={{ r: 4 }} 
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </CardContent>
-        </Card>
-        
-        {/* Active Orders Status - Only showing active orders as requested */}
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-lg font-medium">Active Orders Status</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="h-[300px] overflow-auto">
-              {activeOrders.length > 0 ? (
-                <div className="space-y-4">
-                  {activeOrders.map(order => (
-                    <div key={order.id} className="border-b pb-3 last:border-0">
-                      <div className="flex justify-between mb-1">
-                        <div className="font-medium">{order.orderNumber}</div>
-                        <div className="text-sm text-factory-gray-500">{order.customerName}</div>
-                      </div>
-                      <div className="flex items-center gap-2 mb-2">
-                        {getStatusIcon(order.status)}
-                        <span className="text-sm">{getStatusLabel(order.status)}</span>
-                      </div>
-                      <Progress value={getStatusProgress(order.status)} className="h-2" />
-                      
-                      {/* Partial fulfillment details */}
-                      {order.status === 'partially_in_stock' && order.partialFulfillment && (
-                        <div className="mt-2 p-2 bg-blue-50 rounded-md border border-blue-100">
-                          <p className="text-xs font-medium text-blue-800 mb-1">Partial Fulfillment</p>
-                          <div className="flex justify-between text-xs text-blue-700">
-                            <span>In Stock: {getPartialFulfillmentProgress(order)}%</span>
-                            <span>
-                              {order.partialFulfillment.reduce((total, item) => total + item.inStockQuantity, 0)} / 
-                              {order.partialFulfillment.reduce((total, item) => total + item.totalQuantity, 0)} units
-                            </span>
+      {loading ? (
+        <div className="flex justify-center items-center h-64">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-factory-primary"></div>
+        </div>
+      ) : (
+        <>
+          {/* Stats Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <StatCard 
+              title="Raw Material Value" 
+              value={formatCurrency(inventoryValues.raw_material_value)} 
+              icon={<Package size={20} />} 
+            />
+            <StatCard 
+              title="Finished Products Value" 
+              value={formatCurrency(inventoryValues.finished_product_value)} 
+              icon={<Factory size={20} />} 
+            />
+            <StatCard 
+              title="Total Sales" 
+              value={formatCurrency(totalSales)} 
+              icon={<ShoppingCart size={20} />}
+              trend={{ value: 12, positive: true }} 
+            />
+            <StatCard 
+              title="Manufacturing Efficiency" 
+              value={`${manufacturingEfficiency.efficiency_percentage}%`} 
+              icon={<TrendingUp size={20} />}
+              trend={{ 
+                value: manufacturingEfficiency.efficiency_percentage - 80, 
+                positive: manufacturingEfficiency.efficiency_percentage >= 80 
+              }} 
+            />
+          </div>
+
+          {/* Charts Section */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Sales Chart */}
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-lg font-medium">Daily Sales</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="h-[300px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={salesTrend}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis 
+                        dataKey="date" 
+                        tickFormatter={(value) => {
+                          const date = new Date(value);
+                          return `${date.getMonth() + 1}/${date.getDate()}`;
+                        }}
+                      />
+                      <YAxis />
+                      <Tooltip 
+                        formatter={(value: any) => [`$${value}`, 'Sales']}
+                        labelFormatter={(label) => {
+                          const date = new Date(label);
+                          return `${date.toLocaleDateString()}`;
+                        }}
+                      />
+                      <Line 
+                        type="monotone" 
+                        dataKey="sales" 
+                        stroke="#1E3A8A" 
+                        strokeWidth={2} 
+                        dot={{ r: 4 }} 
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </CardContent>
+            </Card>
+            
+            {/* Active Orders Status - Only showing active orders as requested */}
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-lg font-medium">Active Orders Status</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="h-[300px] overflow-auto">
+                  {activeOrders.length > 0 ? (
+                    <div className="space-y-4">
+                      {activeOrders.map(order => (
+                        <div key={order.id} className="border-b pb-3 last:border-0">
+                          <div className="flex justify-between mb-1">
+                            <div className="font-medium">{order.orderNumber}</div>
+                            <div className="text-sm text-factory-gray-500">{order.customerName}</div>
                           </div>
-                          <Progress 
-                            value={getPartialFulfillmentProgress(order)} 
-                            className="h-1.5 mt-1 bg-blue-100" 
-                          />
+                          <div className="flex items-center gap-2 mb-2">
+                            {getStatusIcon(order.status)}
+                            <span className="text-sm">{getStatusLabel(order.status)}</span>
+                          </div>
+                          <Progress value={getStatusProgress(order.status)} className="h-2" />
+                          
+                          {/* Partial fulfillment details */}
+                          {order.status === 'partially_in_stock' && order.partialFulfillment && (
+                            <div className="mt-2 p-2 bg-blue-50 rounded-md border border-blue-100">
+                              <p className="text-xs font-medium text-blue-800 mb-1">Partial Fulfillment</p>
+                              <div className="flex justify-between text-xs text-blue-700">
+                                <span>In Stock: {getPartialFulfillmentProgress(order)}%</span>
+                                <span>
+                                  {order.partialFulfillment.reduce((total, item) => total + item.inStockQuantity, 0)} / 
+                                  {order.partialFulfillment.reduce((total, item) => total + item.totalQuantity, 0)} units
+                                </span>
+                              </div>
+                              <Progress 
+                                value={getPartialFulfillmentProgress(order)} 
+                                className="h-1.5 mt-1 bg-blue-100" 
+                              />
+                            </div>
+                          )}
+                          
+                          <div className="flex justify-between mt-1 text-xs text-factory-gray-500">
+                            <span>Order Date: {formatDate(order.date)}</span>
+                            <span>Value: {formatCurrency(order.totalValue)}</span>
+                          </div>
                         </div>
-                      )}
-                      
-                      <div className="flex justify-between mt-1 text-xs text-factory-gray-500">
-                        <span>Order Date: {formatDate(order.date)}</span>
-                        <span>Value: {formatCurrency(order.totalValue)}</span>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="h-full flex items-center justify-center text-factory-gray-500">
+                      No active orders found
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+          
+          {/* Active Manufacturing and Alerts */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Active Manufacturing */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg font-medium">Active Manufacturing</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {activeBatches.length > 0 ? (
+                    activeBatches.map(batch => (
+                      <div key={batch.id} className="border-b pb-4 last:border-0">
+                        <div className="flex justify-between mb-1">
+                          <span className="font-medium">{batch.productName}</span>
+                          <span className="text-sm">Batch: {batch.batchNumber}</span>
+                        </div>
+                        <ProgressBar 
+                          value={batch.progress} 
+                          showLabel 
+                          colorVariant={
+                            batch.progress > 66 ? 'success' : 
+                            batch.progress > 33 ? 'warning' : 
+                            'default'
+                          }
+                        />
+                        <div className="flex justify-between mt-1 text-xs text-factory-gray-500">
+                          <span>Started: {new Date(batch.startDate).toLocaleDateString()}</span>
+                          <span>Est. Completion: {new Date(batch.estimatedCompletionDate).toLocaleDateString()}</span>
+                        </div>
+                        
+                        {/* Show linked sales order if available */}
+                        {batch.linkedSalesOrderId && (
+                          <div className="mt-2 text-xs text-factory-gray-600">
+                            Linked to order: {salesOrders.find(o => o.id === batch.linkedSalesOrderId)?.orderNumber || 'Unknown'}
+                          </div>
+                        )}
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-factory-gray-500">No active manufacturing batches</p>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+            
+            {/* Stock Alerts */}
+            <Card>
+              <CardHeader className="bg-factory-gray-50 border-b">
+                <CardTitle className="text-lg font-medium flex items-center gap-2">
+                  <AlertCircle className="h-5 w-5 text-factory-warning" />
+                  Stock Alerts
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="divide-y">
+                  {stockAlerts.map(alert => (
+                    <div key={alert.id} className="py-3 flex justify-between items-center">
+                      <div>
+                        <p className="font-medium">{alert.itemName}</p>
+                        <p className="text-sm text-factory-gray-500">
+                          {alert.itemType === 'raw' ? 'Raw Material' : 'Finished Product'}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <div className="text-right">
+                          <p className="text-sm font-medium">Current: {alert.currentQuantity}</p>
+                          <p className="text-xs text-factory-gray-500">Min: {alert.minThreshold}</p>
+                        </div>
+                        <div className={`w-2 h-2 rounded-full ${
+                          alert.status === 'critical' ? 'bg-factory-danger' : 'bg-factory-warning'
+                        }`} />
                       </div>
                     </div>
                   ))}
                 </div>
-              ) : (
-                <div className="h-full flex items-center justify-center text-factory-gray-500">
-                  No active orders found
-                </div>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-      
-      {/* Active Manufacturing and Alerts */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Active Manufacturing */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg font-medium">Active Manufacturing</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {activeBatches.length > 0 ? (
-                activeBatches.map(batch => (
-                  <div key={batch.id} className="border-b pb-4 last:border-0">
-                    <div className="flex justify-between mb-1">
-                      <span className="font-medium">{batch.productName}</span>
-                      <span className="text-sm">Batch: {batch.batchNumber}</span>
-                    </div>
-                    <ProgressBar 
-                      value={batch.progress} 
-                      showLabel 
-                      colorVariant={
-                        batch.progress > 66 ? 'success' : 
-                        batch.progress > 33 ? 'warning' : 
-                        'default'
-                      }
-                    />
-                    <div className="flex justify-between mt-1 text-xs text-factory-gray-500">
-                      <span>Started: {new Date(batch.startDate).toLocaleDateString()}</span>
-                      <span>Est. Completion: {new Date(batch.estimatedCompletionDate).toLocaleDateString()}</span>
-                    </div>
-                    
-                    {/* Show linked sales order if available */}
-                    {batch.linkedSalesOrderId && (
-                      <div className="mt-2 text-xs text-factory-gray-600">
-                        Linked to order: {salesOrders.find(o => o.id === batch.linkedSalesOrderId)?.orderNumber || 'Unknown'}
-                      </div>
-                    )}
-                  </div>
-                ))
-              ) : (
-                <p className="text-factory-gray-500">No active manufacturing batches</p>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-        
-        {/* Stock Alerts */}
-        <Card>
-          <CardHeader className="bg-factory-gray-50 border-b">
-            <CardTitle className="text-lg font-medium flex items-center gap-2">
-              <AlertCircle className="h-5 w-5 text-factory-warning" />
-              Stock Alerts
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="divide-y">
-              {stockAlerts.map(alert => (
-                <div key={alert.id} className="py-3 flex justify-between items-center">
-                  <div>
-                    <p className="font-medium">{alert.itemName}</p>
-                    <p className="text-sm text-factory-gray-500">
-                      {alert.itemType === 'raw' ? 'Raw Material' : 'Finished Product'}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <div className="text-right">
-                      <p className="text-sm font-medium">Current: {alert.currentQuantity}</p>
-                      <p className="text-xs text-factory-gray-500">Min: {alert.minThreshold}</p>
-                    </div>
-                    <div className={`w-2 h-2 rounded-full ${
-                      alert.status === 'critical' ? 'bg-factory-danger' : 'bg-factory-warning'
-                    }`} />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+              </CardContent>
+            </Card>
+          </div>
+        </>
+      )}
     </div>
   );
 };
