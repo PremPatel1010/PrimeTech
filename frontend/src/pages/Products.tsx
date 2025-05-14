@@ -6,16 +6,19 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Plus, Edit, Trash2, Package, Search } from 'lucide-react';
+import { Plus, Edit, Trash2, Package, Search, BadgeCheck, List, Settings } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { productService, Product, BOMItem, ManufacturingStage } from '../services/productService';
 import { rawMaterialService, RawMaterial } from '../services/rawMaterial.service';
+import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from '@/components/ui/accordion';
 
 const statusOptions = [
   { value: 'inward', label: 'Inward' },
   { value: 'qc_inward', label: 'QC Inward' },
   { value: 'storage', label: 'Storage' }
 ];
+
+
 
 const Products: React.FC = () => {
   const [products, setProducts] = useState<Product[]>([]);
@@ -31,7 +34,6 @@ const Products: React.FC = () => {
     discharge_range: '',
     head_range: '',
     rating_range: '',
-    status: 'inward'
   });
   const [bomItems, setBOMItems] = useState<BOMItem[]>([]);
   const [selectedMaterial, setSelectedMaterial] = useState<string>('');
@@ -42,6 +44,13 @@ const Products: React.FC = () => {
   const [editProduct, setEditProduct] = useState<Product | null>(null);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [deleteProductId, setDeleteProductId] = useState<number | null>(null);
+  const [newStep, setNewStep] = useState('');
+  const [manufacturingSteps, setManufacturingSteps] = useState<string[]>([]);
+  const [editBOMItems, setEditBOMItems] = useState<BOMItem[]>([]);
+  const [editManufacturingSteps, setEditManufacturingSteps] = useState<string[]>([]);
+  const [editNewStep, setEditNewStep] = useState('');
+  const [editSelectedMaterial, setEditSelectedMaterial] = useState<string>('');
+  const [editMaterialQuantity, setEditMaterialQuantity] = useState<number>(1);
 
   useEffect(() => {
     loadProducts();
@@ -92,31 +101,24 @@ const Products: React.FC = () => {
 
   const handleCreateProduct = async () => {
     try {
-      // 1. Create product
       const created = await productService.createProduct({
-        product_name: newProduct.product_name!,
-        product_code: newProduct.product_code!,
-        price: newProduct.price || 0,
-        cost_price: newProduct.cost_price || 0,
-        discharge_range: newProduct.discharge_range,
-        head_range: newProduct.head_range,
-        rating_range: newProduct.rating_range,
-        status: newProduct.status || 'inward'
-      });
-      // 2. Add BOM
+        ...newProduct,
+        manufacturing_steps: manufacturingSteps,
+      } as any);
       if (bomItems.length > 0) {
         await productService.addProductBOM(created.product_id, {
           bomItems: bomItems.map(item => ({
             material_id: item.material_id,
-            quantity_required: item.quantity_required
-          }))
+            quantity_required: item.quantity_required,
+          })),
         });
       }
       toast({ title: 'Product created successfully' });
       setIsProductDialogOpen(false);
-      setNewProduct({ product_name: '', product_code: '', price: 0, cost_price: 0, discharge_range: '', head_range: '', rating_range: '', status: 'inward' });
+      setNewProduct({ product_name: '', product_code: '', price: 0, cost_price: 0, discharge_range: '', head_range: '', rating_range: '', });
       setBOMItems([]);
       setSelectedStages([]);
+      setManufacturingSteps([]);
       loadProducts();
     } catch (e) {
       toast({ title: 'Error creating product', variant: 'destructive' });
@@ -125,12 +127,23 @@ const Products: React.FC = () => {
 
   const handleEditClick = (product: Product) => {
     setEditProduct(product);
+    setEditBOMItems(product.bom_items ? [...product.bom_items] : []);
+    setEditManufacturingSteps(product.manufacturing_steps ? [...product.manufacturing_steps] : []);
     setIsEditDialogOpen(true);
   };
 
   const handleEditSave = async () => {
     if (editProduct) {
-      await productService.updateProduct(editProduct.product_id, editProduct);
+      await productService.updateProduct(editProduct.product_id, {
+        ...editProduct,
+        manufacturing_steps: editManufacturingSteps,
+      } as any);
+      await productService.addProductBOM(editProduct.product_id, {
+        bomItems: editBOMItems.map(item => ({
+          material_id: item.material_id,
+          quantity_required: item.quantity_required,
+        })),
+      });
       setIsEditDialogOpen(false);
       setEditProduct(null);
       loadProducts();
@@ -169,42 +182,72 @@ const Products: React.FC = () => {
           <Input placeholder="Search products..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="pl-10 w-full" />
         </div>
       </div>
-      <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
+      <div className="bg-white rounded-lg p-2 border">
+        <Accordion type="single" collapsible>
         {filteredProducts.length > 0 ? (
           filteredProducts.map(product => (
-            <Card key={product.product_id} className="overflow-hidden">
-              <CardHeader className="bg-factory-gray-50 py-3 px-4">
-                <div className="flex justify-between">
-                  <CardTitle className="text-base">{product.product_name}</CardTitle>
-                  <span className="text-sm px-2 py-1 bg-factory-primary/10 text-factory-primary rounded">{product.product_code}</span>
+              <AccordionItem key={product.product_id} value={String(product.product_id)}
+                className="mb-3 rounded-lg shadow-sm border border-factory-gray-100 hover:shadow-lg transition-shadow bg-white">
+                <AccordionTrigger>
+                  <div className="flex w-full justify-between items-center px-4 py-3 group">
+                    <div className="flex flex-col">
+                      <span className="font-semibold text-lg text-factory-primary underline cursor-pointer group-hover:text-factory-primary-dark transition-colors">
+                        {product.product_name || <span className='text-gray-400 italic'>No Name</span>}
+                      </span>
+                      <span className="text-xs text-factory-primary font-mono tracking-wide">
+                        {product.product_code || <span className='text-gray-400 italic'>No Code</span>}
+                      </span>
                 </div>
-              </CardHeader>
-              <CardContent className="p-4 space-y-4">
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <p className="text-sm text-factory-gray-500">Price</p>
-                    <p className="font-medium">₹{product.price}</p>
+                    <div className="flex gap-6 text-sm items-center">
+                      <span><b>Rating:</b> {product.rating_range || <span className='text-gray-400'>-</span>}</span>
+                      <span><b>Discharge:</b> {product.discharge_range || <span className='text-gray-400'>-</span>}</span>
+                      <span><b>Head:</b> {product.head_range || <span className='text-gray-400'>-</span>}</span>
                   </div>
-                  <div>
-                    <p className="text-sm text-factory-gray-500">Cost Price</p>
-                    <p className="font-medium">₹{product.cost_price}</p>
                   </div>
-                  <div>
-                    <p className="text-sm text-factory-gray-500">Discharge Range</p>
-                    <p className="font-medium">{product.discharge_range}</p>
+                </AccordionTrigger>
+                <AccordionContent>
+                  <div className="p-6 bg-gray-50 rounded-b-lg border-t border-gray-200">
+                    <div className="grid grid-cols-2 gap-4 mb-6">
+                      <div><span className="text-gray-500 font-medium">Product Name:</span> <span className="font-semibold">{product.product_name}</span></div>
+                      <div><span className="text-gray-500 font-medium">Product Code:</span> <span className="font-mono text-factory-primary">{product.product_code}</span></div>
+                      <div><span className="text-gray-500 font-medium">Rating Range:</span> {product.rating_range}</div>
+                      <div><span className="text-gray-500 font-medium">Discharge Range:</span> {product.discharge_range}</div>
+                      <div><span className="text-gray-500 font-medium">Head Range:</span> {product.head_range}</div>
                   </div>
-                  <div>
-                    <p className="text-sm text-factory-gray-500">Head Range</p>
-                    <p className="font-medium">{product.head_range}</p>
+                    <div className="mb-6">
+                      <div className="flex items-center gap-2 mb-2">
+                        <List className="h-5 w-5 text-factory-primary" />
+                        <h3 className="font-semibold text-base">Bill of Materials</h3>
                   </div>
-                  <div>
-                    <p className="text-sm text-factory-gray-500">Rating Range</p>
-                    <p className="font-medium">{product.rating_range}</p>
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Material</TableHead>
+                            <TableHead>Quantity</TableHead>
+                            <TableHead>Unit</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {(product.bom_items || []).map((item, idx) => (
+                            <TableRow key={idx}>
+                              <TableCell>{item.material_name || item.material_id}</TableCell>
+                              <TableCell>{item.quantity_required}</TableCell>
+                              <TableCell>{item.unit || ''}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
                   </div>
-                  <div>
-                    <p className="text-sm text-factory-gray-500">Status</p>
-                    <p className="font-medium">{product.status}</p>
+                    <div className="mb-6">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Settings className="h-5 w-5 text-factory-primary" />
+                        <h3 className="font-semibold text-base">Manufacturing Steps</h3>
                   </div>
+                      <ul className="list-disc pl-6">
+                        {(product.manufacturing_steps || []).map((step, idx) => (
+                          <li key={idx}>{step}</li>
+                        ))}
+                      </ul>
                 </div>
                 <div className="pt-2 flex justify-end space-x-2">
                   <Button variant="outline" size="sm" onClick={() => handleEditClick(product)}>
@@ -214,8 +257,9 @@ const Products: React.FC = () => {
                     <Trash2 size={16} className="mr-1 text-factory-danger" /> Delete
                   </Button>
                 </div>
-              </CardContent>
-            </Card>
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
           ))
         ) : (
           <div className="col-span-full text-center py-12 bg-white rounded-lg border">
@@ -223,6 +267,7 @@ const Products: React.FC = () => {
             <p className="mt-4 text-factory-gray-500">No products found. Add your first product.</p>
           </div>
         )}
+        </Accordion>
       </div>
       {/* Add Product Dialog */}
       <Dialog open={isProductDialogOpen} onOpenChange={setIsProductDialogOpen}>
@@ -255,19 +300,6 @@ const Products: React.FC = () => {
               <div className="space-y-2">
                 <Label htmlFor="cost-price">Cost Price</Label>
                 <Input id="cost-price" type="number" min="0" step="0.01" value={newProduct.cost_price} onChange={e => setNewProduct({ ...newProduct, cost_price: parseFloat(e.target.value) || 0 })} placeholder="0.00" />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="status">Status</Label>
-                <Select value={newProduct.status} onValueChange={val => setNewProduct({ ...newProduct, status: val })}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select status" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {statusOptions.map(opt => (
-                      <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
@@ -334,11 +366,33 @@ const Products: React.FC = () => {
             {/* Manufacturing Steps Section */}
             <div className="pt-4 border-t">
               <h3 className="font-medium mb-3">Manufacturing Process Steps</h3>
+              <div className="flex gap-2 mb-2">
+                <Input
+                  value={newStep}
+                  onChange={e => setNewStep(e.target.value)}
+                  placeholder="Enter step name (e.g., Assembly)"
+                  className="w-64"
+                />
+                <Button
+                  onClick={() => {
+                    if (newStep.trim() && !manufacturingSteps.includes(newStep.trim())) {
+                      setManufacturingSteps([...manufacturingSteps, newStep.trim()]);
+                      setNewStep('');
+                    }
+                  }}
+                  disabled={!newStep.trim()}
+                >
+                  Add Step
+                </Button>
+              </div>
               <div className="flex flex-wrap gap-2 mb-4">
-                {stages.map(stage => (
-                  <Button key={stage.stage_id} variant={selectedStages.includes(stage.stage_id) ? 'default' : 'outline'} size="sm" onClick={() => handleToggleStage(stage.stage_id)}>
-                    {stage.stage_name}
+                {manufacturingSteps.map((step, idx) => (
+                  <div key={idx} className="flex items-center bg-gray-100 px-3 py-1 rounded-full">
+                    <span className="mr-2">{step}</span>
+                    <Button size="sm" variant="ghost" onClick={() => setManufacturingSteps(manufacturingSteps.filter((_, i) => i !== idx))}>
+                      ×
                   </Button>
+                  </div>
                 ))}
               </div>
             </div>
@@ -382,22 +436,104 @@ const Products: React.FC = () => {
                   <Label htmlFor="edit-cost-price">Cost Price</Label>
                   <Input id="edit-cost-price" type="number" min="0" step="0.01" value={editProduct.cost_price} onChange={e => setEditProduct({ ...editProduct, cost_price: parseFloat(e.target.value) || 0 })} />
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="edit-status">Status</Label>
-                  <Select value={editProduct.status} onValueChange={val => setEditProduct({ ...editProduct, status: val })}>
+              </div>
+              <div className="pt-4 border-t">
+                <h3 className="font-medium mb-3">Bill of Materials</h3>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                  <div className="md:col-span-1 space-y-2">
+                    <Label htmlFor="edit-material">Raw Material</Label>
+                    <Select value={editSelectedMaterial} onValueChange={setEditSelectedMaterial}>
                     <SelectTrigger>
-                      <SelectValue placeholder="Select status" />
+                        <SelectValue placeholder="Select material" />
                     </SelectTrigger>
                     <SelectContent>
-                      {statusOptions.map(opt => (
-                        <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                        {rawMaterials.map(material => (
+                          <SelectItem key={material.material_id} value={material.material_id.toString()}>{material.material_name}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="edit-product-price">Price</Label>
-                  <Input id="edit-product-price" type="number" min="0" step="0.01" value={editProduct.price} onChange={e => setEditProduct({ ...editProduct, price: parseFloat(e.target.value) || 0 })} />
+                    <Label htmlFor="edit-material-quantity">Quantity Required</Label>
+                    <Input id="edit-material-quantity" type="number" min="1" step="0.01" value={editMaterialQuantity} onChange={e => setEditMaterialQuantity(parseFloat(e.target.value) || 1)} />
+                  </div>
+                  <div className="flex items-end gap-2">
+                    <Button onClick={() => {
+                      if (editSelectedMaterial && editMaterialQuantity > 0) {
+                        const material = rawMaterials.find(m => m.material_id.toString() === editSelectedMaterial);
+                        if (material) {
+                          setEditBOMItems([...editBOMItems, {
+                            material_id: material.material_id,
+                            quantity_required: editMaterialQuantity,
+                            material_name: material.material_name,
+                            unit: material.unit,
+                          }]);
+                          setEditSelectedMaterial('');
+                          setEditMaterialQuantity(1);
+                        }
+                      }
+                    }} className="flex-1">Add Material</Button>
+                  </div>
+                </div>
+                {editBOMItems.length > 0 && (
+                  <div className="border rounded-md overflow-hidden mt-4">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Material</TableHead>
+                          <TableHead>Quantity</TableHead>
+                          <TableHead>Unit</TableHead>
+                          <TableHead className="w-20">Action</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {editBOMItems.map((item, idx) => (
+                          <TableRow key={idx}>
+                            <TableCell>{item.material_name}</TableCell>
+                            <TableCell>{item.quantity_required} {item.unit}</TableCell>
+                            <TableCell>{item.unit}</TableCell>
+                            <TableCell>
+                              <Button variant="ghost" size="sm" onClick={() => setEditBOMItems(editBOMItems.filter((_, i) => i !== idx))}>
+                                <Trash2 size={16} className="text-factory-danger" />
+                              </Button>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                )}
+              </div>
+              <div className="pt-4 border-t">
+                <h3 className="font-medium mb-3">Manufacturing Process Steps</h3>
+                <div className="flex gap-2 mb-2">
+                  <Input
+                    value={editNewStep}
+                    onChange={e => setEditNewStep(e.target.value)}
+                    placeholder="Enter step name (e.g., Assembly)"
+                    className="w-64"
+                  />
+                  <Button
+                    onClick={() => {
+                      if (editNewStep.trim() && !editManufacturingSteps.includes(editNewStep.trim())) {
+                        setEditManufacturingSteps([...editManufacturingSteps, editNewStep.trim()]);
+                        setEditNewStep('');
+                      }
+                    }}
+                    disabled={!editNewStep.trim()}
+                  >
+                    Add Step
+                  </Button>
+                </div>
+                <div className="flex flex-wrap gap-2 mb-4">
+                  {editManufacturingSteps.map((step, idx) => (
+                    <div key={idx} className="flex items-center bg-gray-100 px-3 py-1 rounded-full">
+                      <span className="mr-2">{step}</span>
+                      <Button size="sm" variant="ghost" onClick={() => setEditManufacturingSteps(editManufacturingSteps.filter((_, i) => i !== idx))}>
+                        ×
+                      </Button>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>

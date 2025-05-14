@@ -47,6 +47,7 @@ import { fetchSalesOrders, updateSalesOrder, fetchNextOrderNumber, deleteSalesOr
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { productService, Product } from '../services/productService';
+import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from '@/components/ui/accordion';
 
 const ViewOrderStatus: React.FC = () => {
   const { finishedProducts, updateSalesOrderStatus, manufacturingBatches, checkProductAvailability, addSalesOrder } = useFactory();
@@ -615,247 +616,210 @@ const ViewOrderStatus: React.FC = () => {
           Order History
         </Button>
       </div>
-      {/* Orders List by Tab */}
-      {orderTab === 'active' ? (
-        <div className="space-y-4">
-          {paginatedActiveOrders.length > 0 ? (
-            paginatedActiveOrders.map((order) => (
-              <React.Fragment key={order.id}>
-                <Card className="overflow-hidden">
-                  <CardHeader className="bg-factory-gray-50 py-4">
-                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
-                      <div className="flex items-center gap-3">
-                        <CardTitle className="text-lg">{order.orderNumber}</CardTitle>
+      {/* Active Orders Accordion List */}
+      {orderTab === 'active' && (
+        <div className="bg-white rounded-lg p-2 border">
+          <Accordion type="single" collapsible>
+            {paginatedActiveOrders.length > 0 ? (
+              paginatedActiveOrders.map(order => (
+                <AccordionItem key={order.id} value={String(order.id)} className="mb-3 rounded-lg shadow-sm border border-factory-gray-100 hover:shadow-lg transition-shadow bg-white">
+                  <AccordionTrigger>
+                    <div className="flex w-full justify-between items-center px-4 py-3 group">
+                      <div className="flex flex-col">
+                        <span className="font-semibold text-lg text-factory-primary underline cursor-pointer group-hover:text-factory-primary-dark transition-colors">
+                          {order.orderNumber || <span className='text-gray-400 italic'>No Order #</span>}
+                        </span>
+                        <span className="text-xs text-factory-primary font-mono tracking-wide">
+                          {order.customerName || <span className='text-gray-400 italic'>No Customer</span>}
+                        </span>
                       </div>
-                      <Badge className={getStatusBadgeColor(order.status)}>
-                        {getStatusLabel(order.status)}
-                      </Badge>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="p-4 sm:p-6">
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-                      <div>
-                        <p className="text-sm text-factory-gray-500">Customer</p>
-                        <p className="font-medium">{order.customerName}</p>
-                      </div>
-                      <div>
-                        <p className="text-sm text-factory-gray-500">Order Date</p>
-                        <p className="font-medium">{formatDate(order.date)}</p>
-                      </div>
-                      <div>
-                        <p className="text-sm text-factory-gray-500">Status</p>
-                        <p className="font-medium">{getStatusLabel(order.status)}</p>
+                      <div className="flex gap-6 text-sm items-center">
+                        <span><b>Date:</b> {order.date ? formatDate(order.date) : <span className='text-gray-400'>-</span>}</span>
+                        <span><b>Status:</b> <span className={`px-2 py-1 rounded text-xs font-semibold ${getStatusBadgeColor(order.status)}`}>{getStatusLabel(order.status)}</span></span>
                       </div>
                     </div>
-                    <div className="border-t pt-4">
-                      <h4 className="font-medium mb-2">Products</h4>
-                      <div className="overflow-x-auto">
-                        <Table>
-                          <TableHeader>
-                            <TableRow>
-                              <TableHead>Product Name</TableHead>
-                              <TableHead>Quantity</TableHead>
-                              <TableHead>Unit Price</TableHead>
-                              <TableHead className="text-right">Total</TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {(order.products || []).map((product, idx) => (
-                              <TableRow key={idx}>
-                                <TableCell className="font-medium">{product.productName || (product as any)["product_name"] || product.productId}</TableCell>
-                                <TableCell>{product.quantity}</TableCell>
-                                <TableCell>{formatCurrency(product.price || 0)}</TableCell>
-                                <TableCell className="text-right">
-                                  {formatCurrency((product.quantity || 0) * (product.price || 0))}
-                                </TableCell>
+                  </AccordionTrigger>
+                  <AccordionContent>
+                    <div className="p-6 bg-gray-50 rounded-b-lg border-t border-gray-200">
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                        <div>
+                          <p className="text-sm text-factory-gray-500">Customer</p>
+                          <p className="font-medium">{order.customerName}</p>
+                        </div>
+                        <div>
+                          <p className="text-sm text-factory-gray-500">Order Date</p>
+                          <p className="font-medium">{formatDate(order.date)}</p>
+                        </div>
+                        <div>
+                          <p className="text-sm text-factory-gray-500">Status</p>
+                          <p className="font-medium">{getStatusLabel(order.status)}</p>
+                        </div>
+                      </div>
+                      <div className="border-t pt-4">
+                        <h4 className="font-medium mb-2">Products</h4>
+                        <div className="overflow-x-auto">
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead>Product Name</TableHead>
+                                <TableHead>Quantity</TableHead>
+                                <TableHead>Unit Price</TableHead>
+                                <TableHead className="text-right">Total</TableHead>
                               </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
+                            </TableHeader>
+                            <TableBody>
+                              {(order.products || []).map((product, idx) => (
+                                <TableRow key={idx}>
+                                  <TableCell className="font-medium">{product.productName || (product as any)["product_name"] || product.productId}</TableCell>
+                                  <TableCell>{product.quantity}</TableCell>
+                                  <TableCell>{formatCurrency(product.price || 0)}</TableCell>
+                                  <TableCell className="text-right">
+                                    {formatCurrency((product.quantity || 0) * (product.price || 0))}
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </div>
+                      </div>
+                      <div className="pt-2 flex justify-end space-x-2">
+                        <Select value={order.status} onValueChange={val => handleCardStatusChange(order, val as OrderStatus)}>
+                          <SelectTrigger className="w-[120px]">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="pending">Pending</SelectItem>
+                            <SelectItem value="completed">Completed</SelectItem>
+                            <SelectItem value="cancelled">Cancelled</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <Button variant="outline" size="sm" onClick={() => handleEditClick(order)}>
+                          Edit
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={() => handleDeleteClick(order)} color="red">
+                          Delete
+                        </Button>
                       </div>
                     </div>
-                    <div className="pt-2 flex justify-end space-x-2">
-                      <Select value={order.status} onValueChange={val => handleCardStatusChange(order, val as OrderStatus)}>
-                        <SelectTrigger className="w-[120px]">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="pending">Pending</SelectItem>
-                          <SelectItem value="completed">Completed</SelectItem>
-                          <SelectItem value="cancelled">Cancelled</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <Button variant="outline" size="sm" onClick={() => handleEditClick(order)}>
-                        Edit
-                      </Button>
-                      <Button variant="outline" size="sm" onClick={() => handleDeleteClick(order)} color="red">
-                        Delete
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-                {/* Stock Availability UI */}
-                <div className="mb-6">
-                  {(() => {
-                    // Calculate fulfillment
-                    const products = order.products as (OrderProduct & { fulfilled_from_inventory?: boolean })[];
-                    const allInStock = products.every(p => p.fulfilled_from_inventory === true);
-                    const someInStock = products.some(p => p.fulfilled_from_inventory === true);
-                    if (allInStock) {
-                      return (
-                        <div className="flex items-center gap-2 mt-2">
-                          <span className="inline-block px-3 py-1 rounded bg-green-100 text-green-800 font-medium text-xs">Fully in Stock</span>
-                        </div>
-                      );
-                    } else if (someInStock) {
-                      return (
-                        <div className="mt-2">
-                          <span className="inline-block px-3 py-1 rounded bg-yellow-100 text-yellow-800 font-medium text-xs mb-2">Partially in Stock</span>
-                          <table className="w-full text-xs border rounded mt-1">
-                            <thead>
-                              <tr className="bg-gray-50">
-                                <th className="p-1 border">Product</th>
-                                <th className="p-1 border">Ordered</th>
-                                <th className="p-1 border">In Stock</th>
-                                <th className="p-1 border">To Manufacture</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {products.map((p, idx) => (
-                                <tr key={idx}>
-                                  <td className="p-1 border">{p.productName || p.productId}</td>
-                                  <td className="p-1 border text-center">{p.quantity}</td>
-                                  <td className="p-1 border text-center">{p.fulfilled_from_inventory ? p.quantity : 0}</td>
-                                  <td className="p-1 border text-center">{p.fulfilled_from_inventory ? 0 : p.quantity}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      );
-                    }
-                    return null;
-                  })()}
-                </div>
-              </React.Fragment>
-            ))
-          ) : (
-            <div className="text-center py-12 bg-white rounded-lg border">
-              <p className="text-factory-gray-500">No active orders found.</p>
-            </div>
-          )}
-          {/* Pagination for active orders */}
-          {totalPages > 1 && (
-            <div className="flex justify-center mt-6 gap-2">
-              {Array.from({ length: totalPages }, (_, i) => (
-                <button
-                  key={i + 1}
-                  className={`px-3 py-1 rounded border ${activePage === i + 1 ? 'bg-factory-primary text-white' : 'bg-white text-factory-primary border-factory-primary'}`}
-                  onClick={() => setActivePage(i + 1)}
-                >
-                  {i + 1}
-                </button>
-              ))}
-            </div>
-          )}
+                  </AccordionContent>
+                </AccordionItem>
+              ))
+            ) : (
+              <div className="col-span-full text-center py-12 bg-white rounded-lg border">
+                <p className="mt-4 text-factory-gray-500">No active orders found.</p>
+              </div>
+            )}
+          </Accordion>
         </div>
-      ) : (
-        <div className="space-y-4">
-          {paginatedHistoryOrders.length > 0 ? (
-            paginatedHistoryOrders.map((order) => (
-              <Card key={order.id} className="overflow-hidden">
-                <CardHeader className="bg-factory-gray-50 py-4">
-                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
-                    <div className="flex items-center gap-3">
-                      <CardTitle className="text-lg">{order.orderNumber}</CardTitle>
+      )}
+      {/* Order History List (Accordion-based) */}
+      {orderTab === 'history' && (
+        <div className="bg-white rounded-lg p-2 border">
+          <Accordion type="single" collapsible>
+            {paginatedHistoryOrders.length > 0 ? (
+              paginatedHistoryOrders.map(order => (
+                <AccordionItem key={order.id} value={String(order.id)} className="mb-3 rounded-lg shadow-sm border border-factory-gray-100 hover:shadow-lg transition-shadow bg-white">
+                  <AccordionTrigger>
+                    <div className="flex w-full justify-between items-center px-4 py-3 group">
+                      <div className="flex flex-col">
+                        <span className="font-semibold text-lg text-factory-primary underline cursor-pointer group-hover:text-factory-primary-dark transition-colors">
+                          {order.orderNumber || <span className='text-gray-400 italic'>No Order #</span>}
+                        </span>
+                        <span className="text-xs text-factory-primary font-mono tracking-wide">
+                          {order.customerName || <span className='text-gray-400 italic'>No Customer</span>}
+                        </span>
+                      </div>
+                      <div className="flex gap-6 text-sm items-center">
+                        <span><b>Date:</b> {order.date ? formatDate(order.date) : <span className='text-gray-400'>-</span>}</span>
+                        <span><b>Status:</b> <span className={`px-2 py-1 rounded text-xs font-semibold ${getStatusBadgeColor(order.status)}`}>{getStatusLabel(order.status)}</span></span>
+                      </div>
                     </div>
-                    <Badge className={getStatusBadgeColor(order.status)}>
-                      {getStatusLabel(order.status)}
-                    </Badge>
-                  </div>
-                </CardHeader>
-                <CardContent className="p-4 sm:p-6">
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-                    <div>
-                      <p className="text-sm text-factory-gray-500">Customer</p>
-                      <p className="font-medium">{order.customerName}</p>
+                  </AccordionTrigger>
+                  <AccordionContent>
+                    <div className="p-6 bg-gray-50 rounded-b-lg border-t border-gray-200">
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                        <div>
+                          <p className="text-sm text-factory-gray-500">Customer</p>
+                          <p className="font-medium">{order.customerName}</p>
+                        </div>
+                        <div>
+                          <p className="text-sm text-factory-gray-500">Order Date</p>
+                          <p className="font-medium">{formatDate(order.date)}</p>
+                        </div>
+                        <div>
+                          <p className="text-sm text-factory-gray-500">Status</p>
+                          <p className="font-medium">{getStatusLabel(order.status)}</p>
+                        </div>
+                      </div>
+                      <div className="border-t pt-4">
+                        <h4 className="font-medium mb-2">Products</h4>
+                        <div className="overflow-x-auto">
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead>Product Name</TableHead>
+                                <TableHead>Quantity</TableHead>
+                                <TableHead>Unit Price</TableHead>
+                                <TableHead className="text-right">Total</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {(order.products || []).map((product, idx) => (
+                                <TableRow key={idx}>
+                                  <TableCell className="font-medium">{product.productName || (product as any)["product_name"] || product.productId}</TableCell>
+                                  <TableCell>{product.quantity}</TableCell>
+                                  <TableCell>{formatCurrency(product.price || 0)}</TableCell>
+                                  <TableCell className="text-right">
+                                    {formatCurrency((product.quantity || 0) * (product.price || 0))}
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </div>
+                      </div>
+                      <div className="pt-2 flex justify-end space-x-2">
+                        <Select value={order.status} onValueChange={val => handleCardStatusChange(order, val as OrderStatus)}>
+                          <SelectTrigger className="w-[120px]">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="pending">Pending</SelectItem>
+                            <SelectItem value="completed">Completed</SelectItem>
+                            <SelectItem value="cancelled">Cancelled</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <Button variant="outline" size="sm" onClick={() => handleEditClick(order)}>
+                          Edit
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={() => handleDeleteClick(order)} color="red">
+                          Delete
+                        </Button>
+                      </div>
                     </div>
-                    <div>
-                      <p className="text-sm text-factory-gray-500">Order Date</p>
-                      <p className="font-medium">{formatDate(order.date)}</p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-factory-gray-500">Status</p>
-                      <p className="font-medium">{getStatusLabel(order.status)}</p>
-                    </div>
-                  </div>
-                  <div className="border-t pt-4">
-                    <h4 className="font-medium mb-2">Products</h4>
-                    <div className="overflow-x-auto">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Product Name</TableHead>
-                            <TableHead>Quantity</TableHead>
-                            <TableHead>Unit Price</TableHead>
-                            <TableHead className="text-right">Total</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {(order.products || []).map((product, idx) => (
-                            <TableRow key={idx}>
-                              <TableCell className="font-medium">{product.productName || (product as any)["product_name"] || product.productId}</TableCell>
-                              <TableCell>{product.quantity}</TableCell>
-                              <TableCell>{formatCurrency(product.price || 0)}</TableCell>
-                              <TableCell className="text-right">
-                                {formatCurrency((product.quantity || 0) * (product.price || 0))}
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  </div>
-                  <div className="pt-2 flex justify-end space-x-2">
-                    <Select value={order.status} onValueChange={val => handleCardStatusChange(order, val as OrderStatus)}>
-                      <SelectTrigger className="w-[120px]">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="pending">Pending</SelectItem>
-                        <SelectItem value="completed">Completed</SelectItem>
-                        <SelectItem value="cancelled">Cancelled</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <Button variant="outline" size="sm" onClick={() => handleEditClick(order)}>
-                      Edit
-                    </Button>
-                    <Button variant="outline" size="sm" onClick={() => handleDeleteClick(order)} color="red">
-                      Delete
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            ))
-          ) : (
-            <div className="text-center py-12 bg-white rounded-lg border">
-              <p className="text-factory-gray-500">No order history found.</p>
-            </div>
-          )}
-          {/* Pagination for order history */}
-          {totalHistoryPages > 1 && (
-            <div className="flex justify-center mt-6 gap-2">
-              {Array.from({ length: totalHistoryPages }, (_, i) => (
-                <button
-                  key={i + 1}
-                  className={`px-3 py-1 rounded border ${activeHistoryPage === i + 1 ? 'bg-factory-primary text-white' : 'bg-white text-factory-primary border-factory-primary'}`}
-                  onClick={() => setActiveHistoryPage(i + 1)}
-                >
-                  {i + 1}
-                </button>
-              ))}
-            </div>
-          )}
+                  </AccordionContent>
+                </AccordionItem>
+              ))
+            ) : (
+              <div className="col-span-full text-center py-12 bg-white rounded-lg border">
+                <p className="mt-4 text-factory-gray-500">No order history found.</p>
+              </div>
+            )}
+            {/* Pagination for order history */}
+            {totalHistoryPages > 1 && (
+              <div className="flex justify-center mt-6 gap-2">
+                {Array.from({ length: totalHistoryPages }, (_, i) => (
+                  <button
+                    key={i + 1}
+                    className={`px-3 py-1 rounded border ${activeHistoryPage === i + 1 ? 'bg-factory-primary text-white' : 'bg-white text-factory-primary border-factory-primary'}`}
+                    onClick={() => setActiveHistoryPage(i + 1)}
+                  >
+                    {i + 1}
+                  </button>
+                ))}
+              </div>
+            )}
+          </Accordion>
         </div>
       )}
       {/* Add Sales Order Dialog */}

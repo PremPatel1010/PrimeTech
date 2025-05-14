@@ -13,11 +13,14 @@ export interface Product {
   status?: string;
   created_at?: string;
   bom_items?: BOMItem[];
+  manufacturing_steps?: string[];
 }
 
 export interface BOMItem {
   material_id: number;
   quantity_required: number;
+  material_name?: string;
+  unit?: string;
 }
 
 export interface BOMRequest {

@@ -10,7 +10,8 @@ class Product {
                  json_build_object(
                    'material_id', b.material_id,
                    'material_name', rm.material_name,
-                   'quantity_required', b.quantity_required
+                   'quantity_required', b.quantity_required,
+                   'unit', rm.unit
                  )
                ) FILTER (WHERE b.material_id IS NOT NULL), '[]') as bom_items
         FROM products.product p
@@ -36,7 +37,8 @@ class Product {
                  json_build_object(
                    'material_id', b.material_id,
                    'material_name', rm.material_name,
-                   'quantity_required', b.quantity_required
+                   'quantity_required', b.quantity_required,
+                   'unit', rm.unit
                  )
                ) FILTER (WHERE b.material_id IS NOT NULL), '[]') as bom_items
         FROM products.product p
@@ -55,15 +57,15 @@ class Product {
   }
 
   // Create a new product
-  static async createProduct({ product_name, product_code, discharge_range, head_range, rating_range, price, cost_price, status }) {
+  static async createProduct({ product_name, product_code, discharge_range, head_range, rating_range, price, cost_price, manufacturing_steps }) {
     try {
       const query = `
         INSERT INTO products.product 
-        (product_name, product_code, discharge_range, head_range, rating_range, price, cost_price, status)
+        (product_name, product_code, discharge_range, head_range, rating_range, price, cost_price, manufacturing_steps)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         RETURNING *
       `;
-      const values = [product_name, product_code, discharge_range, head_range, rating_range, price, cost_price, status];
+      const values = [product_name, product_code, discharge_range, head_range, rating_range, price, cost_price, JSON.stringify(manufacturing_steps || [])];
       const result = await pool.query(query, values);
       return result.rows[0];
     } catch (error) {
@@ -81,7 +83,8 @@ class Product {
                  json_build_object(
                    'material_id', b.material_id,
                    'material_name', rm.material_name,
-                   'quantity_required', b.quantity_required
+                   'quantity_required', b.quantity_required,
+                   'unit', rm.unit
                  )
                ) FILTER (WHERE b.material_id IS NOT NULL), '[]') as bom_items
         FROM products.product p
@@ -181,6 +184,11 @@ class Product {
       if (updateData.cost_price !== undefined) {
         setClauses.push(`cost_price = $${paramCount}`);
         values.push(updateData.cost_price);
+        paramCount++;
+      }
+      if (updateData.manufacturing_steps !== undefined) {
+        setClauses.push(`manufacturing_steps = $${paramCount}`);
+        values.push(JSON.stringify(updateData.manufacturing_steps));
         paramCount++;
       }
 

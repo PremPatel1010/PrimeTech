@@ -34,7 +34,7 @@ CREATE TABLE products.product (
     rating_range VARCHAR(50),
     price DECIMAL(10, 2),
     cost_price DECIMAL(10, 2) DEFAULT 0,
-    status VARCHAR(20) CHECK (status IN ('inward', 'qc_inward', 'storage')) DEFAULT 'inward',
+    manufacturing_steps JSONB,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -92,7 +92,7 @@ CREATE TABLE sales.sales_order_items (
     item_id SERIAL PRIMARY KEY,
     sales_order_id INTEGER NOT NULL REFERENCES sales.sales_order(sales_order_id) ON DELETE CASCADE,
     product_category VARCHAR(100),
-    product_id INTEGER REFERENCES products.product(product_id),
+    product_id INTEGER REFERENCES products.product(product_id) ON DELETE CASCADE,
     quantity INTEGER NOT NULL,
     discount DECIMAL(5,2) DEFAULT 0,
     gst DECIMAL(5,2) DEFAULT 18,
@@ -187,7 +187,7 @@ CREATE TABLE sales.revenue_analysis (
 CREATE TABLE sales.revenue_details (
     detail_id SERIAL PRIMARY KEY,
     analysis_id INTEGER REFERENCES sales.revenue_analysis(analysis_id) ON DELETE CASCADE,
-    product_id INTEGER REFERENCES products.product(product_id),
+    product_id INTEGER REFERENCES products.product(product_id) ON DELETE CASCADE,
     quantity_sold INTEGER NOT NULL DEFAULT 0,
     revenue DECIMAL(12, 2) NOT NULL DEFAULT 0,
     cost DECIMAL(12, 2) NOT NULL DEFAULT 0,

@@ -13,7 +13,7 @@ export const getProductBOM = async (req, res) => {
 
 export const createProduct = async (req, res) => {
   try {
-    const { product_name, product_code, discharge_range, head_range, rating_range, price, cost_price, status } = req.body;
+    const { product_name, product_code, discharge_range, head_range, rating_range, price, cost_price, manufacturing_steps } = req.body;
     // Validate required fields
     if (!product_name || !product_code || !price) {
       return res.status(400).json({ message: 'Product name, code, and price are required' });
@@ -26,7 +26,7 @@ export const createProduct = async (req, res) => {
       rating_range,
       price,
       cost_price,
-      status
+      manufacturing_steps
     });
     res.status(201).json(product); // Return the product directly
   } catch (error) {
@@ -65,7 +65,8 @@ export const getAllProducts = async (req, res) => {
 export const updateProduct = async (req, res) => {
   try {
     const { productId } = req.params;
-    const { product_name, product_code, discharge_range, head_range, rating_range, price } = req.body;
+    // Accept all updatable fields, including manufacturing_steps
+    const { product_name, product_code, discharge_range, head_range, rating_range, price, cost_price, manufacturing_steps } = req.body;
 
     const updatedProduct = await Product.updateProduct(productId, {
       product_name,
@@ -73,7 +74,9 @@ export const updateProduct = async (req, res) => {
       discharge_range,
       head_range,
       rating_range,
-      price
+      price,
+      cost_price,
+      manufacturing_steps
     });
 
     if (!updatedProduct) {
