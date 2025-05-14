@@ -12,7 +12,7 @@ import ProgressBar from '../components/ui-custom/ProgressBar';
 import { ManufacturingBatch, ProductionStage, SalesOrder } from '../types';
 import { Plus, CheckCircle, AlertCircle } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import { productService, ManufacturingStage as BackendStage } from '../services/productService';
+import { productService, ManufacturingStage } from '../services/productService';
 import { createBatch, updateBatchStage, fetchBatches, deleteBatch as apiDeleteBatch, editBatch as apiEditBatch } from '../services/manufacturingService';
 import { toast } from '@/components/ui/use-toast';
 
@@ -23,10 +23,13 @@ const formatDate = (date: string | undefined) => {
   return isNaN(d.getTime()) ? '-' : d.toLocaleDateString();
 };
 
+// Find the ManufacturingBatch type definition and add custom_stage_name as an optional string property
+
+
 const Manufacturing: React.FC = () => {
  const { manufacturingBatches, finishedProducts, backendProducts, salesOrders, rawMaterials, addManufacturingBatch, updateManufacturingStage, setManufacturingBatches, getActiveBatches, getCompletedBatches } = useFactory(); 
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [backendStages, setBackendStages] = useState<BackendStage[]>([]);
+  const [backendStages, setBackendStages] = useState<ManufacturingStage[]>([]);
   const [newBatch, setNewBatch] = useState<Partial<ManufacturingBatch>>({
     batchNumber: `B-${new Date().getFullYear()}-${String(manufacturingBatches.length + 1).padStart(3, '0')}`,
     productId: '',
@@ -46,6 +49,7 @@ const Manufacturing: React.FC = () => {
   });
   const [editBatchData, setEditBatchData] = useState<ManufacturingBatch | null>(null);
   const [isEditMode, setIsEditMode] = useState(false);
+  const [productStagesMap, setProductStagesMap] = useState<Record<string, ManufacturingStage[]>>({});
   
   // Fetch stages from backend on mount
   useEffect(() => {
@@ -53,6 +57,37 @@ const Manufacturing: React.FC = () => {
       .then(stages => setBackendStages(stages))
       .catch(() => setBackendStages([]));
   }, []);
+
+  // Helper to fetch and cache product stages
+  const fetchProductStages = async (productId: string) => {
+    if (!productStagesMap[productId]) {
+      const stages = await productService.getProductStages(Number(productId));
+      setProductStagesMap(prev => ({ ...prev, [productId]: stages }));
+      return stages;
+    }
+    return productStagesMap[productId];
+  };
+
+  // Helper to get stages for a batch, always using product_stages
+  const getStagesForBatch = (batch: ManufacturingBatch) => {
+    const stages = productStagesMap[batch.productId] || [];
+    // Always add 'Completed' as the last stage if not present
+    if (!stages.some(s => s.stage_name.toLowerCase() === 'completed')) {
+      return [
+        ...stages,
+        { stage_id: 9999, component_type: 'custom', stage_name: 'Completed', sequence: stages.length + 1 }
+      ];
+    }
+    return stages;
+  };
+
+  // On mount or when manufacturingBatches change, fetch stages for all products in batches
+  useEffect(() => {
+    const uniqueProductIds = Array.from(new Set(manufacturingBatches.map(b => b.productId)));
+    uniqueProductIds.forEach(pid => {
+      fetchProductStages(pid);
+    });
+  }, [manufacturingBatches]);
 
   // Helper to get the component type for a batch
   const getComponentType = (batch: ManufacturingBatch) => {
@@ -63,16 +98,6 @@ const Manufacturing: React.FC = () => {
     if (product && (product as any).componentType) return (product as any).componentType;
     // Fallback to 'combined'
     return 'combined';
-  };
-
-  // Helper to get stages for a batch
-  const getStagesForBatch = (batch: ManufacturingBatch) => {
-    const type = getComponentType(batch);
-    let stages = backendStages.filter(s => s.component_type === type);
-    if (stages.length > 0 && !stages.some(s => s.stage_name.toLowerCase() === 'completed')) {
-      stages = [...stages, { stage_id: 9999, component_type: type, stage_name: 'Completed', sequence: stages.length + 1 }];
-    }
-    return stages.length > 0 ? stages : backendStages;
   };
 
   // Use backend stages if available, else fallback
@@ -191,7 +216,7 @@ const Manufacturing: React.FC = () => {
           progress: newBatch.progress,
           status: newBatch.status
         });
-        setManufacturingBatches(prev => prev.map(b => (b.id === updated.tracking_id || b.tracking_id === updated.tracking_id ? { ...b, ...updated } : b)));
+        setManufacturingBatches(prev => prev.map(b => (b.id === updated.id || b.id === updated.id ? { ...b, ...updated } : b)));
         setIsDialogOpen(false);
         setIsEditMode(false);
         setEditBatchData(null);
@@ -241,10 +266,15 @@ const Manufacturing: React.FC = () => {
         foundCurrent = true;
       }
       if (batch.progress === 0 && idx === 0) current = true;
+      // Mark as current if custom_stage_name matches
+      if (batch.custom_stage_name && batch.custom_stage_name.toLowerCase() === stage.stage_name.toLowerCase()) {
+        current = true;
+        foundCurrent = true;
+      }
       return {
         label: stage.stage_name,
         completed,
-        current: batch.currentStage === stage.stage_name.toLowerCase() || current
+        current: (batch.custom_stage_name ? batch.custom_stage_name.toLowerCase() === stage.stage_name.toLowerCase() : batch.currentStage === stage.stage_name.toLowerCase()) || current
       };
     });
   };
@@ -256,10 +286,8 @@ const Manufacturing: React.FC = () => {
   // Update stage handler
   const handleUpdateStage = async (batch: ManufacturingBatch, newStage: string) => {
     try {
+      // Use context's updateManufacturingStage to ensure state is updated
       await updateManufacturingStage(batch.id, newStage);
-      // Optionally, refetch batches or rely on context update
-      // const batches = await fetchBatches();
-      // setManufacturingBatches(batches);
     } catch (err) {
       toast({ title: 'Error', description: 'Failed to update stage', variant: 'destructive' });
     }
@@ -423,7 +451,7 @@ const Manufacturing: React.FC = () => {
                     </div>
                     <p className="text-sm text-factory-gray-600">
                       Current Stage: <span className="font-medium">
-                        {getStagesForBatch(batch).find(s => s.stage_name.toLowerCase() === batch.currentStage)?.stage_name || '-'}
+                        {getStagesForBatch(batch).find(s => s.stage_name.toLowerCase() === batch.currentStage)?.stage_name || getStagesForBatch(batch)[0]?.stage_name || '-'}
                       </span>
                     </p>
                     <Select 

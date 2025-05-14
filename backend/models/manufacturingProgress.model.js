@@ -281,21 +281,28 @@ class ManufacturingProgress {
 
   // Update batch stage and progress
   static async updateBatchStage(trackingId, updateData) {
-    let { current_stage_id, progress, stage_completion_dates, status } = updateData;
+    let { current_stage_id, progress, stage_completion_dates, status, custom_stage_name } = updateData;
     // If the stage is completed (progress 100 or status completed), set status to 'completed'
     if ((progress === 100 || status === 'completed') && status !== 'completed') {
       status = 'completed';
     }
+    // Support custom product-defined stages: if custom_stage_name is set, store it and set current_stage_id to null
+    let stageIdToStore = current_stage_id;
+    let customStageNameToStore = custom_stage_name || null;
+    if (custom_stage_name) {
+      stageIdToStore = null;
+    }
     const result = await pool.query(`
       UPDATE manufacturing.product_manufacturing
-      SET current_stage_id = COALESCE($1, current_stage_id),
-          progress = COALESCE($2, progress),
-          stage_completion_dates = COALESCE($3, stage_completion_dates),
-          status = COALESCE($4, status),
+      SET current_stage_id = $1,
+          custom_stage_name = $2,
+          progress = COALESCE($3, progress),
+          stage_completion_dates = COALESCE($4, stage_completion_dates),
+          status = COALESCE($5, status),
           updated_at = CURRENT_TIMESTAMP
-      WHERE tracking_id = $5
+      WHERE tracking_id = $6
       RETURNING *
-    `, [current_stage_id, progress, stage_completion_dates, status, trackingId]);
+    `, [stageIdToStore, customStageNameToStore, progress, stage_completion_dates, status, trackingId]);
     return result.rows[0];
   }
 

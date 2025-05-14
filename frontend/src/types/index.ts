@@ -119,21 +119,19 @@ export interface ManufacturingStep {
 
 export interface ManufacturingBatch {
   id: string;
-  tracking_id?: string;
   batchNumber: string;
   productId: string;
   productName: string;
   quantity: number;
-  currentStage: ProductionStage;
+  currentStage: string;
   startDate: string;
   estimatedCompletionDate: string;
-  stageCompletionDates: Record<ProductionStage, string | null>;
-  progress: number; // 0-100
-  status: ManufacturingStatus; // Added status field to track material availability
+  stageCompletionDates: Record<string, string | null>;
+  progress: number;
+  status?: string;
   linkedSalesOrderId?: string;
-  rawMaterialsUsed?: RawMaterialUsage[];
-  rawMaterialsNeeded?: RawMaterialsNeeded[]; // Added field to track needed materials
-  notes?: string;
+  custom_stage_name?: string;
+  rawMaterialsUsed?: any[];
 }
 
 export interface RawMaterialUsage {
@@ -183,12 +181,11 @@ export interface ManufacturingProgress {
   count: number;
 }
 
-export interface Notification {
-  id: string;
-  type: 'low_stock' | 'pending_order' | 'manufacturing_update' | 'raw_material_shortage';
+export interface AppNotification {
+  id: number;
+  type: string;
   message: string;
   date: string;
   read: boolean;
-  relatedId?: string;
   priority: 'low' | 'medium' | 'high';
 }

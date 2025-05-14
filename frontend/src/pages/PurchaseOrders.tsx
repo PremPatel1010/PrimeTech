@@ -10,11 +10,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge';
 import { formatCurrency, formatDate } from '../utils/calculations';
 import { purchaseOrderService, PurchaseOrder, PurchaseMaterial } from '../services/purchaseOrderService';
-import { Plus, FileText, Upload, Search, Download, Filter } from 'lucide-react';
+import { Plus, FileText, Upload, Search, Download, Filter, ChevronDown, ChevronUp } from 'lucide-react';
 import { supplierService } from '../services/supplierService';
 import { rawMaterialService } from '../services/rawMaterial.service';
 import { toast } from '@/hooks/use-toast';
 import axiosInstance from '@/utils/axios';
+import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from '@/components/ui/accordion';
 
 const PurchaseOrders: React.FC = () => {
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
@@ -44,6 +45,7 @@ const PurchaseOrders: React.FC = () => {
   const [deleteOrderId, setDeleteOrderId] = useState<number | null>(null);
   const [activePage, setActivePage] = useState(1);
   const ORDERS_PER_PAGE = 5;
+  const [expandedOrderId, setExpandedOrderId] = useState<number | null>(null);
 
   useEffect(() => {
     loadPurchaseOrders();
@@ -238,6 +240,18 @@ const PurchaseOrders: React.FC = () => {
   const calculatedFinal = subtotal - discountAmount + gstAmount;
   const finalPrice = newOrder.total_amount && newOrder.total_amount !== calculatedFinal ? newOrder.total_amount : calculatedFinal;
 
+  // Helper to get supplier name by id
+  const getSupplierName = (id: number) => {
+    const supplier = suppliers.find(s => s.supplier_id === id);
+    return supplier ? supplier.supplier_name : `Supplier: ${id}`;
+  };
+
+  // Helper to get total for a purchase order
+  const getOrderTotal = (order: PurchaseOrder) => {
+    if (!order.materials || !Array.isArray(order.materials)) return 0;
+    return order.materials.reduce((sum, m) => sum + (Number(m.quantity) * Number(m.unit_price)), 0);
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -278,95 +292,109 @@ const PurchaseOrders: React.FC = () => {
       </div>
       {/* Purchase Orders List */}
       <div className="space-y-4">
-        {paginatedOrders.length > 0 ? (
-          paginatedOrders.map((order) => (
-            <Card key={order.purchase_order_id} className="overflow-hidden">
-              <CardHeader className="bg-factory-gray-50 py-4">
-                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
-                  <div className="flex items-center gap-3">
-                    <FileText className="h-5 w-5 text-factory-primary" />
-                    <CardTitle className="text-lg">{order.order_number}</CardTitle>
-                  </div>
-                  <Badge className={getStatusBadgeColor(order.status)}>
-                    {order.status}
-                  </Badge>
-                </div>
-              </CardHeader>
-              <CardContent className="p-4 sm:p-6">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-                  <div>
-                    <p className="text-sm text-factory-gray-500">Supplier ID</p>
-                    <p className="font-medium">{order.supplier_id}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-factory-gray-500">Order Date</p>
-                    <p className="font-medium">{formatDate(order.order_date)}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-factory-gray-500">Status</p>
-                    <p className="font-medium">{order.status}</p>
-                  </div>
-                </div>
-                <div className="border-t pt-4">
-                  <h4 className="font-medium mb-2">Materials</h4>
-                  <div className="overflow-x-auto">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Material</TableHead>
-                          <TableHead>Quantity</TableHead>
-                          <TableHead>Unit</TableHead>
-                          <TableHead>Unit Price</TableHead>
-                          <TableHead className="text-right">Total</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {(order.materials || []).map((material, idx) => (
-                          <TableRow key={idx}>
-                            <TableCell className="font-medium">
-                              {material.material_id}
-                              {material.material_name ? ` - ${material.material_name}` : ''}
-                            </TableCell>
-                            <TableCell>{material.quantity}</TableCell>
-                            <TableCell>{material.unit}</TableCell>
-                            <TableCell>{formatCurrency(material.unit_price)}</TableCell>
-                            <TableCell className="text-right">
-                              {formatCurrency(material.quantity * material.unit_price)}
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
-                </div>
-                <div className="pt-2 flex justify-end space-x-2">
-                  <Select value={order.status} onValueChange={val => handleStatusChange(order, val)}>
-                    <SelectTrigger className="w-[120px]">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="ordered">Ordered</SelectItem>
-                      <SelectItem value="arrived">Arrived</SelectItem>
-                      <SelectItem value="cancelled">Cancelled</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <Button variant="outline" size="sm" onClick={() => handleEditClick(order)}>
-                    Edit
-                  </Button>
-                  <Button variant="outline" size="sm" onClick={() => handleDeleteClick(order.purchase_order_id)}>
-                    Delete
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          ))
-        ) : (
-          <div className="text-center py-12 bg-white rounded-lg border">
-            <FileText className="h-12 w-12 mx-auto mb-4 text-factory-gray-300" />
-            <p className="text-factory-gray-500">No purchase orders found.</p>
-            <p className="text-sm text-factory-gray-400 mt-1">Create a new purchase order to get started.</p>
-          </div>
-        )}
+        <div className="bg-white rounded-lg p-2 border">
+          <Accordion type="single" collapsible>
+            {paginatedOrders.length > 0 ? (
+              paginatedOrders.map(order => (
+                <AccordionItem key={order.purchase_order_id} value={String(order.purchase_order_id)} className="mb-4 bg-white rounded-xl shadow-sm border border-factory-gray-100 hover:shadow-lg transition-shadow">
+                  <AccordionTrigger>
+                    <div className="flex flex-col sm:flex-row w-full items-stretch px-4 py-4 group gap-2 sm:gap-0">
+                      {/* Left: Order number and supplier */}
+                      <div className="flex flex-col flex-1 min-w-0 sm:pr-10 justify-center">
+                        <span className="font-bold text-lg text-factory-primary underline cursor-pointer group-hover:text-factory-primary-dark transition-colors truncate">
+                          {order.order_number || <span className='text-gray-400 italic'>No Order #</span>}
+                        </span>
+                        <span className="text-xs text-gray-500 font-mono tracking-wide truncate mt-1">
+                          {getSupplierName(order.supplier_id)}
+                        </span>
+                      </div>
+                      {/* Divider for desktop */}
+                      <div className="hidden sm:block w-px bg-gray-200 mx-6"></div>
+                      {/* Right: Date, Status, Total */}
+                      <div className="flex flex-row flex-wrap sm:flex-nowrap gap-x-8 gap-y-2 items-center justify-start w-full sm:w-auto mt-2 sm:mt-0 text-left">
+                        <span className="text-sm text-gray-700"><b>Date:</b> {order.order_date ? formatDate(order.order_date) : <span className='text-gray-400'>-</span>}</span>
+                        <span className="text-sm"><b>Status:</b> <span className={`px-2 py-1 rounded text-xs font-semibold ${getStatusBadgeColor(order.status)}`}>{order.status}</span></span>
+                        <span className="text-lg font-bold text-factory-primary ml-0 sm:ml-2">{formatCurrency(getOrderTotal(order))}</span>
+                      </div>
+                    </div>
+                  </AccordionTrigger>
+                  <AccordionContent>
+                    <CardContent className="p-2 sm:p-4">
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                        <div>
+                          <p className="text-sm text-factory-gray-500">Supplier ID</p>
+                          <p className="font-medium">{order.supplier_id}</p>
+                        </div>
+                        <div>
+                          <p className="text-sm text-factory-gray-500">Order Date</p>
+                          <p className="font-medium">{formatDate(order.order_date)}</p>
+                        </div>
+                        <div>
+                          <p className="text-sm text-factory-gray-500">Status</p>
+                          <p className="font-medium">{order.status}</p>
+                        </div>
+                      </div>
+                      <div className="border-t pt-4">
+                        <h4 className="font-medium mb-2">Materials</h4>
+                        <div className="overflow-x-auto">
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead>Material</TableHead>
+                                <TableHead>Quantity</TableHead>
+                                <TableHead>Unit</TableHead>
+                                <TableHead>Unit Price</TableHead>
+                                <TableHead>Total</TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {(order.materials || []).map((material, idx) => (
+                                <TableRow key={idx}>
+                                  <TableCell className="font-medium">
+                                    {material.material_id}
+                                    {material.material_name ? ` - ${material.material_name}` : ''}
+                                  </TableCell>
+                                  <TableCell>{material.quantity}</TableCell>
+                                  <TableCell>{material.unit}</TableCell>
+                                  <TableCell className="text-right font-semibold">{formatCurrency(material.unit_price)}</TableCell>
+                                  <TableCell className="text-right font-bold">{formatCurrency(material.quantity * material.unit_price)}</TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </div>
+                      </div>
+                      <div className="pt-2 flex justify-end space-x-2">
+                        <Select value={order.status} onValueChange={val => handleStatusChange(order, val)}>
+                          <SelectTrigger className="w-[120px]">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="ordered">Ordered</SelectItem>
+                            <SelectItem value="arrived">Arrived</SelectItem>
+                            <SelectItem value="cancelled">Cancelled</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <Button variant="outline" size="sm" onClick={() => handleEditClick(order)}>
+                          Edit
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={() => handleDeleteClick(order.purchase_order_id)}>
+                          Delete
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </AccordionContent>
+                </AccordionItem>
+              ))
+            ) : (
+              <div className="text-center py-12 bg-white rounded-lg border">
+                <FileText className="h-12 w-12 mx-auto mb-4 text-factory-gray-300" />
+                <p className="text-factory-gray-500">No purchase orders found.</p>
+                <p className="text-sm text-factory-gray-400 mt-1">Create a new purchase order to get started.</p>
+              </div>
+            )}
+          </Accordion>
+        </div>
       </div>
       {/* Pagination UI at bottom */}
       {totalPages > 1 && (

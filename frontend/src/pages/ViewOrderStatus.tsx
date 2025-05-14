@@ -831,15 +831,6 @@ const ViewOrderStatus: React.FC = () => {
           <div className="grid gap-4 py-4">
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="orderNumber">Order Number</Label>
-                <Input 
-                  id="orderNumber" 
-                  value={newOrder.orderNumber} 
-                  onChange={(e) => setNewOrder({...newOrder, orderNumber: e.target.value})}
-                  placeholder="SO-2023-001"
-                />
-              </div>
-              <div className="space-y-2">
                 <Label htmlFor="orderDate">Order Date</Label>
                 <Input 
                   id="orderDate" 

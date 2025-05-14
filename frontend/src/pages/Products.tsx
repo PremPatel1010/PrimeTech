@@ -105,6 +105,9 @@ const Products: React.FC = () => {
         ...newProduct,
         manufacturing_steps: manufacturingSteps,
       } as any);
+      if (manufacturingSteps.length > 0) {
+        await productService.setProductStages(created.product_id, manufacturingSteps);
+      }
       if (bomItems.length > 0) {
         await productService.addProductBOM(created.product_id, {
           bomItems: bomItems.map(item => ({
@@ -138,6 +141,7 @@ const Products: React.FC = () => {
         ...editProduct,
         manufacturing_steps: editManufacturingSteps,
       } as any);
+      await productService.setProductStages(editProduct.product_id, editManufacturingSteps);
       await productService.addProductBOM(editProduct.product_id, {
         bomItems: editBOMItems.map(item => ({
           material_id: item.material_id,

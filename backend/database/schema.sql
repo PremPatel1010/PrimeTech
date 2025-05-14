@@ -161,9 +161,20 @@ CREATE TABLE manufacturing.product_manufacturing (
     sales_order_item_id INTEGER REFERENCES sales.sales_order_items(item_id) ON DELETE CASCADE,
     product_id INTEGER NOT NULL REFERENCES products.product(product_id) ON DELETE CASCADE,
     current_stage_id INTEGER REFERENCES manufacturing.stages(stage_id),
+    custom_stage_name VARCHAR(100),
     quantity_in_process INTEGER DEFAULT 0,
     status VARCHAR(20) CHECK (status IN ('not_started', 'in_progress', 'completed')) DEFAULT 'not_started',
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ========================
+-- PRODUCT-SPECIFIC MANUFACTURING STAGES
+-- ========================
+CREATE TABLE manufacturing.product_stages (
+    product_stage_id SERIAL PRIMARY KEY,
+    product_id INTEGER NOT NULL REFERENCES products.product(product_id) ON DELETE CASCADE,
+    stage_name VARCHAR(100) NOT NULL,
+    sequence INTEGER NOT NULL
 );
 
 -- ========================

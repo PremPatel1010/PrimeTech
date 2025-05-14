@@ -91,11 +91,8 @@ const Sidebar: React.FC = () => {
   
   return (
     <div className="w-64 shrink-0 border-r border-factory-gray-200 h-screen bg-white flex flex-col">
-      <div className="p-6 border-b border-factory-gray-200">
-        <h1 className="text-xl font-bold text-factory-primary flex items-center gap-2">
-          <Factory size={24} />
-          <span>Primetech Industry</span>
-        </h1>
+      <div className="p-6 border-b border-factory-gray-200 flex flex-col items-start">
+        <img src="/logo.png" alt="Primetech Industry Logo" className="h-12 max-h-12 mb-2" />
         <p className="text-xs text-factory-gray-500 mt-1">Solar Pump Manufacturing ERP</p>
       </div>
       

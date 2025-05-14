@@ -1,5 +1,6 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
+import type { AppNotification } from '../types';
 import { 
   RawMaterial, 
   FinishedProduct, 
@@ -19,6 +20,7 @@ import { productService, ManufacturingStage as BackendStage } from '../services/
 import { rawMaterialService } from '../services/rawMaterial.service';
 import { useAuth } from '../contexts/AuthContext';
 import { finishedProductService, FinishedProductAPI } from '../services/finishedProduct.service';
+import { notificationService } from '../services/notification.service';
 
 
 
@@ -69,6 +71,11 @@ interface FactoryContextType {
   // Backend products
   backendProducts: any[];
   setBackendProducts: React.Dispatch<React.SetStateAction<any[]>>;
+
+  // Notifications
+  notifications: AppNotification[];
+  markNotificationAsRead: (id: number) => void;
+  deleteNotification: (id: number) => void;
 }
 
 // Create context with default values
@@ -88,6 +95,46 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>();
   const [backendStages, setBackendStages] = useState<BackendStage[]>([]);
   const [backendProducts, setBackendProducts] = useState<any[]>([]);
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const notificationsRef = useRef<AppNotification[]>([]);
+  notificationsRef.current = notifications;
+  
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    // Request browser notification permission
+    if (window.Notification && window.Notification.permission !== 'granted') {
+      window.Notification.requestPermission();
+    }
+
+    // Initial fetch
+    notificationService.getAll()
+      .then(data => setNotifications(data.notifications || []))
+      .catch(() => setNotifications([]));
+
+    const pollInterval = setInterval(async () => {
+      try {
+        const data = await notificationService.getAll();
+        if (data.notifications) {
+          // Find new notifications not already in state
+          const newOnes = data.notifications.filter(
+            n => !notificationsRef.current.some(existing => existing.id === n.id)
+          );
+          if (newOnes.length > 0) {
+            setNotifications(prev => [...newOnes, ...prev]);
+            newOnes.forEach(n => {
+              toast({ title: 'New Notification', description: n.message });
+              if (window.Notification && window.Notification.permission === 'granted') {
+                new window.Notification('New Notification', { body: n.message });
+              }
+            });
+          }
+        }
+      } catch {}
+    }, 15000);
+
+    return () => clearInterval(pollInterval);
+  }, [isAuthenticated]);
   
   useEffect(() => {
     // Only fetch data if user is authenticated
@@ -139,6 +186,7 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
           progress: b.progress ?? 0,
           status: b.status || 'in_progress',
           linkedSalesOrderId: b.linked_sales_order_id ? String(b.linked_sales_order_id) : (b.linkedSalesOrderId ? String(b.linkedSalesOrderId) : undefined),
+          custom_stage_name: b.custom_stage_name || undefined,
           rawMaterialsUsed: b.rawMaterialsUsed || [],
           rawMaterialsNeeded: b.rawMaterialsNeeded || [],
           notes: b.notes || '',
@@ -168,8 +216,8 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
     // Fetch finished products from backend
     finishedProductService.getAll()
       .then(products => setFinishedProducts(products.map(fp => {
-        // Try to get price from backendProducts if not present in finished product
-        let price = fp.price || 0;
+        // Use unit_price from backend, fallback to price or backendProducts if needed
+        let price = fp.unit_price ?? fp.price ?? 0;
         if (!price && backendProducts && backendProducts.length > 0) {
           const prod = backendProducts.find((p: any) => String(p.product_id) === String(fp.product_id));
           if (prod && prod.price) price = prod.price;
@@ -208,6 +256,9 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
         setSalesOrders(mapped);
       })
       .catch(() => setSalesOrders([]));
+
+    // WebSocket for real-time notifications
+    
   }, [isAuthenticated]);
   
   // Supplier functions
@@ -254,6 +305,7 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
         product_id: product.productId,
         quantity_available: product.quantity,
         status: 'available',
+        unit_price: product.price || 0,
         // Add more fields as needed
       });
       setFinishedProducts(prev => [...prev, {
@@ -261,7 +313,7 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
         name: created.product_name || '',
         category: created.category || '',
         quantity: created.quantity_available,
-        price: created.price || 0,
+        price: created.unit_price || 0,
         lastUpdated: created.added_on || new Date().toISOString(),
         billOfMaterials: [],
         manufacturingSteps: []
@@ -278,6 +330,7 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
       if (!fp) return;
       const updated = await finishedProductService.update(parseInt(id), {
         quantity_available: updates.quantity ?? fp.quantity,
+        unit_price: updates.price ?? fp.price,
         // Add more fields as needed
       });
       setFinishedProducts(
@@ -287,6 +340,7 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 ...product,
                 ...updates,
                 quantity: updated.quantity_available,
+                price: updated.unit_price || 0,
                 lastUpdated: updated.added_on || new Date().toISOString()
               }
             : product
@@ -439,7 +493,8 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
               },
               progress: 20,
               linkedSalesOrderId: order.id,
-              status: 'in_progress'
+              status: 'in_progress',
+              custom_stage_name: undefined,
             };
             
             batchIds.push(batchId);
@@ -616,7 +671,8 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
                     },
                     progress: 20,
                     linkedSalesOrderId: order.id,
-                    status: 'in_progress'
+                    status: 'in_progress',
+                    custom_stage_name: undefined,
                   };
                   
                   setManufacturingBatches(prev => [...prev, newBatch]);
@@ -659,7 +715,8 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
         progress: batch.progress ?? 0,
         current_stage_id: initialStage?.stage_id,
         status: batch.status || 'in_progress',
-        linked_sales_order_id: batch.linkedSalesOrderId || null
+        linked_sales_order_id: batch.linkedSalesOrderId || null,
+        custom_stage_name: batch.custom_stage_name || undefined,
       };
       const created = await createBatch(backendBatch);
       setManufacturingBatches(prev => [...prev, created]);
@@ -669,25 +726,60 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   };
   
+  const getStagesForBatch = (batch: ManufacturingBatch) => {
+    // Try to get the product from backendProducts
+    const product = backendProducts.find((p: any) => String(p.product_id) === String(batch.productId));
+    if (product && Array.isArray(product.manufacturing_steps) && product.manufacturing_steps.length > 0) {
+      // Return as array of objects for UI compatibility
+      const steps = product.manufacturing_steps.map((step: string, idx: number) => ({
+        stage_id: idx + 1,
+        component_type: 'custom',
+        stage_name: step,
+        sequence: idx + 1
+      }));
+      // Always add 'Completed' as the last stage
+      steps.push({
+        stage_id: steps.length + 1,
+        component_type: 'custom',
+        stage_name: 'Completed',
+        sequence: steps.length + 1
+      });
+      return steps;
+    }
+    // Fallback to backend stages
+    const type = 'combined'; // Or use your getComponentType logic if needed
+    let stages = backendStages.filter(s => s.component_type === type);
+    if (stages.length > 0 && !stages.some(s => s.stage_name.toLowerCase() === 'completed')) {
+      stages = [...stages, { stage_id: 9999, component_type: type, stage_name: 'Completed', sequence: stages.length + 1 }];
+    }
+    return stages.length > 0 ? stages : backendStages;
+  };
+  
   const updateManufacturingStage = async (id: string, stage: string) => {
     try {
-      // Find the batch to update
-      const batch = manufacturingBatches.find(b => b.id === id || b.tracking_id === id);
+      const batch = manufacturingBatches.find(b => b.id === id);
       if (!batch) throw new Error('Batch not found');
-      // Calculate progress and update stageCompletionDates
-      const stages = ['cutting', 'assembly', 'testing', 'packaging', 'completed'];
-      const currentStageIndex = stages.indexOf(stage);
+      // Use getStagesForBatch to get the correct stage object
+      const stages = getStagesForBatch(batch);
+      const stageObj = stages.find(s => s.stage_name.toLowerCase() === stage.toLowerCase());
+      let update: any = {};
+      if (stageObj && stageObj.stage_id && typeof stageObj.stage_id === 'number' && stageObj.stage_name.toLowerCase() !== 'completed') {
+        // Backend stage: send stage_id
+        update.current_stage_id = stageObj.stage_id;
+        update.custom_stage_name = null;
+      } else {
+        // Custom product-defined stage: send as custom_stage_name
+        update.current_stage_id = null;
+        update.custom_stage_name = stage;
+      }
+      // Calculate progress based on stage index
+      const stageIndex = stages.findIndex(s => s.stage_name.toLowerCase() === stage.toLowerCase());
       const totalStages = stages.length - 1;
-      const progress = stage === 'completed' ? 100 : Math.round((currentStageIndex / totalStages) * 100);
+      update.progress = stage.toLowerCase() === 'completed' ? 100 : Math.round((stageIndex / totalStages) * 100);
       const now = new Date().toISOString();
-      const updatedCompletionDates = { ...batch.stageCompletionDates, [stage]: now };
-      const update = {
-        current_stage_id: currentStageIndex + 1, // assuming stage ids are 1-based and ordered
-        progress,
-        stage_completion_dates: updatedCompletionDates,
-        status: stage === 'completed' ? 'completed' : 'in_progress'
-      };
-      const updated = await apiUpdateBatchStage(batch.tracking_id || batch.id, update);
+      update.stage_completion_dates = { ...batch.stageCompletionDates, [stage]: now };
+      update.status = stage.toLowerCase() === 'completed' ? 'completed' : 'in_progress';
+      const updated = await apiUpdateBatchStage(batch.id, update);
       // Map backend batch to frontend ManufacturingBatch type
       let stageCompletionDates = updated.stage_completion_dates;
       if (typeof stageCompletionDates === 'string') {
@@ -714,23 +806,23 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
       }
       const mappedBatch = {
         id: String(updated.tracking_id || updated.id || ''),
-        tracking_id: updated.tracking_id,
         batchNumber: updated.batch_number || updated.batchNumber || updated.tracking_id || updated.id || '',
         productId: String(updated.product_id || updated.productId || ''),
         productName,
         quantity: updated.quantity_in_process ?? updated.quantity ?? 1,
-        currentStage: (updated.status === 'completed' || stage === 'completed') ? 'completed' : (updated.current_stage || updated.currentStage || stage),
+        currentStage: updated.current_stage || updated.currentStage || (updated.status === 'completed' ? 'completed' : stage),
         startDate: parseDate(updated.start_date || updated.startDate),
         estimatedCompletionDate: parseDate(updated.estimated_completion_date || updated.estimatedCompletionDate),
         stageCompletionDates: safeStageCompletionDates,
         progress: updated.progress ?? 0,
-        status: updated.status || 'in_progress',
+        status: updated.status || (stage === 'completed' ? 'completed' : 'in_progress'),
         linkedSalesOrderId: updated.linked_sales_order_id ? String(updated.linked_sales_order_id) : (updated.linkedSalesOrderId ? String(updated.linkedSalesOrderId) : undefined),
+        custom_stage_name: updated.custom_stage_name || undefined,
         rawMaterialsUsed: updated.rawMaterialsUsed || [],
         rawMaterialsNeeded: updated.rawMaterialsNeeded || [],
         notes: updated.notes || '',
       };
-      setManufacturingBatches(prev => prev.map(b => ((b.tracking_id || b.id) === (mappedBatch.tracking_id || mappedBatch.id) ? mappedBatch : b)));
+      setManufacturingBatches(prev => prev.map(b => (b.id === batch.id ? mappedBatch : b)));
 
       // --- NEW LOGIC: Deduct raw materials when batch enters manufacturing (not completed) ---
       if (stage !== 'completed') {
@@ -762,7 +854,7 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
             setRawMaterials(updatedMaterials);
             // Save used materials in batch for tracking
             setManufacturingBatches(prev => prev.map(b =>
-              (b.id === batch.id || b.tracking_id === batch.tracking_id)
+              (b.id === batch.id)
                 ? { ...b, rawMaterialsUsed: usedMaterials }
                 : b
             ));
@@ -778,10 +870,10 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
           // Try to find if finished product already exists in backend
           const existing = finishedProducts.find(p => p.id === batch.productId);
           if (existing) {
-            // Update existing finished product in backend, always send price
+            // Update existing finished product in backend, always send unit_price
             await finishedProductService.update(parseInt(existing.id), {
               quantity_available: existing.quantity + batch.quantity,
-              price: backendProduct.price || 0
+              unit_price: backendProduct.price || 0
             });
           } else {
             // Create new finished product in backend
@@ -789,15 +881,15 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
               product_id: backendProduct.product_id,
               quantity_available: batch.quantity,
               status: 'available',
-              price: backendProduct.price || 0,
+              unit_price: backendProduct.price || 0,
               category: backendProduct.category || '',
             });
           }
           // Refetch finished products from backend
           const products = await finishedProductService.getAll();
           setFinishedProducts(products.map(fp => {
-            // Try to get price from backendProducts if not present in finished product
-            let price = fp.price || 0;
+            // Use unit_price from backend, fallback to backendProducts if needed
+            let price = fp.unit_price ?? fp.price ?? 0;
             if (!price && backendProducts && backendProducts.length > 0) {
               const prod = backendProducts.find((p: any) => String(p.product_id) === String(fp.product_id));
               if (prod && prod.price) price = prod.price;
@@ -891,6 +983,16 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const getActiveBatches = (batches: ManufacturingBatch[]) => batches.filter(batch => batch.status !== 'completed' && batch.currentStage !== 'completed');
   const getCompletedBatches = (batches: ManufacturingBatch[]) => batches.filter(batch => batch.status === 'completed' || batch.currentStage === 'completed');
 
+  // Notification methods
+  const markNotificationAsRead = async (id: number) => {
+    await notificationService.markAsRead(id);
+    setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
+  };
+  const deleteNotification = async (id: number) => {
+    await notificationService.delete(id);
+    setNotifications(prev => prev.filter(n => n.id !== id));
+  };
+
   const value: FactoryContextType = {
     rawMaterials,
     addRawMaterial,
@@ -916,6 +1018,9 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
     getCompletedBatches,
     backendProducts,
     setBackendProducts,
+    notifications,
+    markNotificationAsRead,
+    deleteNotification,
   };
   
   return (

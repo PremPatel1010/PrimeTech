@@ -39,8 +39,8 @@ const Reports: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   
   // Calculate key metrics from backend data
-  const rawMaterialValue = inventoryValues.raw_material_value;
-  const finishedProductValue = inventoryValues.finished_product_value;
+  const rawMaterialValue = calculateRawMaterialValue(rawMaterials);
+  const finishedProductValue = calculateFinishedProductValue(finishedProducts);
   const totalSalesValue = calculateTotalSales(salesOrders || [], 'delivered');
   
   // Manufacturing data
@@ -59,6 +59,12 @@ const Reports: React.FC = () => {
     'packaging': 'Packaging',
     'completed': 'Completed'
   };
+  
+  // Helper to ensure a value is a safe number
+  const getSafeNumber = (val: any) => (typeof val === 'number' && !isNaN(val) ? val : 0);
+  
+  const safeRawMaterialValue = getSafeNumber(rawMaterialValue);
+  const safeFinishedProductValue = getSafeNumber(finishedProductValue);
   
   // Inventory distribution data for pie chart
   const inventoryDistributionData = [
@@ -199,7 +205,7 @@ const Reports: React.FC = () => {
                       <div>
                         <p className="text-sm text-factory-gray-500">Total Inventory Value</p>
                         <p className="text-2xl font-bold text-factory-primary">
-                          {formatCurrency(rawMaterialValue + finishedProductValue)}
+                          {formatCurrency(safeRawMaterialValue + safeFinishedProductValue)}
                         </p>
                       </div>
                       <div>
@@ -211,11 +217,11 @@ const Reports: React.FC = () => {
                     <div className="grid grid-cols-2 gap-6">
                       <div>
                         <p className="text-sm text-factory-gray-500">Raw Material Value</p>
-                        <p className="text-xl font-semibold">{formatCurrency(rawMaterialValue)}</p>
+                        <p className="text-xl font-semibold">{formatCurrency(safeRawMaterialValue)}</p>
                       </div>
                       <div>
                         <p className="text-sm text-factory-gray-500">Finished Product Value</p>
-                        <p className="text-xl font-semibold">{formatCurrency(finishedProductValue)}</p>
+                        <p className="text-xl font-semibold">{formatCurrency(safeFinishedProductValue)}</p>
                       </div>
                     </div>
                     

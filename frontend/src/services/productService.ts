@@ -73,5 +73,16 @@ export const productService = {
   getStagesByComponentType: async (componentType: string): Promise<ManufacturingStage[]> => {
     const res = await axiosInstance.get(`${STAGE_URL}/component-type/${componentType}`);
     return res.data;
+  },
+  // Product-specific manufacturing stages
+  getProductStages: async (productId: number): Promise<ManufacturingStage[]> => {
+    const res = await axiosInstance.get(`/manufacturing-stages/product/${productId}`);
+    return res.data;
+  },
+  setProductStages: async (productId: number, stages: string[]): Promise<void> => {
+    await axiosInstance.post(`/manufacturing-stages/product/${productId}`, { stages });
+  },
+  deleteProductStages: async (productId: number): Promise<void> => {
+    await axiosInstance.delete(`/manufacturing-stages/product/${productId}`);
   }
 }; 

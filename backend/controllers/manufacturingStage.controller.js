@@ -130,4 +130,44 @@ export const getStagesByComponentType = async (req, res) => {
     console.error('Error in getStagesByComponentType:', error);
     res.status(500).json({ message: 'Error retrieving manufacturing stages' });
   }
+};
+
+// Get all stages for a specific product
+export const getStagesByProductId = async (req, res) => {
+  try {
+    const { productId } = req.params;
+    const stages = await ManufacturingStage.getStagesByProductId(productId);
+    res.json(stages);
+  } catch (error) {
+    console.error('Error in getStagesByProductId:', error);
+    res.status(500).json({ message: 'Error fetching product stages' });
+  }
+};
+
+// Create or replace stages for a product
+export const createProductStages = async (req, res) => {
+  try {
+    const { productId } = req.params;
+    const { stages } = req.body; // stages: array of stage names
+    if (!Array.isArray(stages) || stages.length === 0) {
+      return res.status(400).json({ message: 'Stages array required' });
+    }
+    await ManufacturingStage.createProductStages(productId, stages);
+    res.status(201).json({ message: 'Product stages updated' });
+  } catch (error) {
+    console.error('Error in createProductStages:', error);
+    res.status(500).json({ message: 'Error updating product stages' });
+  }
+};
+
+// Delete all stages for a product
+export const deleteProductStages = async (req, res) => {
+  try {
+    const { productId } = req.params;
+    await ManufacturingStage.deleteProductStages(productId);
+    res.json({ message: 'Product stages deleted' });
+  } catch (error) {
+    console.error('Error in deleteProductStages:', error);
+    res.status(500).json({ message: 'Error deleting product stages' });
+  }
 }; 

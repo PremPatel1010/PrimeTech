@@ -66,6 +66,36 @@ class ManufacturingStage {
     console.log('Stages by component type:', result.rows);
     return result.rows;
   }
+
+  // Get all stages for a specific product
+  static async getStagesByProductId(productId) {
+    const result = await pool.query(`
+      SELECT * FROM manufacturing.product_stages
+      WHERE product_id = $1
+      ORDER BY sequence ASC
+    `, [productId]);
+    return result.rows;
+  }
+
+  // Create stages for a product (replace all existing stages)
+  static async createProductStages(productId, stages) {
+    // Delete existing stages
+    await pool.query(`DELETE FROM manufacturing.product_stages WHERE product_id = $1`, [productId]);
+    // Insert new stages
+    for (let i = 0; i < stages.length; i++) {
+      await pool.query(`
+        INSERT INTO manufacturing.product_stages (product_id, stage_name, sequence)
+        VALUES ($1, $2, $3)
+      `, [productId, stages[i], i + 1]);
+    }
+    return true;
+  }
+
+  // Delete all stages for a product
+  static async deleteProductStages(productId) {
+    await pool.query(`DELETE FROM manufacturing.product_stages WHERE product_id = $1`, [productId]);
+    return true;
+  }
 }
 
 export default ManufacturingStage; 

@@ -5,7 +5,10 @@ import {
   createStage,
   updateStage,
   deleteStage,
-  getStagesByComponentType
+  getStagesByComponentType,
+  getStagesByProductId,
+  createProductStages,
+  deleteProductStages
 } from '../controllers/manufacturingStage.controller.js';
 
 const router = express.Router();
@@ -27,5 +30,10 @@ router.put('/:id', updateStage);
 
 // Delete stage
 router.delete('/:id', deleteStage);
+
+// Product-specific stage routes
+router.get('/product/:productId', getStagesByProductId);
+router.post('/product/:productId', createProductStages);
+router.delete('/product/:productId', deleteProductStages);
 
 export default router; 

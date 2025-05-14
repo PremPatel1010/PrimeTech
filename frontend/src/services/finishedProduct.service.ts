@@ -11,6 +11,8 @@ export interface FinishedProductAPI {
   product_code?: string;
   price?: number;
   category?: string;
+  unit_price?: number;
+  total_price?: number;
 }
 
 export const finishedProductService = {
