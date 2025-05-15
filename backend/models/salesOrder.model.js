@@ -149,16 +149,16 @@ class SalesOrder {
           `, [salesOrderId, item.product_category, item.product_id, toManufacture, item.unit_price, false]);
           const orderItemId = orderItemResult.rows[0].item_id;
 
-          // Get stages for this product type
+          // Get stages for this product (from product_stages)
           const stagesResult = await client.query(`
-            SELECT stage_id, component_type, stage_name, sequence
-            FROM manufacturing.stages
-            WHERE component_type = $1
+            SELECT product_stage_id as stage_id, stage_name, sequence
+            FROM manufacturing.product_stages
+            WHERE product_id = $1
             ORDER BY sequence
-          `, [componentType]);
+          `, [item.product_id]);
 
           if (stagesResult.rows.length === 0) {
-            throw new Error(`No manufacturing stages found for product category: ${componentType}`);
+            throw new Error(`No manufacturing stages found for product ID: ${item.product_id}`);
           }
 
           // Create manufacturing progress with first stage
