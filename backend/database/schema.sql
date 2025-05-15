@@ -157,13 +157,6 @@ CREATE TABLE purchase.suppliers (
 -- ========================
 -- MANUFACTURING STAGES
 -- ========================
-CREATE TABLE manufacturing.stages (
-    stage_id SERIAL PRIMARY KEY,
-    component_type VARCHAR(20) CHECK (component_type IN ('motor', 'pump', 'combined')),
-    stage_name VARCHAR(100) NOT NULL,
-    sequence INTEGER NOT NULL
-);
-
 CREATE TABLE manufacturing.product_manufacturing (
     tracking_id SERIAL PRIMARY KEY,
     batch_number VARCHAR(50),
@@ -176,7 +169,7 @@ CREATE TABLE manufacturing.product_manufacturing (
     sales_order_id INTEGER REFERENCES sales.sales_order(sales_order_id) ON DELETE CASCADE,
     sales_order_item_id INTEGER REFERENCES sales.sales_order_items(item_id) ON DELETE CASCADE,
     product_id INTEGER NOT NULL REFERENCES products.product(product_id) ON DELETE CASCADE,
-    current_stage_id INTEGER REFERENCES manufacturing.stages(stage_id),
+    current_stage_id INTEGER,
     custom_stage_name VARCHAR(100),
     quantity_in_process INTEGER DEFAULT 0,
     status VARCHAR(20) CHECK (status IN ('not_started', 'in_progress', 'completed')) DEFAULT 'not_started',
