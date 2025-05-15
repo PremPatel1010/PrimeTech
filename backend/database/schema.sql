@@ -9,6 +9,22 @@ CREATE SCHEMA IF NOT EXISTS manufacturing;
 CREATE SCHEMA IF NOT EXISTS products;
 
 -- ========================
+-- COMPANY SETTINGS (Global)
+-- ========================
+CREATE TABLE IF NOT EXISTS public.company_settings (
+  id SERIAL PRIMARY KEY,
+  company_name VARCHAR(255) NOT NULL DEFAULT 'Primetech Industry',
+  company_address TEXT NOT NULL DEFAULT '123 Solar Way, Tech City',
+  company_email VARCHAR(255) NOT NULL DEFAULT 'contact@primetech.com',
+  phone_number VARCHAR(50) NOT NULL DEFAULT '+1 (555) 123-4567'
+);
+
+-- Insert a single row if table is empty
+INSERT INTO public.company_settings (company_name, company_address, company_email, phone_number)
+SELECT 'Primetech Industry', '123 Solar Way, Tech City', 'contact@primetech.com', '+1 (555) 123-4567'
+WHERE NOT EXISTS (SELECT 1 FROM public.company_settings);
+
+-- ========================
 -- USERS TABLE
 -- ========================
 CREATE TABLE auth.users (
@@ -382,19 +398,5 @@ CREATE TRIGGER check_finished_products_stock
 AFTER INSERT OR UPDATE ON inventory.finished_products
 FOR EACH ROW
 EXECUTE FUNCTION inventory.check_stock_levels();
-
-
-CREATE TABLE IF NOT EXISTS company_settings (
-  id SERIAL PRIMARY KEY,
-  company_name VARCHAR(255) NOT NULL DEFAULT 'Primetech Industry',
-  company_address TEXT NOT NULL DEFAULT '123 Solar Way, Tech City',
-  company_email VARCHAR(255) NOT NULL DEFAULT 'contact@primetech.com',
-  phone_number VARCHAR(50) NOT NULL DEFAULT '+1 (555) 123-4567'
-);
-
--- Insert a single row if table is empty
-INSERT INTO company_settings (company_name, company_address, company_email, phone_number)
-SELECT 'Primetech Industry', '123 Solar Way, Tech City', 'contact@primetech.com', '+1 (555) 123-4567'
-WHERE NOT EXISTS (SELECT 1 FROM company_settings); 
 
 
