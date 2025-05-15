@@ -218,20 +218,37 @@ export const updateStatus = async (req, res) => {
       });
     }
 
-    const result = await SalesOrder.updateStatus(id, status);
+    try {
+      const result = await SalesOrder.updateStatus(id, status);
 
-    if (!result) {
-      return res.status(404).json({
-        success: false,
-        message: 'Sales order not found'
+      if (!result) {
+        return res.status(404).json({
+          success: false,
+          message: 'Sales order not found'
+        });
+      }
+
+      res.json({
+        success: true,
+        message: 'Sales order status updated successfully',
+        data: result
       });
+    } catch (error) {
+      // Handle specific inventory-related errors
+      if (error.message.includes('No finished product found')) {
+        return res.status(400).json({
+          success: false,
+          message: 'Cannot complete order: Some products are not available in inventory'
+        });
+      }
+      if (error.message.includes('Insufficient quantity')) {
+        return res.status(400).json({
+          success: false,
+          message: 'Cannot complete order: Insufficient inventory quantity'
+        });
+      }
+      throw error; // Re-throw other errors to be caught by outer catch
     }
-
-    res.json({
-      success: true,
-      message: 'Sales order status updated successfully',
-      data: result
-    });
   } catch (error) {
     console.error('Error updating sales order status:', error);
     res.status(500).json({
@@ -249,5 +266,53 @@ export const getNextOrderNumber = async (req, res) => {
     res.json({ nextOrderNumber });
   } catch (error) {
     res.status(500).json({ message: 'Error generating next order number', error: error.message });
+  }
+};
+
+export const checkProductStockAndRawMaterial = async (req, res) => {
+  try {
+    const productId = req.query.productId || req.body.productId;
+    const quantity = Number(req.query.quantity || req.body.quantity);
+    if (!productId || isNaN(quantity) || quantity <= 0) {
+      return res.status(400).json({ message: 'productId and valid quantity are required' });
+    }
+    const result = await SalesOrder.checkProductStockAndRawMaterial(productId, quantity);
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ message: 'Error checking stock and raw material', error: error.message });
+  }
+};
+
+export const checkOrderAvailability = async (req, res) => {
+  try {
+    const orderData = req.body;
+    const availabilityResults = await SalesOrder.checkOrderAvailability(orderData);
+    
+    // Calculate overall order status
+    const overallStatus = {
+      can_fulfill_completely: availabilityResults.every(result => 
+        result.can_fulfill_from_stock || 
+        (result.can_manufacture && result.max_manufacturable_quantity >= result.requested_quantity)
+      ),
+      can_fulfill_partially: availabilityResults.some(result => 
+        result.can_fulfill_from_stock || 
+        (result.can_manufacture && result.max_manufacturable_quantity > 0)
+      ),
+      suggested_quantities: availabilityResults.map(result => ({
+        product_id: result.product_id,
+        suggested_quantity: Math.min(
+          result.requested_quantity,
+          result.available_in_stock + (result.can_manufacture ? result.max_manufacturable_quantity : 0)
+        )
+      }))
+    };
+
+    res.json({
+      availability_results: availabilityResults,
+      overall_status: overallStatus
+    });
+  } catch (error) {
+    console.error('Error in checkOrderAvailability:', error);
+    res.status(500).json({ message: 'Error checking order availability', error: error.message });
   }
 }; 

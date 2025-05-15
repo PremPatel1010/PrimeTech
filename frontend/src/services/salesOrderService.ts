@@ -73,4 +73,14 @@ export const deleteSalesOrder = async (id: string) => {
 export const fetchNextOrderNumber = async () => {
   const res = await axiosInstance.get('/sales-orders/next-order-number');
   return res.data.nextOrderNumber;
+};
+
+export const checkOrderAvailability = async (orderData: any) => {
+  try {
+    const response = await axiosInstance.post('/sales-orders/check-availability', orderData);
+    return response.data;
+  } catch (error) {
+    console.error('Error checking order availability:', error);
+    throw error;
+  }
 }; 

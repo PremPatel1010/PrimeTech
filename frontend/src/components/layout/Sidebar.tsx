@@ -108,10 +108,10 @@ const Sidebar: React.FC = () => {
           {/* Sales Orders Dropdown */}
           
             <NavItem
-              to="/sales/status"
+              to="/sales"
               icon={<Eye size={20} />}
               text="Sales Orders"
-              isActive={currentPath === '/sales/status'}
+              isActive={currentPath === '/sales'}
             />
           
           

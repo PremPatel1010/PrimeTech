@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -7,6 +7,8 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Settings, User, Bell, Shield } from 'lucide-react';
 import { userService } from '../services/user.service';
+import { getCompanySettings, updateCompanySettings } from '../services/settingsService';
+import { toast } from '@/components/ui/use-toast';
 
 const SettingsPage = () => {
   const [currentPassword, setCurrentPassword] = useState('');
@@ -15,6 +17,24 @@ const SettingsPage = () => {
   const [passwordChangeMessage, setPasswordChangeMessage] = useState('');
   const [passwordChangeError, setPasswordChangeError] = useState('');
   const [isChangingPassword, setIsChangingPassword] = useState(false);
+  const [form, setForm] = useState({
+    company_name: '',
+    company_address: '',
+    company_email: '',
+    phone_number: ''
+  });
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    getCompanySettings().then(data => {
+      setForm({
+        company_name: data.company_name || '',
+        company_address: data.company_address || '',
+        company_email: data.company_email || '',
+        phone_number: data.phone_number || ''
+      });
+    });
+  }, []);
 
   const handlePasswordChange = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -38,6 +58,21 @@ const SettingsPage = () => {
     }
   };
 
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    setForm({ ...form, [e.target.name]: e.target.value });
+  };
+
+  const handleSave = async () => {
+    setLoading(true);
+    try {
+      await updateCompanySettings(form);
+      toast({ title: 'Settings updated', description: 'Company settings have been saved.', variant: 'default' });
+    } catch (err) {
+      toast({ title: 'Error', description: 'Failed to update settings.', variant: 'destructive' });
+    }
+    setLoading(false);
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
@@ -45,9 +80,9 @@ const SettingsPage = () => {
       </div>
 
       <Tabs defaultValue="general" className="w-full">
-        <TabsList className="grid w-full md:w-[400px] grid-cols-3">
+        <TabsList className="grid w-full md:w-[400px] grid-cols-2">
           <TabsTrigger value="general">General</TabsTrigger>
-          <TabsTrigger value="notifications">Notifications</TabsTrigger>
+          
           <TabsTrigger value="security">Security</TabsTrigger>
         </TabsList>
         
@@ -63,90 +98,37 @@ const SettingsPage = () => {
               <div className="space-y-4">
                 <div className="space-y-2">
                   <Label htmlFor="company-name">Company Name</Label>
-                  <Input id="company-name" defaultValue="Primetech Industry" />
+                  <Input id="company-name" name="company_name" value={form.company_name} onChange={handleChange} />
                 </div>
                 
                 <div className="space-y-2">
                   <Label htmlFor="company-address">Company Address</Label>
-                  <Input id="company-address" defaultValue="123 Solar Way, Tech City" />
+                  <textarea id="company-address" name="company_address" value={form.company_address} onChange={handleChange} className="w-full border rounded p-2" />
                 </div>
                 
                 <div className="space-y-2">
                   <Label htmlFor="company-email">Company Email</Label>
-                  <Input id="company-email" type="email" defaultValue="contact@primetech.com" />
+                  <Input id="company-email" name="company_email" type="email" value={form.company_email} onChange={handleChange} />
                 </div>
                 
                 <div className="space-y-2">
                   <Label htmlFor="company-phone">Phone Number</Label>
-                  <Input id="company-phone" defaultValue="+1 (555) 123-4567" />
+                  <Input id="company-phone" name="phone_number" value={form.phone_number} onChange={handleChange} />
                 </div>
               </div>
               
-              <div className="pt-4 border-t">
-                <h3 className="text-lg font-medium mb-4">Appearance</h3>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="font-medium">Dark Mode</p>
-                    <p className="text-sm text-factory-gray-500">Enable dark mode for the application</p>
-                  </div>
-                  <Switch />
-                </div>
-              </div>
+              
               
               <div className="pt-4 border-t flex justify-end">
-                <Button>Save Changes</Button>
+                <Button onClick={handleSave} disabled={loading}>
+                  {loading ? 'Saving...' : 'Save Changes'}
+                </Button>
               </div>
             </CardContent>
           </Card>
         </TabsContent>
         
-        <TabsContent value="notifications">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Bell className="h-5 w-5" />
-                Notification Settings
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium">Email Notifications</p>
-                  <p className="text-sm text-factory-gray-500">Receive email alerts for important events</p>
-                </div>
-                <Switch defaultChecked />
-              </div>
-              
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium">Low Stock Alerts</p>
-                  <p className="text-sm text-factory-gray-500">Get notified when inventory is running low</p>
-                </div>
-                <Switch defaultChecked />
-              </div>
-              
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium">Order Updates</p>
-                  <p className="text-sm text-factory-gray-500">Notifications for order status changes</p>
-                </div>
-                <Switch defaultChecked />
-              </div>
-              
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium">Manufacturing Alerts</p>
-                  <p className="text-sm text-factory-gray-500">Get notified about manufacturing process updates</p>
-                </div>
-                <Switch defaultChecked />
-              </div>
-              
-              <div className="pt-4 border-t flex justify-end">
-                <Button>Save Preferences</Button>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
+        
         
         <TabsContent value="security">
           <Card>
@@ -177,21 +159,7 @@ const SettingsPage = () => {
                 </button>
               </form>
               
-              <div className="pt-4 border-t">
-                <h3 className="font-medium mb-4">Two-Factor Authentication</h3>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="font-medium">Enable 2FA</p>
-                    <p className="text-sm text-factory-gray-500">Add an extra layer of security to your account</p>
-                  </div>
-                  <Switch />
-                </div>
-              </div>
               
-              <div className="pt-4 border-t">
-                <h3 className="font-medium mb-4">Session Management</h3>
-                <Button variant="outline">Sign Out All Other Sessions</Button>
-              </div>
             </CardContent>
           </Card>
         </TabsContent>

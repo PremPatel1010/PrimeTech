@@ -6,7 +6,8 @@ import {
   updateSalesOrder,
   deleteSalesOrder,
   updateStatus,
-  getNextOrderNumber
+  getNextOrderNumber,
+  checkOrderAvailability
 } from '../controllers/salesOrder.controller.js';
 import { authenticate } from '../middleware/auth.middleware.js';
 
@@ -33,5 +34,8 @@ router.put('/:id/status', updateStatus);
 
 // Get next order number
 router.get('/next-order-number', getNextOrderNumber);
+
+// Add new route for checking order availability
+router.post('/check-availability', checkOrderAvailability);
 
 export default router; 

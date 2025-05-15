@@ -16,6 +16,7 @@ import finishedProductRoutes from './routes/finishedProduct.routes.js';
 import revenueAnalysisRoutes from './routes/revenueAnalysis.routes.js';
 import notificationRoutes from './routes/notification.routes.js';
 import kpiRoutes from './routes/kpi.routes.js';
+import companySettingsRoutes from './routes/companySettings.routes.js';
 
 dotenv.config();
 
@@ -41,6 +42,7 @@ app.use('/api/finished-products', finishedProductRoutes);
 app.use('/api/revenue-analysis', revenueAnalysisRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/kpi', kpiRoutes);
+app.use('/api/company-settings', companySettingsRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {

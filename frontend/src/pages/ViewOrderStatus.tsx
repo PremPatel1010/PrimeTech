@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useFactory } from '../context/FactoryContext';
 import { formatCurrency, formatDate } from '../utils/calculations';
 import { Check, Hammer, Truck, AlertCircle, History } from 'lucide-react';
@@ -43,7 +43,7 @@ import {
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
-import { fetchSalesOrders, updateSalesOrder, fetchNextOrderNumber, deleteSalesOrder } from '../services/salesOrderService';
+import { fetchSalesOrders, updateSalesOrder, fetchNextOrderNumber, deleteSalesOrder, checkOrderAvailability } from '../services/salesOrderService';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { productService, Product } from '../services/productService';
@@ -81,6 +81,10 @@ const ViewOrderStatus: React.FC = () => {
   const [activePage, setActivePage] = useState(1);
   const [activeHistoryPage, setActiveHistoryPage] = useState(1);
   const ORDERS_PER_PAGE = 5;
+  const [partialDialogOpen, setPartialDialogOpen] = useState(false);
+  const [pendingProduct, setPendingProduct] = useState<any>(null);
+  const [pendingSuggestedQty, setPendingSuggestedQty] = useState<number | null>(null);
+  const addButtonRef = useRef<HTMLButtonElement>(null);
   
   useEffect(() => {
     fetchSalesOrders().then((data) => {
@@ -297,28 +301,112 @@ const ViewOrderStatus: React.FC = () => {
     }
   };
   
-  const handleAddProduct = () => {
+  const handleAddProduct = async () => {
     if (selectedProduct && productQuantity > 0) {
       const product = products.find(p => String(p.product_id) === selectedProduct);
       if (product) {
-        const orderProduct = {
-          productId: String(product.product_id),
-          productName: product.product_name,
-          productCategory: product.product_code || '',
-          quantity: productQuantity,
-          price: product.price || 0
+        // Check availability first
+        const orderData = {
+          items: [{
+            product_id: selectedProduct,
+            quantity: productQuantity,
+            unit_price: product.price || 0
+          }]
         };
-        const updatedProducts = [...(newOrder.products || []), orderProduct];
-        const totalValue = updatedProducts.reduce((total, p) => total + (p.quantity * (p.price || 0)), 0);
-        setNewOrder({
-          ...newOrder,
-          products: updatedProducts,
-          totalValue
-        });
-        setSelectedProduct('');
-        setProductQuantity(1);
+        try {
+          const availabilityResult = await checkOrderAvailability(orderData);
+          const result = availabilityResult.availability_results[0];
+
+          // Block only if neither stock nor manufacturing is possible, or not enough raw material for requested quantity
+          if (!result.can_fulfill_from_stock && (!result.can_manufacture || result.max_manufacturable_quantity < productQuantity)) {
+            toast({
+              title: "Error",
+              description: "Cannot add product - insufficient stock and cannot manufacture requested quantity.",
+              variant: "destructive"
+            });
+            return;
+          }
+
+          // If we can't fulfill completely from stock, but can manufacture, add for manufacturing
+          if (!result.can_fulfill_from_stock && result.can_manufacture && result.max_manufacturable_quantity >= productQuantity) {
+            addProductToOrder({
+              productId: String(product.product_id),
+              productName: product.product_name,
+              productCategory: product.product_code || '',
+              quantity: productQuantity,
+              price: product.price || 0
+            });
+            return;
+          }
+
+          // If we can't fulfill completely, show custom dialog for partial fulfillment (if only partial can be manufactured)
+          if (!result.can_fulfill_from_stock && result.can_manufacture && result.max_manufacturable_quantity < productQuantity) {
+            setPendingProduct({
+              product,
+              productId: String(product.product_id),
+              productName: product.product_name,
+              productCategory: product.product_code || '',
+              price: product.price || 0
+            });
+            setPendingSuggestedQty(result.max_manufacturable_quantity);
+            setPartialDialogOpen(true);
+            return;
+          }
+
+          // Add product directly if fully fulfillable from stock
+          addProductToOrder({
+            productId: String(product.product_id),
+            productName: product.product_name,
+            productCategory: product.product_code || '',
+            quantity: productQuantity,
+            price: product.price || 0
+          });
+        } catch (error) {
+          toast({
+            title: "Error",
+            description: "Failed to check product availability",
+            variant: "destructive"
+          });
+        }
       }
     }
+  };
+
+  // Helper to add product to order and reset selection
+  const addProductToOrder = (orderProduct: any) => {
+    if (!orderProduct.quantity || orderProduct.quantity <= 0) {
+      // Allow adding if the intent is to manufacture (i.e., quantity requested > 0)
+      if (productQuantity > 0) {
+        orderProduct.quantity = productQuantity;
+      } else {
+        toast({
+          title: "Cannot Add Product",
+          description: "Quantity must be greater than 0.",
+          variant: "destructive"
+        });
+        setPendingProduct(null);
+        setPendingSuggestedQty(null);
+        setPartialDialogOpen(false);
+        return;
+      }
+    }
+    const updatedProducts = [...(newOrder.products || []), orderProduct];
+    const totalValue = updatedProducts.reduce((total, p) => total + (p.quantity * (p.price || 0)), 0);
+    setNewOrder({
+      ...newOrder,
+      products: updatedProducts,
+      totalValue
+    });
+    setSelectedProduct('');
+    setProductQuantity(1);
+    setPendingProduct(null);
+    setPendingSuggestedQty(null);
+    setPartialDialogOpen(false);
+    toast({
+      title: "Product Added",
+      description: `${orderProduct.productName} (${orderProduct.quantity} units) added to order.`
+    });
+    setTimeout(() => addButtonRef.current?.focus(), 100);
   };
 
   const handleRemoveProduct = (index: number) => {
@@ -351,10 +439,66 @@ const ViewOrderStatus: React.FC = () => {
     ) {
       setIsProcessing(true);
       try {
+        // First check availability
+        const orderData = {
+          items: newOrder.products.map(p => ({
+            product_id: p.productId,
+            quantity: p.quantity,
+            unit_price: p.price
+          }))
+        };
+
+        const availabilityResult = await checkOrderAvailability(orderData);
+        
+        if (!availabilityResult.overall_status.can_fulfill_partially) {
+          toast({
+            title: "Error",
+            description: "Cannot create order - insufficient stock and materials",
+            variant: "destructive"
+          });
+          return;
+        }
+
+        // If we can fulfill partially, show confirmation dialog
+        if (!availabilityResult.overall_status.can_fulfill_completely) {
+          const confirmed = window.confirm(
+            "This order can only be partially fulfilled. Would you like to proceed with the suggested quantities?"
+          );
+          
+          if (!confirmed) {
+            return;
+          }
+
+          // Update quantities based on suggestions
+          const updatedProducts = newOrder.products.map(p => {
+            const suggestion = availabilityResult.overall_status.suggested_quantities.find(
+              s => s.product_id === p.productId
+            );
+            return {
+              ...p,
+              quantity: suggestion ? suggestion.suggested_quantity : p.quantity
+            };
+          });
+
+          // Recalculate total value
+          const totalValue = updatedProducts.reduce(
+            (total, p) => total + (p.quantity * (p.price || 0)),
+            0
+          );
+
+          setNewOrder(prev => ({
+            ...prev,
+            products: updatedProducts,
+            totalValue
+          }));
+        }
+
+        // Create the order
         await addSalesOrder(newOrder as Omit<SalesOrder, 'id'>);
         setIsDialogOpen(false);
         resetNewOrder();
-        // Refetch orders from backend
+        
+        // Refetch orders
         fetchSalesOrders().then((data) => {
           const mapped = data.map((order: any) => ({
             id: order.sales_order_id || order.id,
@@ -373,6 +517,17 @@ const ViewOrderStatus: React.FC = () => {
             partialFulfillment: order.partialFulfillment || [],
           }));
           setOrders(mapped);
+        });
+
+        toast({
+          title: "Success",
+          description: "Sales order created successfully"
+        });
+      } catch (error) {
+        toast({
+          title: "Error",
+          description: "Failed to create sales order",
+          variant: "destructive"
         });
       } finally {
         setIsProcessing(false);
@@ -889,14 +1044,14 @@ const ViewOrderStatus: React.FC = () => {
               </div>
               <div className="space-y-2">
                 <Label htmlFor="quantity">Quantity</Label>
-            <Input
+                <Input
                   id="quantity" 
                   type="number" 
                   min="1"
                   value={productQuantity} 
                   onChange={(e) => setProductQuantity(parseInt(e.target.value) || 0)}
-            />
-          </div>
+                />
+              </div>
               {selectedProduct && productQuantity > 0 && (
                 <ProductAvailabilityInfo
                   productId={selectedProduct}
@@ -906,13 +1061,14 @@ const ViewOrderStatus: React.FC = () => {
               )}
               <div className="flex items-end">
                 <Button 
+                  ref={addButtonRef}
                   onClick={handleAddProduct}
                   className="bg-factory-primary hover:bg-factory-primary/90 w-full"
                 >
                   Add Product
                 </Button>
-                    </div>
-                    </div>
+              </div>
+            </div>
             {(newOrder.products || []).length > 0 && (
               <div className="border rounded-md p-4">
                 <h4 className="font-medium mb-2">Order Products</h4>
@@ -925,8 +1081,8 @@ const ViewOrderStatus: React.FC = () => {
                           <p className="text-sm text-factory-gray-500">
                             {product.quantity} x {formatCurrency(product.price || 0)}
                           </p>
-                    </div>
-                    </div>
+                        </div>
+                      </div>
                       <p className="font-medium mr-4">
                         {formatCurrency((product.quantity || 0) * (product.price || 0))}
                       </p>
@@ -939,7 +1095,7 @@ const ViewOrderStatus: React.FC = () => {
                       </Button>
                     </div>
                   ))}
-                    </div>
+                </div>
                 <div className="mt-4 flex justify-between">
                   <p className="font-medium">Total</p>
                   <p className="font-bold">{formatCurrency(newOrder.totalValue || 0)}</p>
@@ -1090,6 +1246,53 @@ const ViewOrderStatus: React.FC = () => {
             </Button>
             <Button onClick={handleDeleteConfirm} className="bg-red-600 hover:bg-red-700 text-white">
               Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={partialDialogOpen} onOpenChange={setPartialDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Partial Fulfillment</DialogTitle>
+            <DialogDescription>
+              This product can only be partially fulfilled.<br />
+              Maximum available: <b>{pendingSuggestedQty ?? 0}</b> units.<br />
+              Would you like to add this quantity to the order?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => {
+              setPartialDialogOpen(false);
+              setPendingProduct(null);
+              setPendingSuggestedQty(null);
+            }}>Cancel</Button>
+            <Button
+              onClick={() => {
+                if (pendingProduct && pendingSuggestedQty && pendingSuggestedQty > 0) {
+                  addProductToOrder({
+                    ...pendingProduct,
+                    quantity: pendingSuggestedQty
+                  });
+                } else if (pendingProduct && pendingSuggestedQty === 0 && pendingProduct) {
+                  // If can_manufacture is true and max_manufacturable_quantity is 0, allow adding with 0 to trigger manufacturing batch
+                  addProductToOrder({
+                    ...pendingProduct,
+                    quantity: productQuantity // use requested quantity for manufacturing
+                  });
+                } else {
+                  toast({
+                    title: "Cannot Add Product",
+                    description: "No units available to add.",
+                    variant: "destructive"
+                  });
+                  setPartialDialogOpen(false);
+                  setPendingProduct(null);
+                  setPendingSuggestedQty(null);
+                }
+              }}
+              className="bg-factory-primary hover:bg-factory-primary/90"
+            >
+              Add Units
             </Button>
           </DialogFooter>
         </DialogContent>

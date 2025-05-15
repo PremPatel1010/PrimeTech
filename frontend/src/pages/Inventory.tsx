@@ -331,9 +331,22 @@ const Inventory: React.FC = () => {
                           </TableCell>
                           <TableCell className="text-right">{formatDate(product.lastUpdated)}</TableCell>
                           <TableCell className="text-right">
-                            <Button size="sm" variant="outline" onClick={async () => { setEditProduct(product); setIsEditProductDialogOpen(true); }}>Edit</Button>
-                            <Button size="sm" variant="destructive" className="ml-2" onClick={async () => { setDeleteProductId(product.id); setIsDeleteProductDialogOpen(true); }}>Delete</Button>
-                            <Button size="sm" className="ml-2 bg-blue-600 hover:bg-blue-700 text-white" onClick={async () => { setDispatchProduct(product); setIsDispatchDialogOpen(true); setDispatchQuantity(1); }}>Dispatch</Button>
+                            <Button size="sm" variant="outline" onClick={async () => {
+                              if (product.id && !isNaN(Number(product.id))) {
+                                setEditProduct(product);
+                                setIsEditProductDialogOpen(true);
+                              } else {
+                                toast({ title: 'Error', description: 'Invalid product ID for editing', variant: 'destructive' });
+                              }
+                            }}>Edit</Button>
+                            <Button size="sm" variant="destructive" className="ml-2" onClick={async () => {
+                              if (product.id && !isNaN(Number(product.id))) {
+                                setDeleteProductId(product.id);
+                                setIsDeleteProductDialogOpen(true);
+                              } else {
+                                toast({ title: 'Error', description: 'Invalid product ID for deletion', variant: 'destructive' });
+                              }
+                            }}>Delete</Button>
                           </TableCell>
                         </TableRow>
                       ))}
@@ -622,9 +635,11 @@ const Inventory: React.FC = () => {
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsEditProductDialogOpen(false)}>Cancel</Button>
             <Button onClick={async () => {
-              if (editProduct) {
+              if (editProduct && editProduct.id && !isNaN(Number(editProduct.id))) {
                 await updateFinishedProduct(editProduct.id, editProduct);
                 setIsEditProductDialogOpen(false);
+              } else {
+                toast({ title: 'Error', description: 'Invalid product ID for editing', variant: 'destructive' });
               }
             }} className="bg-factory-primary hover:bg-factory-primary/90">Save Changes</Button>
           </DialogFooter>
@@ -641,37 +656,13 @@ const Inventory: React.FC = () => {
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsDeleteProductDialogOpen(false)}>Cancel</Button>
             <Button variant="destructive" onClick={async () => {
-              if (deleteProductId) {
+              if (deleteProductId && !isNaN(Number(deleteProductId))) {
                 await deleteFinishedProduct(deleteProductId);
                 setIsDeleteProductDialogOpen(false);
+              } else {
+                toast({ title: 'Error', description: 'Invalid product ID for deletion', variant: 'destructive' });
               }
             }}>Delete</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Dispatch Finished Product Dialog */}
-      <Dialog open={isDispatchDialogOpen} onOpenChange={setIsDispatchDialogOpen}>
-        <DialogContent className="sm:max-w-[425px]">
-          <DialogHeader>
-            <DialogTitle>Dispatch Finished Product</DialogTitle>
-          </DialogHeader>
-          {dispatchProduct && (
-            <div className="grid gap-4 py-4">
-              <div className="space-y-2">
-                <Label htmlFor="dispatch-quantity">Quantity to Dispatch</Label>
-                <Input id="dispatch-quantity" type="number" min="1" max={dispatchProduct.quantity} value={dispatchQuantity} onChange={e => setDispatchQuantity(Math.max(1, Math.min(dispatchProduct.quantity, parseInt(e.target.value) || 1)))} />
-              </div>
-            </div>
-          )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsDispatchDialogOpen(false)}>Cancel</Button>
-            <Button onClick={async () => {
-              if (dispatchProduct && dispatchQuantity > 0 && dispatchQuantity <= dispatchProduct.quantity) {
-                await dispatchFinishedProduct(dispatchProduct.id, dispatchQuantity);
-                setIsDispatchDialogOpen(false);
-              }
-            }} className="bg-blue-600 hover:bg-blue-700 text-white">Dispatch</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

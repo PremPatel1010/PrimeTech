@@ -4,15 +4,21 @@ class FinishedProduct {
   static async getAllFinishedProducts() {
     const result = await pool.query(`
       SELECT 
-        fp.*,
+        MIN(fp.finished_product_id) AS finished_product_id,
+        p.product_id,
         p.product_name,
         p.product_code,
         p.discharge_range,
         p.head_range,
-        p.rating_range
+        p.rating_range,
+        SUM(fp.quantity_available) AS quantity_available,
+        MAX(fp.unit_price) AS unit_price,
+        SUM(COALESCE(fp.total_price, fp.quantity_available * fp.unit_price)) AS total_price,
+        MAX(fp.added_on) AS added_on
       FROM inventory.finished_products fp
       JOIN products.product p ON fp.product_id = p.product_id
-      ORDER BY fp.added_on DESC
+      GROUP BY p.product_id, p.product_name, p.product_code, p.discharge_range, p.head_range, p.rating_range
+      ORDER BY MAX(fp.added_on) DESC
     `);
     return result.rows;
   }

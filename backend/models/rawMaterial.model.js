@@ -4,7 +4,23 @@ class RawMaterial {
   // Get all raw materials
   static async getAllRawMaterials() {
     try {
-      const query = 'SELECT * FROM inventory.raw_materials ORDER BY material_name';
+      const query = `
+        SELECT 
+          MIN(material_id) AS material_id,
+          material_code,
+          material_name,
+          moc,
+          unit_weight,
+          unit,
+          SUM(current_stock) AS current_stock,
+          MIN(minimum_stock) AS minimum_stock,
+          MAX(unit_price) AS unit_price,
+          MAX(updated_at) AS updated_at,
+          MAX(created_at) AS created_at
+        FROM inventory.raw_materials
+        GROUP BY material_code, material_name, moc, unit_weight, unit
+        ORDER BY material_name
+      `;
       const result = await pool.query(query);
       return result.rows;
     } catch (error) {

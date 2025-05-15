@@ -217,16 +217,16 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
     finishedProductService.getAll()
       .then(products => setFinishedProducts(products.map(fp => {
         // Use unit_price from backend, fallback to price or backendProducts if needed
-        let price = fp.unit_price ?? fp.price ?? 0;
+        let price = Number(fp.unit_price ?? fp.price ?? 0);
         if (!price && backendProducts && backendProducts.length > 0) {
           const prod = backendProducts.find((p: any) => String(p.product_id) === String(fp.product_id));
-          if (prod && prod.price) price = prod.price;
+          if (prod && prod.price) price = Number(prod.price);
         }
         return {
           id: String(fp.finished_product_id),
           name: fp.product_name || '',
           category: fp.category || '',
-          quantity: fp.quantity_available,
+          quantity: Number(fp.quantity_available),
           price,
           lastUpdated: fp.added_on || new Date().toISOString(),
           billOfMaterials: [],
@@ -328,7 +328,7 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
     try {
       const fp = finishedProducts.find(p => p.id === id);
       if (!fp) return;
-      const updated = await finishedProductService.update(parseInt(id), {
+      const updated = await finishedProductService.update(Number(id), {
         quantity_available: updates.quantity ?? fp.quantity,
         unit_price: updates.price ?? fp.price,
         // Add more fields as needed
@@ -354,7 +354,7 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const deleteFinishedProduct = async (id: string) => {
     try {
-      await finishedProductService.delete(parseInt(id));
+      await finishedProductService.delete(Number(id));
       setFinishedProducts(prev => prev.filter(p => p.id !== id));
       toast({ title: 'Product Deleted', description: 'The product has been deleted.' });
     } catch {
@@ -701,8 +701,31 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
   // Manufacturing Batches functions
   const addManufacturingBatch = async (batch: Omit<ManufacturingBatch, 'id'>) => {
     try {
-      // Find the initial stage (first in sequence)
-      const initialStage = backendStages[0];
+      // Always fetch product's custom stages
+      let productStages = [];
+      if (batch.productId) {
+        try {
+          productStages = await productService.getProductStages(Number(batch.productId));
+        } catch {}
+      }
+      // Build stageCompletionDates with all custom stages (in correct order)
+      let stageCompletionDates: Record<string, string | null> = {};
+      if (productStages.length > 0) {
+        productStages.forEach((stage: any) => {
+          stageCompletionDates[stage.stage_name] = null;
+        });
+        // Always add 'Completed' as last stage if not present
+        if (!productStages.some((s: any) => s.stage_name.toLowerCase() === 'completed')) {
+          stageCompletionDates['Completed'] = null;
+        }
+      } else {
+        // Fallback to default
+        ['Cutting', 'Assembly', 'Testing', 'Packaging', 'Completed'].forEach(s => {
+          stageCompletionDates[s] = null;
+        });
+      }
+      // Use first custom stage as initial, or fallback
+      const initialStage = productStages.length > 0 ? productStages[0] : backendStages[0];
       // Prepare backend batch object
       const backendBatch = {
         batch_number: batch.batchNumber,
@@ -711,15 +734,68 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
         quantity_in_process: batch.quantity,
         start_date: batch.startDate ? new Date(batch.startDate).toISOString() : new Date().toISOString(),
         estimated_completion_date: batch.estimatedCompletionDate ? new Date(batch.estimatedCompletionDate).toISOString() : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-        stage_completion_dates: batch.stageCompletionDates || { [initialStage?.stage_name?.toLowerCase() || 'cutting']: null },
+        stage_completion_dates: stageCompletionDates,
         progress: batch.progress ?? 0,
         current_stage_id: initialStage?.stage_id,
         status: batch.status || 'in_progress',
         linked_sales_order_id: batch.linkedSalesOrderId || null,
         custom_stage_name: batch.custom_stage_name || undefined,
       };
-      const created = await createBatch(backendBatch);
-      setManufacturingBatches(prev => [...prev, created]);
+      await createBatch(backendBatch);
+      // Immediately fetch all batches and update state for real-time UI
+      const batches = await fetchBatches();
+      setManufacturingBatches(batches.map(b => {
+        // Parse and normalize stageCompletionDates
+        let stageCompletionDates = b.stage_completion_dates;
+        if (typeof stageCompletionDates === 'string') {
+          try {
+            stageCompletionDates = JSON.parse(stageCompletionDates);
+          } catch {
+            stageCompletionDates = {};
+          }
+        }
+        // Use the order from the stored stageCompletionDates
+        let safeStageCompletionDates = stageCompletionDates;
+        // Parse and normalize dates
+        const parseDate = (d: any) => {
+          if (!d) return '';
+          const dateObj = typeof d === 'string' ? new Date(d) : d;
+          return isNaN(dateObj.getTime()) ? '' : dateObj.toISOString().split('T')[0];
+        };
+        let productName = b.product_name || b.productName || '';
+        if (!productName && finishedProducts && b.product_id) {
+          const found = finishedProducts.find(p => p.id === String(b.product_id));
+          if (found) productName = found.name;
+        }
+        return {
+          id: String(b.tracking_id || b.id || ''),
+          tracking_id: b.tracking_id,
+          batchNumber: b.batch_number || b.batchNumber || b.tracking_id || b.id || '',
+          productId: String(b.product_id || b.productId || ''),
+          productName,
+          quantity: b.quantity_in_process ?? b.quantity ?? 1,
+          currentStage: b.current_stage || b.currentStage || (initialStage?.stage_name || 'cutting'),
+          startDate: parseDate(b.start_date || b.startDate),
+          estimatedCompletionDate: parseDate(b.estimated_completion_date || b.estimatedCompletionDate),
+          stageCompletionDates: safeStageCompletionDates,
+          progress: b.progress ?? 0,
+          status: b.status || 'in_progress',
+          linkedSalesOrderId: b.linked_sales_order_id ? String(b.linked_sales_order_id) : (b.linkedSalesOrderId ? String(b.linkedSalesOrderId) : undefined),
+          custom_stage_name: b.custom_stage_name || undefined,
+          rawMaterialsUsed: b.rawMaterialsUsed || [],
+          rawMaterialsNeeded: b.rawMaterialsNeeded || [],
+          notes: b.notes || '',
+        };
+      }));
+      // For each batch, fetch and cache its product stages for immediate UI display
+      const uniqueProductIds = Array.from(new Set(batches.map(b => String(b.product_id || b.productId || ''))));
+      for (const pid of uniqueProductIds) {
+        if (pid && !isNaN(Number(pid))) {
+          try {
+            await productService.getProductStages(Number(pid));
+          } catch {}
+        }
+      }
       toast({ title: 'Manufacturing Batch Created', description: `Batch ${batch.batchNumber} has been created successfully.` });
     } catch (err) {
       toast({ title: 'Error', description: 'Failed to create manufacturing batch', variant: 'destructive' });
@@ -889,16 +965,16 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
           const products = await finishedProductService.getAll();
           setFinishedProducts(products.map(fp => {
             // Use unit_price from backend, fallback to backendProducts if needed
-            let price = fp.unit_price ?? fp.price ?? 0;
+            let price = Number(fp.unit_price ?? fp.price ?? 0);
             if (!price && backendProducts && backendProducts.length > 0) {
               const prod = backendProducts.find((p: any) => String(p.product_id) === String(fp.product_id));
-              if (prod && prod.price) price = prod.price;
+              if (prod && prod.price) price = Number(prod.price);
             }
             return {
               id: String(fp.finished_product_id),
               name: fp.product_name || '',
               category: fp.category || '',
-              quantity: fp.quantity_available,
+              quantity: Number(fp.quantity_available),
               price,
               lastUpdated: fp.added_on || new Date().toISOString(),
               billOfMaterials: [],

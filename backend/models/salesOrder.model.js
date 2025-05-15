@@ -2,6 +2,8 @@ import pool from '../db/db.js';
 import ManufacturingProgress from './manufacturingProgress.model.js';
 import ManufacturingStage from './manufacturingStage.model.js';
 import FinishedProduct from './finishedProduct.model.js';
+import Product from './product.model.js';
+import RawMaterial from './rawMaterial.model.js';
 
 class SalesOrder {
   static async getAllSalesOrders() {
@@ -309,16 +311,60 @@ class SalesOrder {
   }
 
   static async updateStatus(id, status) {
-    console.log("code reach here")
-    const result = await pool.query(
-      `UPDATE sales.sales_order 
-       SET status = $1
-       WHERE sales_order_id = $2 
-       RETURNING *`,
-      [status, id]
-    );
-    console.log("result", result.rows[0])
-    return result.rows[0];
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      // Get the current sales order
+      const currentOrder = await this.getSalesOrderById(id, client);
+      if (!currentOrder) {
+        throw new Error('Sales order not found');
+      }
+
+      // If status is being changed to completed, handle inventory deduction
+      if (status === 'completed' && currentOrder.status !== 'completed') {
+        // Get all order items that were fulfilled from inventory
+        const orderItems = await client.query(`
+          SELECT 
+            soi.*,
+            fp.finished_product_id
+          FROM sales.sales_order_items soi
+          LEFT JOIN inventory.finished_products fp ON soi.product_id = fp.product_id
+          WHERE soi.sales_order_id = $1 AND soi.fulfilled_from_inventory = true
+        `, [id]);
+
+        // Deduct inventory for each item
+        for (const item of orderItems.rows) {
+          if (!item.finished_product_id) {
+            throw new Error(`No finished product found for product ID ${item.product_id}`);
+          }
+
+          // Deduct the quantity from inventory
+          await client.query(`
+            UPDATE inventory.finished_products 
+            SET quantity_available = quantity_available - $1
+            WHERE finished_product_id = $2
+            RETURNING quantity_available
+          `, [item.quantity, item.finished_product_id]);
+        }
+      }
+
+      // Update the sales order status
+      const result = await client.query(`
+        UPDATE sales.sales_order 
+        SET status = $1
+        WHERE sales_order_id = $2
+        RETURNING *
+      `, [status, id]);
+
+      await client.query('COMMIT');
+      return result.rows[0];
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   static async getNextOrderNumber() {
@@ -337,6 +383,114 @@ class SalesOrder {
       }
     }
     return `${prefix}${String(nextNumber).padStart(3, '0')}`;
+  }
+
+  static async checkProductStockAndRawMaterial(productId, quantity) {
+    // Get finished product stock
+    const finishedProducts = await FinishedProduct.getProductInventory(productId);
+    const finishedStock = finishedProducts && finishedProducts.length > 0 ? finishedProducts[0].quantity_available : 0;
+    // Get BOM for the product
+    const product = await Product.getProductById(productId);
+    const bom = product && product.bom_items ? product.bom_items : [];
+    // For each BOM item, get current stock
+    let maxPossibleWithCurrentRawMaterial = null;
+    if (bom.length > 0) {
+      for (const item of bom) {
+        const material = await RawMaterial.getRawMaterialById(item.material_id);
+        if (!material || !item.quantity_required || item.quantity_required <= 0) {
+          maxPossibleWithCurrentRawMaterial = 0;
+          break;
+        }
+        const possible = Math.floor(Number(material.current_stock) / Number(item.quantity_required));
+        if (maxPossibleWithCurrentRawMaterial === null) {
+          maxPossibleWithCurrentRawMaterial = possible;
+        } else {
+          maxPossibleWithCurrentRawMaterial = Math.min(maxPossibleWithCurrentRawMaterial, possible);
+        }
+      }
+    } else {
+      // No BOM, so can manufacture unlimited (or 0 if no BOM means not manufacturable)
+      maxPossibleWithCurrentRawMaterial = 0;
+    }
+    const readyQuantity = Math.min(quantity, finishedStock);
+    const toBeManufactured = Math.max(0, quantity - finishedStock);
+    return {
+      readyQuantity,
+      toBeManufactured,
+      maxPossibleWithCurrentRawMaterial
+    };
+  }
+
+  static async checkOrderAvailability(orderData) {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      
+      const availabilityResults = [];
+      
+      for (const item of orderData.items) {
+        // Check finished product inventory
+        const inventoryRows = await FinishedProduct.getProductInventory(item.product_id);
+        let availableQty = 0;
+        if (inventoryRows && inventoryRows.length > 0) {
+          availableQty = inventoryRows[0].quantity_available;
+        }
+
+        // Get BOM for the product
+        const bomResult = await client.query(`
+          SELECT b.*, rm.material_name, rm.current_stock, rm.unit
+          FROM products.bom b
+          JOIN inventory.raw_materials rm ON b.material_id = rm.material_id
+          WHERE b.product_id = $1
+        `, [item.product_id]);
+
+        const materialsNeeded = [];
+        let maxManufacturableQty = Infinity;
+
+        // Check raw material availability
+        for (const bomItem of bomResult.rows) {
+          const requiredQty = bomItem.quantity_required * item.quantity;
+          const availableQtyMaterial = bomItem.current_stock;
+          const missingQty = Math.max(0, requiredQty - availableQtyMaterial);
+
+          materialsNeeded.push({
+            material_id: bomItem.material_id,
+            material_name: bomItem.material_name,
+            required_quantity: requiredQty,
+            available_quantity: availableQtyMaterial,
+            missing_quantity: missingQty,
+            unit: bomItem.unit
+          });
+
+          // Calculate maximum possible quantity based on this material
+          if (bomItem.quantity_required > 0) {
+            const maxQty = Math.floor(availableQtyMaterial / bomItem.quantity_required);
+            maxManufacturableQty = Math.min(maxManufacturableQty, maxQty);
+          }
+        }
+
+        // canManufacture is true if maxManufacturableQty > 0 and there is at least one BOM item
+        const canManufacture = bomResult.rows.length > 0 && maxManufacturableQty > 0;
+
+        availabilityResults.push({
+          product_id: item.product_id,
+          requested_quantity: item.quantity,
+          available_in_stock: availableQty,
+          can_fulfill_from_stock: availableQty >= item.quantity,
+          can_manufacture: canManufacture,
+          max_manufacturable_quantity: maxManufacturableQty === Infinity ? 0 : maxManufacturableQty,
+          materials_needed: materialsNeeded
+        });
+      }
+
+      await client.query('COMMIT');
+      return availabilityResults;
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 }
 

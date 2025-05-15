@@ -1,7 +1,7 @@
 import axios from 'axios';
 import { authService } from '../services/auth.service';
 
-const API_URL = import.meta.env.VITE_APP_URL;
+const API_URL = process.env.NODE_ENV === 'production' ? "https://primetech.onrender.com/api" : "http://localhost:5000/api";
 
 
 const axiosInstance = axios.create({

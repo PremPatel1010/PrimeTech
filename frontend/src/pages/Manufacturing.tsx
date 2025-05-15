@@ -58,8 +58,16 @@ const Manufacturing: React.FC = () => {
       .catch(() => setBackendStages([]));
   }, []);
 
+  // Add useEffect to fetch product stages when newBatch.productId changes
+  useEffect(() => {
+    if (newBatch.productId && !isNaN(Number(newBatch.productId))) {
+      fetchProductStages(String(newBatch.productId));
+    }
+  }, [newBatch.productId]);
+
   // Helper to fetch and cache product stages
   const fetchProductStages = async (productId: string) => {
+    if (!productId || isNaN(Number(productId))) return [];
     if (!productStagesMap[productId]) {
       const stages = await productService.getProductStages(Number(productId));
       setProductStagesMap(prev => ({ ...prev, [productId]: stages }));
@@ -71,14 +79,56 @@ const Manufacturing: React.FC = () => {
   // Helper to get stages for a batch, always using product_stages
   const getStagesForBatch = (batch: ManufacturingBatch) => {
     const stages = productStagesMap[batch.productId] || [];
-    // Always add 'Completed' as the last stage if not present
-    if (!stages.some(s => s.stage_name.toLowerCase() === 'completed')) {
-      return [
-        ...stages,
-        { stage_id: 9999, component_type: 'custom', stage_name: 'Completed', sequence: stages.length + 1 }
+    if (stages.length > 0) {
+      // Only add 'Completed' if not present
+      if (!stages.some(s => s.stage_name.toLowerCase() === 'completed')) {
+        return [
+          ...stages,
+          { stage_id: 9999, component_type: 'custom', stage_name: 'Completed', sequence: stages.length + 1 }
+        ];
+      }
+      return stages;
+    }
+    // Fallback: use stageCompletionDates keys in their original order, except for legacy defaults
+    if (batch.stageCompletionDates && Object.keys(batch.stageCompletionDates).length > 0) {
+      const keys = Object.keys(batch.stageCompletionDates)
+        .filter(k => !!k && !['cutting','assembly','testing','packaging','completed','Completed'].includes(k));
+      // If only 'Completed' is present, fallback to product stages or just Completed
+      const onlyCompleted = keys.length === 0 && (batch.stageCompletionDates['Completed'] !== undefined || batch.stageCompletionDates['completed'] !== undefined);
+      if (onlyCompleted) {
+        if (stages.length > 0) {
+          return stages;
+        }
+        return [
+          { stage_id: 1, component_type: 'custom', stage_name: 'Completed', sequence: 1 }
+        ];
+      }
+      const customStages = keys.map((k, idx) => ({
+        stage_id: idx + 1,
+        component_type: 'custom',
+        stage_name: k,
+        sequence: idx + 1
+      }));
+      // Add 'Completed' only once at the end if present in stageCompletionDates
+      if (
+        batch.stageCompletionDates['Completed'] !== undefined ||
+        batch.stageCompletionDates['completed'] !== undefined
+      ) {
+        customStages.push({
+          stage_id: customStages.length + 1,
+          component_type: 'custom',
+          stage_name: 'Completed',
+          sequence: customStages.length + 1
+        });
+      }
+      return customStages.length > 0 ? customStages : [
+        { stage_id: 1, component_type: 'custom', stage_name: 'Completed', sequence: 1 }
       ];
     }
-    return stages;
+    // Fallback: only show Completed if nothing else
+    return [
+      { stage_id: 1, component_type: 'custom', stage_name: 'Completed', sequence: 1 }
+    ];
   };
 
   // On mount or when manufacturingBatches change, fetch stages for all products in batches
@@ -253,28 +303,21 @@ const Manufacturing: React.FC = () => {
   const getManufacturingProgressSteps = (batch: ManufacturingBatch) => {
     const stagesForBatch = getStagesForBatch(batch);
     const stageNames = stagesForBatch.map(s => s.stage_name.toLowerCase());
-    const safeStageCompletionDates = stageNames.reduce((acc, key) => {
-      acc[key] = batch.stageCompletionDates && key in batch.stageCompletionDates ? batch.stageCompletionDates[key] : null;
-      return acc;
-    }, {} as Record<string, string | null>);
-    let foundCurrent = false;
+    // Find the index of the current stage
+    let currentStageIdx = stageNames.findIndex(
+      s => (batch.custom_stage_name ? batch.custom_stage_name.toLowerCase() : batch.currentStage) === s
+    );
+    // If not found, default to 0
+    if (currentStageIdx === -1) currentStageIdx = 0;
+    // If the batch is completed, mark all as completed
+    const isCompleted = (batch.status === 'completed' || batch.currentStage === 'completed' || batch.custom_stage_name?.toLowerCase() === 'completed');
     return stagesForBatch.map((stage, idx) => {
-      let completed = Boolean(safeStageCompletionDates[stage.stage_name.toLowerCase()]);
-      let current = false;
-      if (!foundCurrent && !completed) {
-        current = true;
-        foundCurrent = true;
-      }
-      if (batch.progress === 0 && idx === 0) current = true;
-      // Mark as current if custom_stage_name matches
-      if (batch.custom_stage_name && batch.custom_stage_name.toLowerCase() === stage.stage_name.toLowerCase()) {
-        current = true;
-        foundCurrent = true;
-      }
+      let completed = isCompleted ? true : idx <= currentStageIdx;
+      let current = idx === currentStageIdx && !isCompleted;
       return {
         label: stage.stage_name,
         completed,
-        current: (batch.custom_stage_name ? batch.custom_stage_name.toLowerCase() === stage.stage_name.toLowerCase() : batch.currentStage === stage.stage_name.toLowerCase()) || current
+        current
       };
     });
   };
@@ -295,6 +338,10 @@ const Manufacturing: React.FC = () => {
 
   // Delete batch handler
   const handleDeleteBatch = async (batchId: string) => {
+    if (!batchId || batchId === 'undefined' || batchId === undefined) {
+      toast({ title: 'Error', description: 'Invalid batch ID. Cannot delete batch.', variant: 'destructive' });
+      return;
+    }
     try {
       await apiDeleteBatch(batchId);
       setManufacturingBatches(prev => prev.filter(b => b.id !== batchId));
@@ -303,6 +350,10 @@ const Manufacturing: React.FC = () => {
       toast({ title: 'Error', description: 'Failed to delete batch', variant: 'destructive' });
     }
   };
+
+  // In the rendering of activeBatches and completedBatches, filter out batches with invalid or undefined IDs
+  const validActiveBatches = activeBatches.filter(b => b.id && b.id !== 'undefined');
+  const validCompletedBatches = completedBatches.filter(b => b.id && b.id !== 'undefined');
 
   return (
     <div className="space-y-6">
@@ -396,9 +447,9 @@ const Manufacturing: React.FC = () => {
       <div className="space-y-6">
         <div>
           <h2 className="text-lg font-medium mb-4">Active Manufacturing Batches</h2>
-          {activeBatches.length > 0 ? (
+          {validActiveBatches.length > 0 ? (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              {activeBatches.map(batch => (
+              {validActiveBatches.map(batch => (
                 <Card key={batch.id} className="overflow-hidden">
                   <CardHeader className="bg-factory-gray-50 py-3">
                     <div className="flex justify-between">
@@ -484,7 +535,7 @@ const Manufacturing: React.FC = () => {
             Completed Batches
           </h2>
           
-          {completedBatches.length > 0 ? (
+          {validCompletedBatches.length > 0 ? (
             <div className="bg-white rounded-lg overflow-hidden border">
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
@@ -498,7 +549,7 @@ const Manufacturing: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody className="divide-y">
-                    {completedBatches.map((batch) => (
+                    {validCompletedBatches.map((batch) => (
                       <tr key={batch.id} className="hover:bg-factory-gray-50">
                         <td className="px-6 py-4">{batch.batchNumber}</td>
                         <td className="px-6 py-4">{batch.productName}</td>
