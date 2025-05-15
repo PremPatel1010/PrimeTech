@@ -3,6 +3,8 @@ import { authService } from '../services/auth.service';
 
 const API_URL = process.env.NODE_ENV === 'production' ? "https://primetech.onrender.com/api" : "http://localhost:5000/api";
 
+console.log(API_URL)
+
 
 const axiosInstance = axios.create({
   baseURL: API_URL,
