@@ -39,9 +39,8 @@ interface FactoryContextType {
   addFinishedProduct: (product: Omit<FinishedProduct, 'id' | 'lastUpdated'> & { productId: number }) => void;
   updateFinishedProduct: (id: string, updates: Partial<FinishedProduct>) => void;
   setFinishedProducts: React.Dispatch<React.SetStateAction<FinishedProduct[]>>;
-  deleteFinishedProduct: (id: string) => void;
-  dispatchFinishedProduct: (id: string, quantity: number) => void;
-  
+  deleteFinishedProduct: (productId: string) => void;
+
   // Sales Orders
   salesOrders: SalesOrder[];
   addSalesOrder: (order: Omit<SalesOrder, 'id'>) => void;
@@ -76,6 +75,9 @@ interface FactoryContextType {
   notifications: AppNotification[];
   markNotificationAsRead: (id: number) => void;
   deleteNotification: (id: number) => void;
+
+  // Add quantity to finished product using PATCH route
+  addQuantityToFinishedProduct: (id: string, addQuantity: number) => void;
 }
 
 // Create context with default values
@@ -223,7 +225,7 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
           if (prod && prod.price) price = Number(prod.price);
         }
         return {
-          id: String(fp.finished_product_id),
+          id: String(fp.product_id),
           name: fp.product_name || '',
           category: fp.category || '',
           quantity: Number(fp.quantity_available),
@@ -260,6 +262,26 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
     // WebSocket for real-time notifications
     
   }, [isAuthenticated]);
+  
+  // Listen for inventory refresh events (after sales order completion)
+  useEffect(() => {
+    const refreshHandler = (e: any) => {
+      if (e && e.detail) {
+        setFinishedProducts(e.detail.map(fp => ({
+          id: String(fp.product_id),
+          name: fp.product_name || '',
+          category: fp.category || '',
+          quantity: Number(fp.quantity_available),
+          price: Number(fp.unit_price ?? fp.price ?? 0),
+          lastUpdated: fp.added_on || new Date().toISOString(),
+          billOfMaterials: [],
+          manufacturingSteps: []
+        })));
+      }
+    };
+    window.addEventListener('refreshFinishedProducts', refreshHandler);
+    return () => window.removeEventListener('refreshFinishedProducts', refreshHandler);
+  }, []);
   
   // Supplier functions
  
@@ -326,13 +348,21 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
   
   const updateFinishedProduct = async (id: string, updates: Partial<FinishedProduct>) => {
     try {
-      const fp = finishedProducts.find(p => p.id === id);
-      if (!fp) return;
-      const updated = await finishedProductService.update(Number(id), {
-        quantity_available: updates.quantity ?? fp.quantity,
-        unit_price: updates.price ?? fp.price,
-        // Add more fields as needed
-      });
+      // Find the correct finished_product_id for this product
+      const allProducts = await finishedProductService.getAll();
+      const fpApi = allProducts.find(p => String(p.product_id) === id || String(p.finished_product_id) === id);
+      if (!fpApi) return;
+      let updated;
+      if (Object.keys(updates).length === 1 && updates.quantity !== undefined) {
+        // Only updating quantity, use PATCH route
+        updated = await finishedProductService.dispatch(Number(fpApi.finished_product_id), updates.quantity);
+      } else {
+        updated = await finishedProductService.update(Number(fpApi.finished_product_id), {
+          quantity_available: updates.quantity ?? fpApi.quantity_available,
+          unit_price: updates.price ?? fpApi.unit_price,
+          // Add more fields as needed
+        });
+      }
       setFinishedProducts(
         finishedProducts.map(product =>
           product.id === id
@@ -352,45 +382,30 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   };
 
-  const deleteFinishedProduct = async (id: string) => {
+  const deleteFinishedProduct = async (productId: string) => {
     try {
-      await finishedProductService.delete(Number(id));
-      setFinishedProducts(prev => prev.filter(p => p.id !== id));
+      await finishedProductService.delete(Number(productId));
+      setFinishedProducts(prev => prev.filter(p => p.id !== productId));
       toast({ title: 'Product Deleted', description: 'The product has been deleted.' });
     } catch {
       toast({ title: 'Error', description: 'Failed to delete finished product', variant: 'destructive' });
     }
   };
 
-  const dispatchFinishedProduct = async (id: string, quantity: number) => {
-    try {
-      const fp = finishedProducts.find(p => p.id === id);
-      if (!fp) return;
-      const updated = await finishedProductService.update(parseInt(id), {
-        quantity_available: fp.quantity - quantity
-      });
-      setFinishedProducts(prev => prev.map(p => p.id === id ? { ...p, quantity: updated.quantity_available, lastUpdated: updated.added_on || new Date().toISOString() } : p));
-      toast({ title: 'Product Dispatched', description: 'The product has been dispatched.' });
-    } catch {
-      toast({ title: 'Error', description: 'Failed to dispatch finished product', variant: 'destructive' });
-    }
-  };
+  
 
   // Helper function to check product availability
   const checkProductAvailability = (orderProduct: OrderProduct) => {
     const product = finishedProducts.find(p => p.id === orderProduct.productId);
-    
     if (!product) {
       return { available: 0, toManufacture: orderProduct.quantity };
     }
-    
     // Check how many products are available in stock
-    const availableQuantity = Math.min(product.quantity, orderProduct.quantity);
-    const quantityToManufacture = orderProduct.quantity - availableQuantity;
-    
-    return { 
-      available: availableQuantity, 
-      toManufacture: quantityToManufacture 
+    const availableQuantity = product.quantity;
+    const quantityToManufacture = Math.max(0, orderProduct.quantity - availableQuantity);
+    return {
+      available: Math.min(availableQuantity, orderProduct.quantity),
+      toManufacture: quantityToManufacture
     };
   };
 
@@ -454,26 +469,23 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
   // Helper to create manufacturing batches for an order
   const createManufacturingBatches = (order: SalesOrder) => {
     if (!order.partialFulfillment) return;
-    
     const updatedOrder = { ...order, isTracked: true };
     const batchIds: string[] = [];
-    
     for (const fulfillment of order.partialFulfillment) {
-      if (fulfillment.manufacturingQuantity > 0) {
-        const product = finishedProducts.find(p => p.id === fulfillment.productId);
+      // Double-check available stock before creating a batch
+      const product = finishedProducts.find(p => p.id === fulfillment.productId);
+      const availableStock = product ? product.quantity : 0;
+      if (fulfillment.manufacturingQuantity > 0 && availableStock < fulfillment.totalQuantity) {
         if (product) {
           // Check if raw materials are available
           const materialsAvailable = checkRawMaterialsAvailability(product, fulfillment.manufacturingQuantity);
-          
           if (materialsAvailable) {
             // Deduct raw materials for manufacturing
             deductRawMaterialsForManufacturing(product, fulfillment.manufacturingQuantity);
-            
             // Create a manufacturing batch
             const startDate = new Date();
             const estimatedCompletionDate = new Date();
             estimatedCompletionDate.setDate(estimatedCompletionDate.getDate() + 7); // 7 days for manufacturing
-            
             const batchId = uuidv4();
             const newBatch: ManufacturingBatch = {
               id: batchId,
@@ -496,10 +508,8 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
               status: 'in_progress',
               custom_stage_name: undefined,
             };
-            
             batchIds.push(batchId);
             setManufacturingBatches(prev => [...prev, newBatch]);
-            
             toast({
               title: "Manufacturing Batch Created",
               description: `Manufacturing started for ${fulfillment.manufacturingQuantity} units of ${product.name}.`
@@ -508,7 +518,6 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
         }
       }
     }
-    
     // Update the order with batch IDs
     if (batchIds.length > 0) {
       updatedOrder.partialFulfillment = updatedOrder.partialFulfillment.map(item => {
@@ -517,7 +526,6 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
         }
         return item;
       });
-      
       setSalesOrders(salesOrders.map(o => o.id === order.id ? updatedOrder : o));
     }
   };
@@ -560,20 +568,14 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
               // Analyze each product in the order
               for (const orderProduct of order.products) {
                 const { available, toManufacture } = checkProductAvailability(orderProduct);
-                
-                // If we need to manufacture some or all of this product
                 if (toManufacture > 0) {
                   anyManufacturingNeeded = true;
-                  
                   const product = finishedProducts.find(p => p.id === orderProduct.productId);
                   if (product) {
-                    // Check if raw materials are available for manufacturing
                     const materialsAvailable = checkRawMaterialsAvailability(product, toManufacture);
-                    
                     if (!materialsAvailable) {
                       anyMaterialShortage = true;
                     }
-                    
                     partialFulfillment.push({
                       productId: orderProduct.productId,
                       productName: orderProduct.productName,
@@ -584,7 +586,7 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
                     });
                   }
                 } else {
-                  // This product is fully available
+                  // This product is fully available, no batch needed
                   partialFulfillment.push({
                     productId: orderProduct.productId,
                     productName: orderProduct.productName,
@@ -946,11 +948,8 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
           // Try to find if finished product already exists in backend
           const existing = finishedProducts.find(p => p.id === batch.productId);
           if (existing) {
-            // Update existing finished product in backend, always send unit_price
-            await finishedProductService.update(parseInt(existing.id), {
-              quantity_available: existing.quantity + batch.quantity,
-              unit_price: backendProduct.price || 0
-            });
+            // Use PATCH route to add quantity to inventory
+            await addQuantityToFinishedProduct(existing.id, batch.quantity);
           } else {
             // Create new finished product in backend
             await finishedProductService.create({
@@ -971,7 +970,7 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
               if (prod && prod.price) price = Number(prod.price);
             }
             return {
-              id: String(fp.finished_product_id),
+              id: String(fp.product_id),
               name: fp.product_name || '',
               category: fp.category || '',
               quantity: Number(fp.quantity_available),
@@ -1069,6 +1068,31 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setNotifications(prev => prev.filter(n => n.id !== id));
   };
 
+  // Add quantity to finished product using PATCH route
+  const addQuantityToFinishedProduct = async (id: string, addQuantity: number) => {
+    try {
+      // Find the correct finished_product_id for this product
+      const allProducts = await finishedProductService.getAll();
+      const fpApi = allProducts.find(p => String(p.product_id) === id || String(p.finished_product_id) === id);
+      if (!fpApi) return;
+      const updated = await finishedProductService.dispatch(Number(fpApi.finished_product_id), addQuantity);
+      setFinishedProducts(
+        finishedProducts.map(product =>
+          product.id === id
+            ? {
+                ...product,
+                quantity: updated.quantity_available,
+                lastUpdated: updated.added_on || new Date().toISOString()
+              }
+            : product
+        )
+      );
+      toast({ title: 'Inventory Updated', description: `Added ${addQuantity} units to inventory.` });
+    } catch {
+      toast({ title: 'Error', description: 'Failed to add quantity to finished product', variant: 'destructive' });
+    }
+  };
+
   const value: FactoryContextType = {
     rawMaterials,
     addRawMaterial,
@@ -1078,7 +1102,6 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
     updateFinishedProduct,
     setFinishedProducts,
     deleteFinishedProduct,
-    dispatchFinishedProduct,
     salesOrders,
     addSalesOrder,
     updateSalesOrderStatus,
@@ -1097,6 +1120,7 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
     notifications,
     markNotificationAsRead,
     deleteNotification,
+    addQuantityToFinishedProduct,
   };
   
   return (

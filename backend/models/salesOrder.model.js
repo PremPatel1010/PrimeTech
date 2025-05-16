@@ -100,7 +100,7 @@ class SalesOrder {
         let availableQty = 0;
         let finishedProductId = null;
         if (inventoryRows && inventoryRows.length > 0) {
-          availableQty = inventoryRows[0].quantity_available;
+          availableQty = inventoryRows.reduce((sum, row) => sum + Number(row.quantity_available), 0);
           finishedProductId = inventoryRows[0].finished_product_id;
         }
 
@@ -119,8 +119,16 @@ class SalesOrder {
         }
 
         // Deduct from inventory if possible
-        if (toDeduct > 0 && finishedProductId) {
-          await FinishedProduct.updateQuantity(finishedProductId, -toDeduct);
+        if (toDeduct > 0 && inventoryRows && inventoryRows.length > 0) {
+          let qtyToDeduct = toDeduct;
+          for (const inv of inventoryRows) {
+            if (qtyToDeduct <= 0) break;
+            const deductQty = Math.min(inv.quantity_available, qtyToDeduct);
+            if (deductQty > 0) {
+              await FinishedProduct.updateQuantity(inv.finished_product_id, -deductQty);
+              qtyToDeduct -= deductQty;
+            }
+          }
         }
 
         // Map product_category to valid component_type for manufacturing stages
@@ -323,29 +331,31 @@ class SalesOrder {
 
       // If status is being changed to completed, handle inventory deduction
       if (status === 'completed' && currentOrder.status !== 'completed') {
-        // Get all order items that were fulfilled from inventory
+        // Get all order items for this order
         const orderItems = await client.query(`
           SELECT 
-            soi.*,
-            fp.finished_product_id
+            soi.product_id,
+            soi.quantity
           FROM sales.sales_order_items soi
-          LEFT JOIN inventory.finished_products fp ON soi.product_id = fp.product_id
-          WHERE soi.sales_order_id = $1 AND soi.fulfilled_from_inventory = true
+          WHERE soi.sales_order_id = $1
         `, [id]);
 
         // Deduct inventory for each item
         for (const item of orderItems.rows) {
-          if (!item.finished_product_id) {
-            throw new Error(`No finished product found for product ID ${item.product_id}`);
+          // Find all inventory rows for this product
+          const inventoryRows = await FinishedProduct.getProductInventory(item.product_id);
+          let qtyToDeduct = item.quantity;
+          for (const inv of inventoryRows) {
+            if (qtyToDeduct <= 0) break;
+            const deductQty = Math.min(inv.quantity_available, qtyToDeduct);
+            if (deductQty > 0) {
+              await FinishedProduct.updateQuantity(inv.finished_product_id, -deductQty);
+              qtyToDeduct -= deductQty;
+            }
           }
-
-          // Deduct the quantity from inventory
-          await client.query(`
-            UPDATE inventory.finished_products 
-            SET quantity_available = quantity_available - $1
-            WHERE finished_product_id = $2
-            RETURNING quantity_available
-          `, [item.quantity, item.finished_product_id]);
+          if (qtyToDeduct > 0) {
+            throw new Error(`Insufficient stock to fulfill order for product ID ${item.product_id}`);
+          }
         }
       }
 
@@ -388,7 +398,7 @@ class SalesOrder {
   static async checkProductStockAndRawMaterial(productId, quantity) {
     // Get finished product stock
     const finishedProducts = await FinishedProduct.getProductInventory(productId);
-    const finishedStock = finishedProducts && finishedProducts.length > 0 ? finishedProducts[0].quantity_available : 0;
+    const finishedStock = finishedProducts && finishedProducts.length > 0 ? finishedProducts.reduce((sum, row) => sum + Number(row.quantity_available), 0) : 0;
     // Get BOM for the product
     const product = await Product.getProductById(productId);
     const bom = product && product.bom_items ? product.bom_items : [];
@@ -425,17 +435,16 @@ class SalesOrder {
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
-      
       const availabilityResults = [];
-      
       for (const item of orderData.items) {
         // Check finished product inventory
         const inventoryRows = await FinishedProduct.getProductInventory(item.product_id);
         let availableQty = 0;
         if (inventoryRows && inventoryRows.length > 0) {
-          availableQty = inventoryRows[0].quantity_available;
+          availableQty = inventoryRows.reduce((sum, row) => sum + Number(row.quantity_available), 0);
         }
-
+        const requestedQty = item.quantity;
+        const toBeManufactured = Math.max(0, requestedQty - availableQty);
         // Get BOM for the product
         const bomResult = await client.query(`
           SELECT b.*, rm.material_name, rm.current_stock, rm.unit
@@ -443,16 +452,12 @@ class SalesOrder {
           JOIN inventory.raw_materials rm ON b.material_id = rm.material_id
           WHERE b.product_id = $1
         `, [item.product_id]);
-
         const materialsNeeded = [];
         let maxManufacturableQty = Infinity;
-
-        // Check raw material availability
         for (const bomItem of bomResult.rows) {
-          const requiredQty = bomItem.quantity_required * item.quantity;
+          const requiredQty = bomItem.quantity_required * toBeManufactured;
           const availableQtyMaterial = bomItem.current_stock;
           const missingQty = Math.max(0, requiredQty - availableQtyMaterial);
-
           materialsNeeded.push({
             material_id: bomItem.material_id,
             material_name: bomItem.material_name,
@@ -461,28 +466,31 @@ class SalesOrder {
             missing_quantity: missingQty,
             unit: bomItem.unit
           });
-
           // Calculate maximum possible quantity based on this material
           if (bomItem.quantity_required > 0) {
             const maxQty = Math.floor(availableQtyMaterial / bomItem.quantity_required);
             maxManufacturableQty = Math.min(maxManufacturableQty, maxQty);
           }
         }
-
-        // canManufacture is true if maxManufacturableQty > 0 and there is at least one BOM item
-        const canManufacture = bomResult.rows.length > 0 && maxManufacturableQty > 0;
-
+        // If there is no BOM, or all materials are unlimited, allow manufacturing up to the requested quantity
+        if (bomResult.rows.length === 0 || maxManufacturableQty === Infinity) {
+          maxManufacturableQty = toBeManufactured;
+        }
+        // If nothing needs to be manufactured, canManufacture should be true
+        let canManufacture = true;
+        if (toBeManufactured > 0) {
+          canManufacture = maxManufacturableQty >= toBeManufactured;
+        }
         availabilityResults.push({
           product_id: item.product_id,
-          requested_quantity: item.quantity,
+          requested_quantity: requestedQty,
           available_in_stock: availableQty,
-          can_fulfill_from_stock: availableQty >= item.quantity,
+          to_be_manufactured: toBeManufactured,
           can_manufacture: canManufacture,
-          max_manufacturable_quantity: maxManufacturableQty === Infinity ? 0 : maxManufacturableQty,
+          max_manufacturable_quantity: maxManufacturableQty,
           materials_needed: materialsNeeded
         });
       }
-
       await client.query('COMMIT');
       return availabilityResults;
     } catch (error) {

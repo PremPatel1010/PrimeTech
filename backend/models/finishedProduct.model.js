@@ -127,6 +127,7 @@ class FinishedProduct {
       `, values);
 
       await client.query('COMMIT');
+      if (result.rows.length === 0) return null;
       return result.rows[0];
     } catch (error) {
       await client.query('ROLLBACK');
@@ -136,19 +137,18 @@ class FinishedProduct {
     }
   }
 
-  static async deleteFinishedProduct(finishedProductId) {
+  static async deleteFinishedProduct(productId) {
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
-
+      // Delete all finished_products rows for this product_id
       const result = await client.query(`
         DELETE FROM inventory.finished_products 
-        WHERE finished_product_id = $1
+        WHERE product_id = $1
         RETURNING *
-      `, [finishedProductId]);
-
+      `, [productId]);
       await client.query('COMMIT');
-      return result.rows[0];
+      return result.rows;
     } catch (error) {
       await client.query('ROLLBACK');
       throw error;
@@ -169,6 +169,7 @@ class FinishedProduct {
         RETURNING *
       `, [quantityChange, finishedProductId]);
 
+      if (result.rows.length === 0) return null;
       if (result.rows[0].quantity_available < 0) {
         throw new Error('Insufficient quantity available');
       }

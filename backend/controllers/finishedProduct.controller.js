@@ -71,13 +71,11 @@ export const updateFinishedProduct = async (req, res) => {
 export const deleteFinishedProduct = async (req, res) => {
   try {
     const { id } = req.params;
-    const deletedProduct = await FinishedProduct.deleteFinishedProduct(id);
-    
-    if (!deletedProduct) {
-      return res.status(404).json({ message: 'Finished product not found' });
+    const deletedRows = await FinishedProduct.deleteFinishedProduct(id);
+    if (!deletedRows || deletedRows.length === 0) {
+      return res.status(404).json({ message: 'No finished product(s) found for this product ID' });
     }
-
-    res.json({ message: 'Finished product deleted successfully' });
+    res.json({ message: 'All finished product inventory for this product has been deleted.' });
   } catch (error) {
     console.error('Error in deleteFinishedProduct:', error);
     res.status(500).json({ message: 'Error deleting finished product' });

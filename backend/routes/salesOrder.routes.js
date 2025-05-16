@@ -17,6 +17,9 @@ const router = express.Router();
 // Get all sales orders
 router.get('/', authenticate, getAllSalesOrders);
 
+// Get next order number
+router.get('/next-order-number', getNextOrderNumber);
+
 // Get a single sales order
 router.get('/:salesOrderId', authenticate, getSalesOrder);
 
@@ -31,9 +34,6 @@ router.delete('/:salesOrderId', authenticate, deleteSalesOrder);
 
 // Update sales order status
 router.put('/:id/status', updateStatus);
-
-// Get next order number
-router.get('/next-order-number', getNextOrderNumber);
 
 // Add new route for checking order availability
 router.post('/check-availability', checkOrderAvailability);

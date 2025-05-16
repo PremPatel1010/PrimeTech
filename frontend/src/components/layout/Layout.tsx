@@ -7,6 +7,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import axiosInstance from '@/utils/axios';
 import { useFactory } from '../../context/FactoryContext';
 
+
 interface LayoutProps {
   children: React.ReactNode;
 }
@@ -17,6 +18,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const { notifications, markNotificationAsRead, deleteNotification } = useFactory();
   const [showNotifications, setShowNotifications] = useState(false);
 
+  
   const toggleSidebar = () => {
     setSidebarOpen(!sidebarOpen);
   };
@@ -66,7 +68,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             >
               <Menu size={24} />
             </Button>
-            <h1 className="text-xl font-bold text-factory-primary">Primetech Industry</h1>
+            <img src="/logo.png" alt="Primetech Logo" className="h-8 w-auto" />
           </div>
 
           <div className="hidden sm:flex items-center gap-4 ml-auto relative">

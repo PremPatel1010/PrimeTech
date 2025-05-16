@@ -1,5 +1,8 @@
 import SalesOrder from '../models/salesOrder.model.js';
 
+import ManufacturingProgress from '../models/manufacturingProgress.model.js';
+import FinishedProduct from '../models/finishedProduct.model.js';
+
 // Get all sales orders
 export const getAllSalesOrders = async (req, res) => {
   try {
@@ -102,6 +105,10 @@ export const createSalesOrder = async (req, res) => {
     };
 
     const salesOrder = await SalesOrder.createSalesOrder(salesOrderData);
+    
+    // Emit order placed event
+   
+    
     res.status(201).json(salesOrder);
   } catch (error) {
     console.error('Error creating sales order:', error);
@@ -219,12 +226,65 @@ export const updateStatus = async (req, res) => {
     }
 
     try {
-      const result = await SalesOrder.updateStatus(id, status);
-
-      if (!result) {
+      // Get the current order
+      const currentOrder = await SalesOrder.getSalesOrderById(id);
+      if (!currentOrder) {
         return res.status(404).json({
           success: false,
           message: 'Sales order not found'
+        });
+      }
+
+      // If completing the order, check inventory and deduct stock
+      if (status === 'completed') {
+        // Check if all required manufacturing batches are completed
+        const manufacturingProgress = await ManufacturingProgress.getProgressByOrderId(id);
+        const incompleteBatches = manufacturingProgress.filter(
+          progress => progress.status !== 'completed'
+        );
+
+        if (incompleteBatches.length > 0) {
+          return res.status(400).json({
+            success: false,
+            message: 'Cannot complete order: Some manufacturing batches are not completed'
+          });
+        }
+
+        // Check inventory for each product in the order
+        for (const item of currentOrder.order_items) {
+          const productInventory = await FinishedProduct.getProductInventory(item.product_id);
+          
+          if (!productInventory || productInventory.quantity_available < item.quantity) {
+            return res.status(400).json({
+              success: false,
+              message: `Insufficient stock for product ID ${item.product_id}. Required: ${item.quantity}, Available: ${productInventory?.quantity_available || 0}`
+            });
+          }
+        }
+
+        // Deduct inventory for each product
+        for (const item of currentOrder.order_items) {
+          await FinishedProduct.updateQuantity(
+            item.product_id,
+            -item.quantity // Negative value to deduct
+          );
+        }
+      }
+
+      // Update the order status
+      const result = await SalesOrder.updateStatus(id, status);
+
+      // Emit order status changed event
+      emitEvent(SOCKET_EVENTS.ORDER_PLACED, {
+        type: 'status_updated',
+        order: result
+      });
+
+      // If order is completed, also emit inventory update
+      if (status === 'completed') {
+        emitEvent(SOCKET_EVENTS.INVENTORY_UPDATED, {
+          type: 'order_completed',
+          order: result
         });
       }
 

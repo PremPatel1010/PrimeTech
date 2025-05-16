@@ -48,6 +48,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { productService, Product } from '../services/productService';
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from '@/components/ui/accordion';
+import axiosInstance from '@/utils/axios';
 
 const ViewOrderStatus: React.FC = () => {
   const { finishedProducts, updateSalesOrderStatus, manufacturingBatches, checkProductAvailability, addSalesOrder } = useFactory();
@@ -85,7 +86,9 @@ const ViewOrderStatus: React.FC = () => {
   const [pendingProduct, setPendingProduct] = useState<any>(null);
   const [pendingSuggestedQty, setPendingSuggestedQty] = useState<number | null>(null);
   const addButtonRef = useRef<HTMLButtonElement>(null);
+  const [availabilityInfo, setAvailabilityInfo] = useState<any[]>([]);
   
+  // Initialize real-time updates
   useEffect(() => {
     fetchSalesOrders().then((data) => {
       const mapped = data.map((order: any) => ({
@@ -115,17 +118,17 @@ const ViewOrderStatus: React.FC = () => {
   }, []);
   
   // Separate active and completed orders
-  const activeOrders = orders.filter(order => 
+  const activeOrders = orders?.filter(order => 
     order.status !== 'completed' && 
     order.status !== 'delivered' && 
     order.status !== 'cancelled'
-  );
+  ) || [];
   
-  const historyOrders = orders.filter(order => 
+  const historyOrders = orders?.filter(order => 
     order.status === 'completed' || 
     order.status === 'delivered' || 
     order.status === 'cancelled'
-  );
+  ) || [];
   
   const filteredActiveOrders = activeOrders.filter(order => {
     const matchesSearch = (order.orderNumber?.toLowerCase() || '').includes(searchTerm.toLowerCase()) ||
@@ -247,31 +250,75 @@ const ViewOrderStatus: React.FC = () => {
 
   const handleStatusChange = async (newStatus: OrderStatus) => {
     if (!selectedOrder) return;
+
     setIsUpdating(true);
     try {
-      const updatedOrder = { ...selectedOrder, status: newStatus };
-      await updateSalesOrder(selectedOrder.id, updatedOrder as SalesOrder);
+      const response = await axiosInstance.put(`/sales/orders/${selectedOrder.id}/status`, {
+        status: newStatus
+      });
+
+      // Update the order in the local state
+      const updatedOrders = orders?.map(order => 
+        order.id === selectedOrder.id 
+          ? { ...order, status: newStatus }
+          : order
+      ) || [];
+
+      // Close the dialog
       setIsUpdateDialogOpen(false);
       setSelectedOrder(null);
-      fetchSalesOrders().then((data) => {
-        const mapped = data.map((order: any) => ({
-          id: order.sales_order_id || order.id,
-          orderNumber: order.order_number,
-          date: order.order_date,
-          customerName: order.customer_name,
-          products: (order.order_items || order.products || []).map((p: any) => ({
-            ...p,
-            price: p.price || p.unit_price || 0,
-            quantity: typeof p.quantity === 'number' ? p.quantity : 0
-          })),
-          status: order.status,
-          totalValue: order.total_amount,
-          discount: order.discount,
-          gst: order.gst,
-          partialFulfillment: order.partialFulfillment || [],
-        }));
-        setOrders(mapped);
+
+      // Show success message
+      toast({
+        title: 'Success',
+        description: 'Order status updated successfully',
       });
+
+      // If order is completed, show additional message about inventory
+      if (newStatus === 'completed') {
+        toast({
+          title: 'Order Completed',
+          description: 'Inventory has been updated accordingly',
+        });
+        // Refetch finished products to update inventory in UI
+        if (typeof window !== 'undefined') {
+          // Use context or service to refetch finished products
+          // This will trigger the UI to update the inventory table
+          const { finishedProductService } = require('../services/finishedProduct.service');
+          finishedProductService.getAll().then((products) => {
+            if (window && window.dispatchEvent) {
+              window.dispatchEvent(new CustomEvent('refreshFinishedProducts', { detail: products }));
+            }
+          });
+        }
+      }
+    } catch (error: any) {
+      console.error('Error updating order status:', error);
+      
+      // Show error message
+      toast({
+        title: 'Error',
+        description: error.response?.data?.message || 'Failed to update order status',
+        variant: 'destructive',
+      });
+
+      // If the error is about incomplete manufacturing, show a more detailed message
+      if (error.response?.data?.message?.includes('manufacturing batches are not completed')) {
+        toast({
+          title: 'Cannot Complete Order',
+          description: 'Please ensure all manufacturing batches are completed before completing the order',
+          variant: 'destructive',
+        });
+      }
+
+      // If the error is about insufficient inventory, show a more detailed message
+      if (error.response?.data?.message?.includes('Insufficient stock')) {
+        toast({
+          title: 'Cannot Complete Order',
+          description: 'There is not enough inventory to fulfill this order. Please check the manufacturing progress.',
+          variant: 'destructive',
+        });
+      }
     } finally {
       setIsUpdating(false);
     }
@@ -718,6 +765,30 @@ const ViewOrderStatus: React.FC = () => {
     );
   };
   
+  // Watch for changes in newOrder.products and update availability info
+  useEffect(() => {
+    const fetchAvailability = async () => {
+      if (!newOrder.products || newOrder.products.length === 0) {
+        setAvailabilityInfo([]);
+        return;
+      }
+      try {
+        const orderData = {
+          items: newOrder.products.map(p => ({
+            product_id: p.productId,
+            quantity: p.quantity,
+            unit_price: p.price || 0
+          }))
+        };
+        const result = await checkOrderAvailability(orderData);
+        setAvailabilityInfo(result.availability_results || result);
+      } catch {
+        setAvailabilityInfo([]);
+      }
+    };
+    fetchAvailability();
+  }, [newOrder.products]);
+  
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -1100,6 +1171,33 @@ const ViewOrderStatus: React.FC = () => {
                   <p className="font-medium">Total</p>
                   <p className="font-bold">{formatCurrency(newOrder.totalValue || 0)}</p>
                 </div>
+              </div>
+            )}
+            {(availabilityInfo && availabilityInfo.length > 0) && (
+              <div className="mt-4">
+                <h4 className="font-medium mb-2">Product Availability Breakdown</h4>
+                {availabilityInfo.map((info, idx) => (
+                  <div key={info.product_id} className="border rounded-md p-3 mb-2">
+                    <div><b>Product:</b> {products.find(p => String(p.product_id) === String(info.product_id))?.product_name || info.product_id}</div>
+                    <div><b>Ordered:</b> {info.requested_quantity}</div>
+                    <div><b>Ready in Stock:</b> {info.available_in_stock}</div>
+                    <div><b>To Manufacture:</b> {info.to_be_manufactured}</div>
+                    <div><b>Can Manufacture:</b> {info.can_manufacture ? 'Yes' : 'No'}</div>
+                    <div><b>Max Manufacturable:</b> {info.max_manufacturable_quantity}</div>
+                    {info.materials_needed && info.materials_needed.length > 0 && (
+                      <div className="mt-2">
+                        <b>Materials Needed:</b>
+                        <ul className="ml-4 list-disc text-xs">
+                          {info.materials_needed.map((mat, midx) => (
+                            <li key={midx}>
+                              {mat.material_name}: Need {mat.required_quantity}, Available {mat.available_quantity} {mat.unit} {mat.missing_quantity > 0 ? `(Missing: ${mat.missing_quantity})` : ''}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                ))}
               </div>
             )}
           </div>

@@ -18,7 +18,7 @@ import { useQuery as useProductsQuery } from '@tanstack/react-query';
 import { productService } from '../services/productService';
 
 const Inventory: React.FC = () => {
-  const { finishedProducts, addFinishedProduct, updateFinishedProduct, setFinishedProducts, deleteFinishedProduct, dispatchFinishedProduct } = useFactory();
+  const { finishedProducts, addFinishedProduct, updateFinishedProduct, setFinishedProducts, deleteFinishedProduct,  } = useFactory();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   

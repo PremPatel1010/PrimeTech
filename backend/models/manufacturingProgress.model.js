@@ -170,13 +170,14 @@ class ManufacturingProgress {
 
       // Check if product already exists in inventory
       const existingInventory = await client.query(`
-        SELECT finished_product_id, quantity_available 
+        SELECT finished_product_id, quantity_available, total_price 
         FROM inventory.finished_products 
         WHERE product_id = $1
+        ORDER BY added_on DESC
       `, [progress.product_id]);
 
       if (existingInventory.rows.length > 0) {
-        // Update existing inventory
+        // Update the inventory row for this product (even if quantity is 0)
         const finishedProductId = existingInventory.rows[0].finished_product_id;
         await FinishedProduct.updateFinishedProduct(finishedProductId, {
           quantity_available: existingInventory.rows[0].quantity_available + progress.quantity,

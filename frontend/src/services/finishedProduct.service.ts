@@ -28,12 +28,11 @@ export const finishedProductService = {
     const res = await axiosInstance.put(`/finished-products/${id}`, data);
     return res.data;
   },
-  async delete(id: number): Promise<void> {
-    await axiosInstance.delete(`/finished-products/${id}`);
+  async delete(productId: number): Promise<void> {
+    await axiosInstance.delete(`/finished-products/${productId}`);
   },
   async dispatch(id: number, quantity: number): Promise<FinishedProductAPI> {
-    // Use update endpoint to reduce quantity
-    const res = await axiosInstance.put(`/finished-products/${id}`, { quantity_available: quantity });
+    const res = await axiosInstance.patch(`/finished-products/${id}/quantity`, { quantityChange: quantity });
     return res.data;
-  }
+  },
 }; 
