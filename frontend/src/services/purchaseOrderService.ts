@@ -18,6 +18,7 @@ export interface PurchaseOrder {
   gst?: number;
   total_amount?: number;
   materials: PurchaseMaterial[];
+  grns?: any[];
 }
 
 const PURCHASE_ORDER_URL = '/purchase-orders';

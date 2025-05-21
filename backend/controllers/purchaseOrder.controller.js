@@ -2,175 +2,171 @@ import PurchaseOrder from '../models/purchaseOrder.model.js';
 
 export const getAllPurchaseOrders = async (req, res) => {
   try {
-    const purchaseOrders = await PurchaseOrder.getAllPurchaseOrders();
-    res.json(purchaseOrders);
+    const orders = await PurchaseOrder.getAllPurchaseOrders();
+    res.json(orders);
   } catch (error) {
     console.error('Error in getAllPurchaseOrders:', error);
-    res.status(500).json({ message: 'Error fetching purchase orders', error: error.message });
+    res.status(500).json({ error: 'Failed to fetch purchase orders' });
   }
 };
 
 export const getPurchaseOrder = async (req, res) => {
   try {
-    const { poId } = req.params;
-    const purchaseOrder = await PurchaseOrder.getPurchaseOrderById(poId);
-    
-    if (!purchaseOrder) {
-      return res.status(404).json({ message: 'Purchase order not found' });
-    }
-
-    res.json(purchaseOrder);
-  } catch (error) {
-    console.error('Error in getPurchaseOrder:', error);
-    res.status(500).json({ message: 'Error fetching purchase order', error: error.message });
+    const po = await PurchaseOrder.getPurchaseOrderById(req.params.id);
+    if (!po) return res.status(404).json({ error: 'Not found' });
+    res.json(po);
+  } catch (e) {
+    res.status(400).json({ error: e.message });
   }
 };
 
 export const createPurchaseOrder = async (req, res) => {
   try {
-    const {
-      order_number,
-      order_date,
-      supplier_id,
-      status,
-      payment_details,
-      discount,
-      gst,
-      materials // frontend sends 'materials' not 'items'
-    } = req.body;
-
+    const { supplier_name, ...poData } = req.body;
+    
     // Validate required fields
-    if (!order_number || !order_date || !supplier_id || !status) {
-      return res.status(400).json({
-        message: 'Order number, order date, supplier ID, and status are required'
+    if (!poData.order_date || !poData.materials || !poData.materials.length) {
+      return res.status(400).json({ 
+        error: 'Missing required fields: order_date and materials are required' 
       });
     }
 
-    // Accept status values from frontend
-    if (!['ordered', 'arrived', 'cancelled'].includes(status)) {
-      return res.status(400).json({
-        message: 'Status must be one of: ordered, arrived, cancelled'
-      });
-    }
-
-    // Validate materials
-    if (!materials || !Array.isArray(materials) || materials.length === 0) {
-      return res.status(400).json({
-        message: 'At least one material is required'
-      });
-    }
-
-    // Validate each material
-    for (const item of materials) {
-      if (!item.material_id || !item.quantity || !item.unit_price) {
-        return res.status(400).json({
-          message: 'Each material must have material_id, quantity, and unit_price'
-        });
+    // Handle supplier creation/selection
+    let supplier_id = poData.supplier_id;
+    if (supplier_name && !supplier_id) {
+      try {
+        const supplier = await PurchaseOrder.getOrCreateSupplier({ supplier_name });
+        supplier_id = supplier.supplier_id;
+      } catch (error) {
+        return res.status(400).json({ error: 'Failed to create/select supplier: ' + error.message });
       }
     }
 
-    // Map 'materials' to 'items' for the model
-    const items = materials.map(({ material_id, quantity, unit_price }) => ({
-      material_id,
-      quantity,
-      unit_price
-    }));
-
-    const purchaseOrder = await PurchaseOrder.createPurchaseOrder({
-      order_number,
-      order_date,
+    // Create purchase order with supplier
+    const po = await PurchaseOrder.createPurchaseOrder({
+      ...poData,
       supplier_id,
-      status,
-      payment_details,
-      discount,
-      gst,
-      items
+      supplier_name
     });
 
-    res.status(201).json({
-      message: 'Purchase order created successfully',
-      purchaseOrder
-    });
+    res.status(201).json(po);
   } catch (error) {
     console.error('Error in createPurchaseOrder:', error);
-    res.status(500).json({ message: 'Error creating purchase order', error: error.message });
+    if (error.code === '42P01') { // Table doesn't exist error
+      res.status(500).json({ 
+        error: 'Database tables not properly initialized. Please contact system administrator.' 
+      });
+    } else {
+      res.status(400).json({ error: error.message });
+    }
   }
 };
 
 export const updatePurchaseOrder = async (req, res) => {
   try {
-    const { poId } = req.params;
-    const { 
-      order_number, 
-      order_date, 
-      supplier_id, 
-      status, 
-      payment_details,
-      discount,
-      gst,
-      materials, // Accept materials from frontend
-      items // Keep items for backward compatibility
-    } = req.body;
-
-    // Validate status if provided
-    if (status && !['ordered', 'arrived', 'cancelled'].includes(status)) {
-      return res.status(400).json({ 
-        message: 'Status must be one of: ordered, arrived, cancelled' 
-      });
+    const { supplier_name, ...updateData } = req.body;
+    
+    // Handle supplier creation/selection
+    if (supplier_name && !updateData.supplier_id) {
+      const supplier = await PurchaseOrder.getOrCreateSupplier({ supplier_name });
+      updateData.supplier_id = supplier.supplier_id;
     }
 
-    // Use materials if provided, otherwise use items
-    const itemsToUpdate = materials || items;
-
-    const updatedPurchaseOrder = await PurchaseOrder.updatePurchaseOrder(poId, {
-      order_number,
-      order_date,
-      supplier_id,
-      status,
-      payment_details,
-      discount,
-      gst,
-      items: itemsToUpdate
-    });
-
-    if (!updatedPurchaseOrder) {
-      return res.status(404).json({ message: 'Purchase order not found' });
-    }
-
-    res.json({
-      message: 'Purchase order updated successfully',
-      purchaseOrder: updatedPurchaseOrder
-    });
+    const order = await PurchaseOrder.updatePurchaseOrder(req.params.poId, updateData);
+    res.json(order);
   } catch (error) {
     console.error('Error in updatePurchaseOrder:', error);
-    res.status(500).json({ message: 'Error updating purchase order', error: error.message });
+    res.status(500).json({ error: error.message });
   }
 };
 
 export const deletePurchaseOrder = async (req, res) => {
   try {
-    const { poId } = req.params;
-    const deletedPurchaseOrder = await PurchaseOrder.deletePurchaseOrder(poId);
-
-    if (!deletedPurchaseOrder) {
-      return res.status(404).json({ message: 'Purchase order not found' });
-    }
-
-    res.json({
-      message: 'Purchase order deleted successfully',
-      purchaseOrder: deletedPurchaseOrder
-    });
+    await PurchaseOrder.deletePurchaseOrder(req.params.poId);
+    res.status(204).send();
   } catch (error) {
     console.error('Error in deletePurchaseOrder:', error);
-    res.status(500).json({ message: 'Error deleting purchase order', error: error.message });
+    res.status(500).json({ error: error.message });
   }
 };
 
 export const getNextOrderNumber = async (req, res) => {
   try {
-    const nextOrderNumber = await PurchaseOrder.getNextOrderNumber();
-    res.json({ nextOrderNumber });
+    const nextNumber = await PurchaseOrder.getNextOrderNumber();
+    res.json({ nextOrderNumber: nextNumber });
   } catch (error) {
-    res.status(500).json({ message: 'Error generating next order number', error: error.message });
+    console.error('Error in getNextOrderNumber:', error);
+    res.status(500).json({ error: 'Failed to generate next order number' });
+  }
+};
+
+export const getPOStatusHistory = async (req, res) => {
+  try {
+    const history = await PurchaseOrder.getPOStatusHistory(req.params.poId);
+    res.json(history);
+  } catch (error) {
+    console.error('Error in getPOStatusHistory:', error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+export const getPOQuantitiesSummary = async (req, res) => {
+  try {
+    const summary = await PurchaseOrder.getPOQuantitiesSummary(req.params.poId);
+    res.json(summary);
+  } catch (error) {
+    console.error('Error in getPOQuantitiesSummary:', error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+export const createGRN = async (req, res) => {
+  try {
+    const grn = await PurchaseOrder.createGRN(req.body);
+    // If not all items received, send notification (placeholder)
+    if (grn.pending > 0) {
+      // TODO: Integrate with notification system
+      console.log(`Notification: Only ${grn.totalReceived} of ${grn.totalOrdered} items received. ${grn.pending} pending.`);
+    }
+    res.status(201).json(grn);
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+};
+
+export const createQCReport = async (req, res) => {
+  try {
+    await PurchaseOrder.createQCReport(req.body);
+    res.status(201).json({ success: true });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+};
+
+export const updatePOStatus = async (req, res) => {
+  try {
+    await PurchaseOrder.updateStatus(req.params.poId, req.body.status, req.user?.user_id, req.body.notes);
+    res.json({ success: true });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+};
+
+export const getProgress = async (req, res) => {
+  try {
+    const progress = await PurchaseOrder.getProgress(req.params.poId);
+    res.json(progress);
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+};
+
+export const verifyGRN = async (req, res) => {
+  try {
+    const { grnId } = req.params;
+    await PurchaseOrder.verifyGRN(grnId);
+    res.json({ success: true });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
   }
 }; 

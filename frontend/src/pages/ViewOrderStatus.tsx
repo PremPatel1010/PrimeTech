@@ -790,8 +790,9 @@ const ViewOrderStatus: React.FC = () => {
   }, [newOrder.products]);
   
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 order-status-main-container">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div className="order-status-header-row w-full justify-between">
         <h1 className="text-2xl font-bold text-factory-gray-900">Sales Orders</h1>
         <Button 
           onClick={handleOpenCreateOrderDialog}
@@ -800,8 +801,8 @@ const ViewOrderStatus: React.FC = () => {
           Add New Order
         </Button>
       </div>
-      {/* Search and Filter - move above tab bar */}
-      <div className="flex flex-col sm:flex-row gap-4 mb-4">
+      </div>
+      <div className="order-status-search-filter-row">
         <div className="relative flex-grow">
           <Input 
             placeholder="Search by order number or customer name..." 
@@ -825,8 +826,7 @@ const ViewOrderStatus: React.FC = () => {
           </SelectContent>
         </Select>
       </div>
-      {/* Tab Bar for Active/History */}
-      <div className="flex gap-4 mb-6">
+      <div className="order-status-tab-bar flex flex-row gap-2 sm:gap-4 mb-6">
         <Button
           variant={orderTab === 'active' ? 'default' : 'outline'}
           className={orderTab === 'active' ? 'bg-factory-primary text-white' : ''}
@@ -842,7 +842,6 @@ const ViewOrderStatus: React.FC = () => {
           Order History
         </Button>
       </div>
-      {/* Active Orders Accordion List */}
       {orderTab === 'active' && (
         <div className="bg-white rounded-lg p-2 border">
           <Accordion type="single" collapsible>
@@ -850,7 +849,7 @@ const ViewOrderStatus: React.FC = () => {
               paginatedActiveOrders.map(order => (
                 <AccordionItem key={order.id} value={String(order.id)} className="mb-3 rounded-lg shadow-sm border border-factory-gray-100 hover:shadow-lg transition-shadow bg-white">
                   <AccordionTrigger>
-                    <div className="flex w-full justify-between items-center px-4 py-3 group">
+                    <div className="order-status-accordion-trigger group">
                       <div className="flex flex-col">
                         <span className="font-semibold text-lg text-factory-primary underline cursor-pointer group-hover:text-factory-primary-dark transition-colors">
                           {order.orderNumber || <span className='text-gray-400 italic'>No Order #</span>}
@@ -867,7 +866,7 @@ const ViewOrderStatus: React.FC = () => {
                   </AccordionTrigger>
                   <AccordionContent>
                     <div className="p-6 bg-gray-50 rounded-b-lg border-t border-gray-200">
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                      <div className="order-status-order-details-grid">
                         <div>
                           <p className="text-sm text-factory-gray-500">Customer</p>
                           <p className="font-medium">{order.customerName}</p>
@@ -883,7 +882,7 @@ const ViewOrderStatus: React.FC = () => {
                       </div>
                       <div className="border-t pt-4">
                         <h4 className="font-medium mb-2">Products</h4>
-                        <div className="overflow-x-auto">
+                        <div className="order-status-table-scroll">
                           <Table>
                             <TableHeader>
                               <TableRow>
@@ -936,9 +935,29 @@ const ViewOrderStatus: React.FC = () => {
               </div>
             )}
           </Accordion>
+          {totalPages > 1 && (
+            <div className="order-status-pagination">
+              <button
+                className={`px-3 py-1 rounded border ${activePage === 1 ? 'opacity-50 cursor-not-allowed' : 'bg-white text-factory-primary border-factory-primary'}`}
+                onClick={() => activePage > 1 && setActivePage(activePage - 1)}
+                disabled={activePage === 1}
+                aria-label="Previous Page"
+              >
+                &#60;
+              </button>
+              <span className="px-2 py-1 text-sm text-gray-700">{activePage} <span className="mx-1">of</span> {totalPages}</span>
+              <button
+                className={`px-3 py-1 rounded border ${activePage === totalPages ? 'opacity-50 cursor-not-allowed' : 'bg-white text-factory-primary border-factory-primary'}`}
+                onClick={() => activePage < totalPages && setActivePage(activePage + 1)}
+                disabled={activePage === totalPages}
+                aria-label="Next Page"
+              >
+                &#62;
+              </button>
         </div>
       )}
-      {/* Order History List (Accordion-based) */}
+        </div>
+      )}
       {orderTab === 'history' && (
         <div className="bg-white rounded-lg p-2 border">
           <Accordion type="single" collapsible>
@@ -946,7 +965,7 @@ const ViewOrderStatus: React.FC = () => {
               paginatedHistoryOrders.map(order => (
                 <AccordionItem key={order.id} value={String(order.id)} className="mb-3 rounded-lg shadow-sm border border-factory-gray-100 hover:shadow-lg transition-shadow bg-white">
                   <AccordionTrigger>
-                    <div className="flex w-full justify-between items-center px-4 py-3 group">
+                    <div className="order-status-accordion-trigger group">
                       <div className="flex flex-col">
                         <span className="font-semibold text-lg text-factory-primary underline cursor-pointer group-hover:text-factory-primary-dark transition-colors">
                           {order.orderNumber || <span className='text-gray-400 italic'>No Order #</span>}
@@ -963,7 +982,7 @@ const ViewOrderStatus: React.FC = () => {
                   </AccordionTrigger>
                   <AccordionContent>
                     <div className="p-6 bg-gray-50 rounded-b-lg border-t border-gray-200">
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                      <div className="order-status-order-details-grid">
                         <div>
                           <p className="text-sm text-factory-gray-500">Customer</p>
                           <p className="font-medium">{order.customerName}</p>
@@ -979,7 +998,7 @@ const ViewOrderStatus: React.FC = () => {
                       </div>
                       <div className="border-t pt-4">
                         <h4 className="font-medium mb-2">Products</h4>
-                        <div className="overflow-x-auto">
+                        <div className="order-status-table-scroll">
                           <Table>
                             <TableHeader>
                               <TableRow>
@@ -1031,31 +1050,37 @@ const ViewOrderStatus: React.FC = () => {
                 <p className="mt-4 text-factory-gray-500">No order history found.</p>
               </div>
             )}
-            {/* Pagination for order history */}
+          </Accordion>
             {totalHistoryPages > 1 && (
-              <div className="flex justify-center mt-6 gap-2">
-                {Array.from({ length: totalHistoryPages }, (_, i) => (
+            <div className="order-status-pagination">
                   <button
-                    key={i + 1}
-                    className={`px-3 py-1 rounded border ${activeHistoryPage === i + 1 ? 'bg-factory-primary text-white' : 'bg-white text-factory-primary border-factory-primary'}`}
-                    onClick={() => setActiveHistoryPage(i + 1)}
-                  >
-                    {i + 1}
+                className={`px-3 py-1 rounded border ${activeHistoryPage === 1 ? 'opacity-50 cursor-not-allowed' : 'bg-white text-factory-primary border-factory-primary'}`}
+                onClick={() => activeHistoryPage > 1 && setActiveHistoryPage(activeHistoryPage - 1)}
+                disabled={activeHistoryPage === 1}
+                aria-label="Previous Page"
+              >
+                &#60;
                   </button>
-                ))}
+              <span className="px-2 py-1 text-sm text-gray-700">{activeHistoryPage} <span className="mx-1">of</span> {totalHistoryPages}</span>
+              <button
+                className={`px-3 py-1 rounded border ${activeHistoryPage === totalHistoryPages ? 'opacity-50 cursor-not-allowed' : 'bg-white text-factory-primary border-factory-primary'}`}
+                onClick={() => activeHistoryPage < totalHistoryPages && setActiveHistoryPage(activeHistoryPage + 1)}
+                disabled={activeHistoryPage === totalHistoryPages}
+                aria-label="Next Page"
+              >
+                &#62;
+              </button>
               </div>
             )}
-          </Accordion>
         </div>
       )}
-      {/* Add Sales Order Dialog */}
       <Dialog open={isDialogOpen} onOpenChange={(open) => { if (!isProcessing) setIsDialogOpen(open); }}>
         <DialogContent className="sm:max-w-[600px] max-h-[80vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Create New Sales Order</DialogTitle>
           </DialogHeader>
           <div className="grid gap-4 py-4">
-            <div className="grid grid-cols-2 gap-4">
+            <div className="order-status-dialog-grid">
               <div className="space-y-2">
                 <Label htmlFor="orderDate">Order Date</Label>
                 <Input 
@@ -1096,7 +1121,7 @@ const ViewOrderStatus: React.FC = () => {
               />
             </div>
             <h4 className="font-medium mb-2">Add Products</h4>
-            <div className="grid grid-cols-3 gap-4 mb-4">
+            <div className="order-status-product-add-grid">
               <div className="col-span-3 md:col-span-1 space-y-2">
                 <Label htmlFor="product">Product</Label>
                 <Select 
@@ -1224,7 +1249,6 @@ const ViewOrderStatus: React.FC = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      {/* Status Update Dialog */}
       <Dialog open={isUpdateDialogOpen} onOpenChange={setIsUpdateDialogOpen}>
         <DialogContent>
           <DialogHeader>
@@ -1253,7 +1277,6 @@ const ViewOrderStatus: React.FC = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      {/* Edit Order Dialog */}
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
         <DialogContent className="sm:max-w-[700px]">
           <DialogHeader>
@@ -1329,7 +1352,6 @@ const ViewOrderStatus: React.FC = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      {/* Delete Order Dialog */}
       <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
         <DialogContent>
           <DialogHeader>

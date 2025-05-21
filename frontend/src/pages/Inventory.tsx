@@ -64,6 +64,11 @@ const Inventory: React.FC = () => {
   // Add state for selecting a backend product when adding a finished product
   const [selectedBackendProductId, setSelectedBackendProductId] = useState<number | null>(null);
 
+  // Add state for pagination
+  const [rawMaterialPage, setRawMaterialPage] = useState(1);
+  const [finishedProductPage, setFinishedProductPage] = useState(1);
+  const ROWS_PER_PAGE = 10;
+
   // Fetch raw materials
   const { data: rawMaterials = [], isLoading } = useQuery({
     queryKey: ['rawMaterials'],
@@ -144,6 +149,12 @@ const Inventory: React.FC = () => {
     product.name.toLowerCase().includes(searchFinishedProduct.toLowerCase()) ||
     product.category.toLowerCase().includes(searchFinishedProduct.toLowerCase())
   );
+  
+  // Paginated data
+  const paginatedRawMaterials = filteredRawMaterials.slice((rawMaterialPage - 1) * ROWS_PER_PAGE, rawMaterialPage * ROWS_PER_PAGE);
+  const totalRawMaterialPages = Math.ceil(filteredRawMaterials.length / ROWS_PER_PAGE);
+  const paginatedFinishedProducts = filteredFinishedProducts.slice((finishedProductPage - 1) * ROWS_PER_PAGE, finishedProductPage * ROWS_PER_PAGE);
+  const totalFinishedProductPages = Math.ceil(filteredFinishedProducts.length / ROWS_PER_PAGE);
   
   // Calculations
   const totalRawMaterialValue = rawMaterials.reduce(
@@ -249,7 +260,7 @@ const Inventory: React.FC = () => {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {filteredRawMaterials.map((material) => (
+                      {paginatedRawMaterials.map((material) => (
                         <TableRow key={material.material_id}>
                           <TableCell className="font-medium">{material.material_code}</TableCell>
                           <TableCell>{material.material_name}</TableCell>
@@ -271,6 +282,27 @@ const Inventory: React.FC = () => {
                     </TableBody>
                   </Table>
                 </div>
+                {totalRawMaterialPages > 1 && (
+                  <div className="flex justify-center mt-4 gap-2">
+                    <button
+                      className={`px-3 py-1 rounded border ${rawMaterialPage === 1 ? 'opacity-50 cursor-not-allowed' : 'bg-white text-factory-primary border-factory-primary'}`}
+                      onClick={() => rawMaterialPage > 1 && setRawMaterialPage(rawMaterialPage - 1)}
+                      disabled={rawMaterialPage === 1}
+                      aria-label="Previous Page"
+                    >
+                      &#60;
+                    </button>
+                    <span className="px-2 py-1 text-sm text-gray-700">{rawMaterialPage} <span className="mx-1">of</span> {totalRawMaterialPages}</span>
+                    <button
+                      className={`px-3 py-1 rounded border ${rawMaterialPage === totalRawMaterialPages ? 'opacity-50 cursor-not-allowed' : 'bg-white text-factory-primary border-factory-primary'}`}
+                      onClick={() => rawMaterialPage < totalRawMaterialPages && setRawMaterialPage(rawMaterialPage + 1)}
+                      disabled={rawMaterialPage === totalRawMaterialPages}
+                      aria-label="Next Page"
+                    >
+                      &#62;
+                    </button>
+                  </div>
+                )}
               </CardContent>
             </Card>
           ) : (
@@ -320,7 +352,7 @@ const Inventory: React.FC = () => {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {filteredFinishedProducts.map((product) => (
+                      {paginatedFinishedProducts.map((product) => (
                         <TableRow key={product.id}>
                           <TableCell className="font-medium">{product.name}</TableCell>
                           <TableCell>{product.category}</TableCell>
@@ -353,6 +385,27 @@ const Inventory: React.FC = () => {
                     </TableBody>
                   </Table>
                 </div>
+                {totalFinishedProductPages > 1 && (
+                  <div className="flex justify-center mt-4 gap-2">
+                    <button
+                      className={`px-3 py-1 rounded border ${finishedProductPage === 1 ? 'opacity-50 cursor-not-allowed' : 'bg-white text-factory-primary border-factory-primary'}`}
+                      onClick={() => finishedProductPage > 1 && setFinishedProductPage(finishedProductPage - 1)}
+                      disabled={finishedProductPage === 1}
+                      aria-label="Previous Page"
+                    >
+                      &#60;
+                    </button>
+                    <span className="px-2 py-1 text-sm text-gray-700">{finishedProductPage} <span className="mx-1">of</span> {totalFinishedProductPages}</span>
+                    <button
+                      className={`px-3 py-1 rounded border ${finishedProductPage === totalFinishedProductPages ? 'opacity-50 cursor-not-allowed' : 'bg-white text-factory-primary border-factory-primary'}`}
+                      onClick={() => finishedProductPage < totalFinishedProductPages && setFinishedProductPage(finishedProductPage + 1)}
+                      disabled={finishedProductPage === totalFinishedProductPages}
+                      aria-label="Next Page"
+                    >
+                      &#62;
+                    </button>
+                  </div>
+                )}
               </CardContent>
             </Card>
           ) : (

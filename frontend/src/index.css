@@ -99,3 +99,37 @@
     @apply bg-background text-foreground;
   }
 }
+
+@layer components {
+  /* Responsive tweaks for ViewOrderStatus page */
+  .order-status-main-container {
+    @apply px-2 sm:px-4 md:px-8;
+  }
+  .order-status-header-row {
+    @apply flex flex-col sm:flex-row gap-4 items-start sm:items-center;
+  }
+  .order-status-search-filter-row {
+    @apply flex flex-col sm:flex-row gap-4 mb-4;
+  }
+  .order-status-tab-bar {
+    @apply flex flex-col sm:flex-row gap-2 sm:gap-4 mb-6;
+  }
+  .order-status-accordion-trigger {
+    @apply flex flex-col md:flex-row w-full justify-between items-start md:items-center px-2 md:px-4 py-3 gap-2;
+  }
+  .order-status-order-details-grid {
+    @apply grid grid-cols-1 md:grid-cols-3 gap-4 mb-4;
+  }
+  .order-status-dialog-grid {
+    @apply grid grid-cols-1 md:grid-cols-2 gap-4;
+  }
+  .order-status-product-add-grid {
+    @apply grid grid-cols-1 md:grid-cols-3 gap-4 mb-4;
+  }
+  .order-status-pagination {
+    @apply flex flex-wrap justify-center mt-6 gap-2;
+  }
+  .order-status-table-scroll {
+    @apply overflow-x-auto w-full;
+  }
+}

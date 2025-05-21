@@ -73,7 +73,8 @@ CREATE TABLE inventory.finished_products (
     product_id INTEGER NOT NULL REFERENCES products.product(product_id) ON DELETE CASCADE,
     quantity_available INTEGER NOT NULL DEFAULT 0,
     unit_price DECIMAL(10,2) DEFAULT 0,
-    total_price DECIMAL(12,2) GENERATED ALWAYS AS (quantity_available * unit_price) STORED,
+    -- total_price DECIMAL(12,2) GENERATED ALWAYS AS (quantity_available * unit_price) STORED,
+    -- Calculate total_price in application code: total_price = quantity_available * unit_price
     minimum_stock INTEGER NOT NULL DEFAULT 5,
     storage_location VARCHAR(100), -- Optional: rack/bin info
     status VARCHAR(20) CHECK (status IN ('available', 'reserved', 'dispatched')) DEFAULT 'available',
@@ -113,46 +114,114 @@ CREATE TABLE sales.sales_order_items (
     discount DECIMAL(5,2) DEFAULT 0,
     gst DECIMAL(5,2) DEFAULT 18,
     unit_price DECIMAL(10, 2) NOT NULL,
-    total_price DECIMAL(10, 2) GENERATED ALWAYS AS (quantity * unit_price) STORED,
+    -- total_price DECIMAL(10, 2) GENERATED ALWAYS AS (quantity * unit_price) STORED,
+    -- Calculate total_price in application code: total_price = quantity * unit_price
     fulfilled_from_inventory BOOLEAN DEFAULT FALSE
 );
 
 -- ========================
--- PURCHASE ORDER (for Raw Materials)
+-- PURCHASE ORDER TABLES
 -- ========================
-CREATE TABLE purchase.purchase_order (
-    purchase_order_id SERIAL PRIMARY KEY,
-    order_number VARCHAR(50) UNIQUE NOT NULL,
-    order_date DATE NOT NULL,
-    supplier_id INTEGER REFERENCES purchase.suppliers(supplier_id) ON DELETE SET NULL,
-    status VARCHAR(20) CHECK (status IN ('ordered', 'arrived', 'cancelled')) DEFAULT 'ordered',
-    payment_details TEXT,
-    discount DECIMAL(5,2) DEFAULT 0,
-    gst DECIMAL(5,2) DEFAULT 18,
+-- Suppliers table
+CREATE TABLE IF NOT EXISTS purchase.suppliers (
+    supplier_id SERIAL PRIMARY KEY,
+    supplier_name VARCHAR(128) NOT NULL UNIQUE,
+    contact_person VARCHAR(100),
+    phone VARCHAR(50),
+    email VARCHAR(100),
+    address TEXT,
+    gst_number VARCHAR(50),
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE purchase.purchase_order_items (
+-- Purchase Order table
+CREATE TABLE IF NOT EXISTS purchase.purchase_order (
+    purchase_order_id SERIAL PRIMARY KEY,
+    order_number VARCHAR(32) NOT NULL UNIQUE,
+    order_date DATE NOT NULL,
+    supplier_id INTEGER REFERENCES purchase.suppliers(supplier_id),
+    status VARCHAR(32) NOT NULL DEFAULT 'ordered',
+    discount NUMERIC(10,2) DEFAULT 0,
+    gst NUMERIC(10,2) DEFAULT 18,
+    total_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Purchase Order Items table
+CREATE TABLE IF NOT EXISTS purchase.purchase_order_items (
     item_id SERIAL PRIMARY KEY,
     purchase_order_id INTEGER REFERENCES purchase.purchase_order(purchase_order_id) ON DELETE CASCADE,
     material_id INTEGER REFERENCES inventory.raw_materials(material_id),
     quantity DECIMAL(10, 2) NOT NULL,
     unit VARCHAR(20) DEFAULT 'pcs',
     unit_price DECIMAL(10, 2) NOT NULL,
-    total_price DECIMAL(10, 2) GENERATED ALWAYS AS (quantity * unit_price) STORED,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE purchase.suppliers (
-    supplier_id SERIAL PRIMARY KEY,
-    supplier_name VARCHAR(100) NOT NULL,
-    contact_person VARCHAR(100),
-    phone VARCHAR(20),
-    email VARCHAR(100),
-    address TEXT,
-    gst_number VARCHAR(50),
-    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+-- Purchase Order Status Logs table
+CREATE TABLE IF NOT EXISTS purchase.purchase_order_status_logs (
+    log_id SERIAL PRIMARY KEY,
+    purchase_order_id INTEGER NOT NULL REFERENCES purchase.purchase_order(purchase_order_id) ON DELETE CASCADE,
+    status VARCHAR(32) NOT NULL,
+    notes TEXT,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    created_by INTEGER REFERENCES auth.users(user_id)
 );
+
+-- GRNs table
+CREATE TABLE IF NOT EXISTS purchase.grns (
+    grn_id SERIAL PRIMARY KEY,
+    purchase_order_id INTEGER NOT NULL REFERENCES purchase.purchase_order(purchase_order_id) ON DELETE CASCADE,
+    received_quantity DECIMAL(10,2) NOT NULL,
+    grn_date DATE NOT NULL DEFAULT CURRENT_DATE,
+    matched_with_po BOOLEAN NOT NULL DEFAULT FALSE,
+    status VARCHAR(20) CHECK (status IN ('pending', 'qc_in_progress', 'completed')) DEFAULT 'pending',
+    notes TEXT,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    created_by INTEGER REFERENCES auth.users(user_id),
+    UNIQUE (purchase_order_id, grn_date)
+);
+
+-- QC Reports table
+CREATE TABLE IF NOT EXISTS purchase.qc_reports (
+    qc_id SERIAL PRIMARY KEY,
+    grn_id INTEGER NOT NULL REFERENCES purchase.grns(grn_id) ON DELETE CASCADE,
+    material_id INTEGER NOT NULL REFERENCES inventory.raw_materials(material_id),
+    inspected_quantity DECIMAL(10,2) NOT NULL,
+    defective_quantity DECIMAL(10,2) NOT NULL DEFAULT 0,
+    accepted_quantity DECIMAL(10,2) NOT NULL DEFAULT 0,
+    status VARCHAR(20) CHECK (status IN ('pending', 'completed')) DEFAULT 'pending',
+    notes TEXT,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    created_by INTEGER REFERENCES auth.users(user_id),
+    CONSTRAINT qc_quantity_check CHECK (inspected_quantity = defective_quantity + accepted_quantity)
+);
+
+-- Create indexes for purchase order tables
+CREATE INDEX IF NOT EXISTS idx_po_status_logs_po_id ON purchase.purchase_order_status_logs(purchase_order_id);
+CREATE INDEX IF NOT EXISTS idx_po_items_po_id ON purchase.purchase_order_items(purchase_order_id);
+CREATE INDEX IF NOT EXISTS idx_grns_po_id ON purchase.grns(purchase_order_id);
+CREATE INDEX IF NOT EXISTS idx_qc_reports_grn_id ON purchase.qc_reports(grn_id);
+
+-- Create trigger function for status logging
+CREATE OR REPLACE FUNCTION purchase.log_po_status_change()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF OLD.status IS NULL OR NEW.status != OLD.status THEN
+        INSERT INTO purchase.purchase_order_status_logs (purchase_order_id, status)
+        VALUES (NEW.purchase_order_id, NEW.status);
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Create trigger for status changes
+DROP TRIGGER IF EXISTS po_status_change_trigger ON purchase.purchase_order;
+CREATE TRIGGER po_status_change_trigger
+AFTER INSERT OR UPDATE ON purchase.purchase_order
+FOR EACH ROW
+EXECUTE FUNCTION purchase.log_po_status_change();
 
 -- ========================
 -- MANUFACTURING STAGES

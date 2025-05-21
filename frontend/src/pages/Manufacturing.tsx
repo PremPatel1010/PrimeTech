@@ -50,6 +50,12 @@ const Manufacturing: React.FC = () => {
   const [editBatchData, setEditBatchData] = useState<ManufacturingBatch | null>(null);
   const [isEditMode, setIsEditMode] = useState(false);
   const [productStagesMap, setProductStagesMap] = useState<Record<string, ManufacturingStage[]>>({});
+  const [completedBatchPage, setCompletedBatchPage] = useState(1);
+  const COMPLETED_BATCHES_PER_PAGE = 10;
+  const totalCompletedBatchPages = Math.ceil(getCompletedBatches(manufacturingBatches).length / COMPLETED_BATCHES_PER_PAGE);
+  const activeBatches = getActiveBatches(manufacturingBatches);
+  const completedBatches = getCompletedBatches(manufacturingBatches);
+  const paginatedCompletedBatches = completedBatches.slice((completedBatchPage - 1) * COMPLETED_BATCHES_PER_PAGE, completedBatchPage * COMPLETED_BATCHES_PER_PAGE);
   
   // Fetch stages from backend on mount
   useEffect(() => {
@@ -322,10 +328,6 @@ const Manufacturing: React.FC = () => {
     });
   };
   
-  // Use helpers for filtering
-  const activeBatches = getActiveBatches(manufacturingBatches);
-  const completedBatches = getCompletedBatches(manufacturingBatches);
-  
   // Update stage handler
   const handleUpdateStage = async (batch: ManufacturingBatch, newStage: string) => {
     try {
@@ -350,10 +352,6 @@ const Manufacturing: React.FC = () => {
       toast({ title: 'Error', description: 'Failed to delete batch', variant: 'destructive' });
     }
   };
-
-  // In the rendering of activeBatches and completedBatches, filter out batches with invalid or undefined IDs
-  const validActiveBatches = activeBatches.filter(b => b.id && b.id !== 'undefined');
-  const validCompletedBatches = completedBatches.filter(b => b.id && b.id !== 'undefined');
 
   return (
     <div className="space-y-6">
@@ -447,9 +445,9 @@ const Manufacturing: React.FC = () => {
       <div className="space-y-6">
         <div>
           <h2 className="text-lg font-medium mb-4">Active Manufacturing Batches</h2>
-          {validActiveBatches.length > 0 ? (
+          {activeBatches.length > 0 ? (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              {validActiveBatches.map(batch => (
+              {activeBatches.map(batch => (
                 <Card key={batch.id} className="overflow-hidden">
                   <CardHeader className="bg-factory-gray-50 py-3">
                     <div className="flex justify-between">
@@ -535,7 +533,7 @@ const Manufacturing: React.FC = () => {
             Completed Batches
           </h2>
           
-          {validCompletedBatches.length > 0 ? (
+          {completedBatches.length > 0 ? (
             <div className="bg-white rounded-lg overflow-hidden border">
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
@@ -549,7 +547,7 @@ const Manufacturing: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody className="divide-y">
-                    {validCompletedBatches.map((batch) => (
+                    {paginatedCompletedBatches.map((batch) => (
                       <tr key={batch.id} className="hover:bg-factory-gray-50">
                         <td className="px-6 py-4">{batch.batchNumber}</td>
                         <td className="px-6 py-4">{batch.productName}</td>
@@ -565,6 +563,27 @@ const Manufacturing: React.FC = () => {
                   </tbody>
                 </table>
               </div>
+              {totalCompletedBatchPages > 1 && (
+                <div className="flex justify-center mt-4 gap-2">
+                  <button
+                    className={`px-3 py-1 rounded border ${completedBatchPage === 1 ? 'opacity-50 cursor-not-allowed' : 'bg-white text-factory-primary border-factory-primary'}`}
+                    onClick={() => completedBatchPage > 1 && setCompletedBatchPage(completedBatchPage - 1)}
+                    disabled={completedBatchPage === 1}
+                    aria-label="Previous Page"
+                  >
+                    &#60;
+                  </button>
+                  <span className="px-2 py-1 text-sm text-gray-700">{completedBatchPage} <span className="mx-1">of</span> {totalCompletedBatchPages}</span>
+                  <button
+                    className={`px-3 py-1 rounded border ${completedBatchPage === totalCompletedBatchPages ? 'opacity-50 cursor-not-allowed' : 'bg-white text-factory-primary border-factory-primary'}`}
+                    onClick={() => completedBatchPage < totalCompletedBatchPages && setCompletedBatchPage(completedBatchPage + 1)}
+                    disabled={completedBatchPage === totalCompletedBatchPages}
+                    aria-label="Next Page"
+                  >
+                    &#62;
+                  </button>
+                </div>
+              )}
             </div>
           ) : (
             <div className="text-center py-8 bg-white rounded-lg border">

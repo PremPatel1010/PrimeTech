@@ -5,28 +5,45 @@ import {
   createPurchaseOrder,
   updatePurchaseOrder,
   deletePurchaseOrder,
-  getNextOrderNumber
+  getNextOrderNumber,
+  getPOStatusHistory,
+  getPOQuantitiesSummary,
+  createGRN,
+  createQCReport,
+  updatePOStatus,
+  getProgress,
+  verifyGRN
 } from '../controllers/purchaseOrder.controller.js';
 import { authenticate } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
 
-// Get all purchase orders
-router.get('/', authenticate, getAllPurchaseOrders);
+// Apply authentication middleware to all routes
+router.use(authenticate);
 
-// Add route for next order number
-router.get('/next-order-number', getNextOrderNumber);
+// Specific routes (must come before parameterized routes)
+router.get('/next-number', getNextOrderNumber);
 
-// Get a single purchase order
-router.get('/:poId', authenticate, getPurchaseOrder);
+// Basic CRUD routes
+router.get('/', getAllPurchaseOrders);
+router.post('/', createPurchaseOrder);
 
-// Create a new purchase order
-router.post('/', authenticate, createPurchaseOrder);
+// Status and history routes
+router.get('/:poId/status-history', getPOStatusHistory);
+router.get('/:poId/quantities', getPOQuantitiesSummary);
+router.put('/:poId/status', updatePOStatus);
 
-// Update a purchase order
-router.put('/:poId', authenticate, updatePurchaseOrder);
+// GRN and QC routes
+router.post('/:poId/grn', createGRN);
+router.post('/:poId/qc', createQCReport);
+router.put('/:poId/grn/:grnId/verify', verifyGRN);
 
-// Delete a purchase order
-router.delete('/:poId', authenticate, deletePurchaseOrder);
+// Progress route
+router.get('/:poId/progress', getProgress);
+
+// Parameterized routes (moved to end)
+router.get('/:poId', getPurchaseOrder);
+router.put('/:poId', updatePurchaseOrder);
+router.delete('/:poId', deletePurchaseOrder);
 
 export default router; 
