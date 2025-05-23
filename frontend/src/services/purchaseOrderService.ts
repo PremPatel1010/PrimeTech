@@ -18,7 +18,7 @@ export interface PurchaseOrder {
   gst?: number;
   total_amount?: number;
   materials: PurchaseMaterial[];
-  grns?: any[];
+  grns?: (any & { materials?: PurchaseMaterial[] })[];
 }
 
 const PURCHASE_ORDER_URL = '/purchase-orders';
@@ -49,4 +49,4 @@ export const purchaseOrderService = {
   delete: async (id: number): Promise<void> => {
     await axiosInstance.delete(`${PURCHASE_ORDER_URL}/${id}`);
   }
-}; 
+};

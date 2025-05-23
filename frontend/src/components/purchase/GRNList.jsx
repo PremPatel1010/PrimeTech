@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Box,
   Table,
@@ -19,30 +19,14 @@ import axiosInstance from '../../utils/axios.ts';
 
 const GRNList = ({ grns, onVerify, onRefresh, onView }) => {
   const toast = useToast();
+  const [pdfModal, setPdfModal] = useState({ open: false, grnId: null });
 
-  const handleDownload = async (grnId, purchaseOrderId) => {
-    try {
-      const response = await axiosInstance.get(
-        `/purchase/${purchaseOrderId}/grn/${grnId}/download`,
-        { responseType: 'blob' }
-      );
+  const handleViewPDF = (grnId) => {
+    setPdfModal({ open: true, grnId });
+  };
 
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', `GRN-${grnId}.pdf`);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-    } catch (error) {
-      toast({
-        title: 'Error',
-        description: 'Failed to download GRN PDF',
-        status: 'error',
-        duration: 5000,
-        isClosable: true
-      });
-    }
+  const handleDownload = (grnId) => {
+    window.open(`${axiosInstance.defaults.baseURL}/purchase/purchase-orders/grn/${grnId}/pdf?download=1`, '_blank');
   };
 
   const getStatusBadge = (verified) => {
@@ -71,11 +55,11 @@ const GRNList = ({ grns, onVerify, onRefresh, onView }) => {
         <Tbody>
           {grns.map((grn) => (
             <Tr key={grn.grn_id}>
-              <Td>{grn.grn_number}</Td>
+              <Td>{grn.grn_number || grn.grn_id}</Td>
               <Td>{format(new Date(grn.grn_date), 'dd/MM/yyyy')}</Td>
               <Td>
                 <VStack align="start" spacing={1}>
-                  {grn.materials.map((material) => (
+                  {grn.materials && grn.materials.map((material) => (
                     <Text key={material.material_id} fontSize="sm">
                       {material.material_name}: {material.received_quantity} received
                       {material.defective_quantity > 0 && (
@@ -86,33 +70,24 @@ const GRNList = ({ grns, onVerify, onRefresh, onView }) => {
                     </Text>
                   ))}
                   <Text fontWeight="bold" color="blue.600" mt={2}>
-                    Total Received: {grn.materials.reduce((sum, m) => sum + (m.received_quantity || 0), 0)}
+                    Total Received: {grn.materials ? grn.materials.reduce((sum, m) => sum + (m.received_quantity || 0), 0) : 0}
                   </Text>
                 </VStack>
               </Td>
               <Td>{getStatusBadge(grn.verified)}</Td>
               <Td>
                 <HStack spacing={2}>
-                  <Button
-                    size="sm"
-                    colorScheme="gray"
-                    onClick={() => onView(grn)}
-                  >
-                    View
+                  <Button size="sm" colorScheme="gray" onClick={() => onView(grn)}>
+                    Details
                   </Button>
-                  <Button
-                    size="sm"
-                    colorScheme="blue"
-                    onClick={() => handleDownload(grn.grn_id, grn.purchase_order_id)}
-                  >
+                  <Button size="sm" colorScheme="blue" onClick={() => handleViewPDF(grn.grn_id)}>
+                    View PDF
+                  </Button>
+                  <Button size="sm" colorScheme="green" onClick={() => handleDownload(grn.grn_id)}>
                     Download
                   </Button>
                   {!grn.verified && (
-                    <Button
-                      size="sm"
-                      colorScheme="green"
-                      onClick={() => onVerify(grn.grn_id)}
-                    >
+                    <Button size="sm" colorScheme="green" onClick={() => onVerify(grn.grn_id)}>
                       Verify
                     </Button>
                   )}
@@ -122,6 +97,21 @@ const GRNList = ({ grns, onVerify, onRefresh, onView }) => {
           ))}
         </Tbody>
       </Table>
+      {/* PDF Modal */}
+      {pdfModal.open && (
+        <Box position="fixed" top={0} left={0} w="100vw" h="100vh" bg="rgba(0,0,0,0.5)" zIndex={9999} display="flex" alignItems="center" justifyContent="center">
+          <Box bg="white" p={4} borderRadius="md" maxW="90vw" maxH="90vh" w="900px" h="90vh" position="relative">
+            <Button position="absolute" top={2} right={2} onClick={() => setPdfModal({ open: false, grnId: null })}>Close</Button>
+            <iframe
+              src={`${axiosInstance.defaults.baseURL}/purchase/purchase-orders/grn/${pdfModal.grnId}/pdf`}
+              title="GRN PDF"
+              width="100%"
+              height="100%"
+              style={{ border: 'none', minHeight: '80vh' }}
+            />
+          </Box>
+        </Box>
+      )}
     </Box>
   );
 };

@@ -29,7 +29,7 @@ import {
 } from '@chakra-ui/react';
 import { useNavigate } from 'react-router-dom';
 import GRNForm from './GRNForm';
-import QCReportForm from './QCReportForm';
+import QCReportForm from './QCReportForm.jsx';
 import { axiosInstance } from '../../services/axiosInstance';
 
 const PurchaseOrder = () => {

@@ -183,6 +183,33 @@ CREATE TABLE IF NOT EXISTS purchase.grns (
     UNIQUE (purchase_order_id, grn_date)
 );
 
+-- Add QC summary fields to GRN
+ALTER TABLE purchase.grns
+ADD COLUMN IF NOT EXISTS qc_status VARCHAR(20) DEFAULT 'pending' CHECK (qc_status IN ('pending', 'in_progress', 'completed')),
+ADD COLUMN IF NOT EXISTS qc_completed_at TIMESTAMPTZ,
+ADD COLUMN IF NOT EXISTS qc_completed_by INTEGER REFERENCES auth.users(user_id);
+
+-- GRN Items table
+CREATE TABLE IF NOT EXISTS purchase.grn_items (
+    grn_item_id SERIAL PRIMARY KEY,
+    grn_id INTEGER NOT NULL REFERENCES purchase.grns(grn_id) ON DELETE CASCADE,
+    material_id INTEGER NOT NULL REFERENCES inventory.raw_materials(material_id),
+    received_quantity DECIMAL(10,2) NOT NULL,
+    defective_quantity DECIMAL(10,2) NOT NULL DEFAULT 0,
+    remarks TEXT,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Add QC status tracking fields to GRN items
+ALTER TABLE purchase.grn_items
+ADD COLUMN IF NOT EXISTS qc_status VARCHAR(20) DEFAULT 'pending' CHECK (qc_status IN ('pending', 'completed', 'returned')),
+ADD COLUMN IF NOT EXISTS qc_date TIMESTAMPTZ,
+ADD COLUMN IF NOT EXISTS qc_by INTEGER REFERENCES auth.users(user_id),
+ADD COLUMN IF NOT EXISTS store_status VARCHAR(20) DEFAULT 'pending' CHECK (store_status IN ('pending', 'sent', 'partial')),
+ADD COLUMN IF NOT EXISTS store_date TIMESTAMPTZ,
+ADD COLUMN IF NOT EXISTS store_by INTEGER REFERENCES auth.users(user_id),
+ADD COLUMN IF NOT EXISTS store_quantity DECIMAL(10,2) DEFAULT 0;
+
 -- QC Reports table
 CREATE TABLE IF NOT EXISTS purchase.qc_reports (
     qc_id SERIAL PRIMARY KEY,
@@ -460,5 +487,32 @@ CREATE TRIGGER check_finished_products_stock
 AFTER INSERT OR UPDATE ON inventory.finished_products
 FOR EACH ROW
 EXECUTE FUNCTION inventory.check_stock_levels();
+
+-- ========================
+-- RETURNS TABLE
+-- ========================
+CREATE TABLE IF NOT EXISTS purchase.returns (
+  return_id SERIAL PRIMARY KEY,
+  grn_id INTEGER REFERENCES purchase.grns(grn_id),
+  material_id INTEGER REFERENCES inventory.raw_materials(material_id),
+  quantity_returned NUMERIC NOT NULL,
+  status VARCHAR(32) DEFAULT 'pending',
+  date TIMESTAMP DEFAULT NOW(),
+  received_against_return NUMERIC DEFAULT 0,
+  remarks TEXT
+);
+
+-- Add return tracking fields to returns table
+ALTER TABLE purchase.returns
+ADD COLUMN IF NOT EXISTS replacement_expected BOOLEAN DEFAULT true,
+ADD COLUMN IF NOT EXISTS replacement_received_date TIMESTAMPTZ,
+ADD COLUMN IF NOT EXISTS replacement_grn_id INTEGER REFERENCES purchase.grns(grn_id),
+ADD COLUMN IF NOT EXISTS created_by INTEGER REFERENCES auth.users(user_id);
+
+-- Add indexes for performance
+CREATE INDEX IF NOT EXISTS idx_grn_items_qc_status ON purchase.grn_items(qc_status);
+CREATE INDEX IF NOT EXISTS idx_grn_items_store_status ON purchase.grn_items(store_status);
+CREATE INDEX IF NOT EXISTS idx_grns_qc_status ON purchase.grns(qc_status);
+CREATE INDEX IF NOT EXISTS idx_returns_status ON purchase.returns(status);
 
 

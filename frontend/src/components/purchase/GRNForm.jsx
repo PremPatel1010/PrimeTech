@@ -74,7 +74,6 @@ const GRNForm = ({ isOpen, onClose, purchaseOrder, onSuccess }) => {
         variant: 'default'
       });
       onSuccess(response.data);
-      onClose();
     } catch (error) {
       window.toast && window.toast({
         title: 'Error',
@@ -137,9 +136,9 @@ const GRNForm = ({ isOpen, onClose, purchaseOrder, onSuccess }) => {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Material</TableHead>
-                    <TableHead>Ordered</TableHead>
-                    <TableHead>Received</TableHead>
-                    <TableHead>Defective</TableHead>
+                    <TableHead>Ordered Qty</TableHead>
+                    <TableHead>Received Qty</TableHead>
+                    <TableHead>Defective Qty</TableHead>
                     <TableHead>Remarks</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -151,26 +150,28 @@ const GRNForm = ({ isOpen, onClose, purchaseOrder, onSuccess }) => {
                       <TableCell>
                         <Input
                           type="number"
-                          min={0}
+                          min="0"
                           max={material.ordered_quantity}
                           value={material.received_quantity}
-                          onChange={e => handleMaterialChange(index, 'received_quantity', parseInt(e.target.value))}
+                          onChange={e => handleMaterialChange(index, 'received_quantity', Number(e.target.value))}
+                          className="w-24"
                         />
                       </TableCell>
                       <TableCell>
                         <Input
                           type="number"
-                          min={0}
+                          min="0"
                           max={material.received_quantity}
                           value={material.defective_quantity}
-                          onChange={e => handleMaterialChange(index, 'defective_quantity', parseInt(e.target.value))}
+                          onChange={e => handleMaterialChange(index, 'defective_quantity', Number(e.target.value))}
+                          className="w-24"
                         />
                       </TableCell>
                       <TableCell>
                         <Input
                           value={material.remarks}
                           onChange={e => handleMaterialChange(index, 'remarks', e.target.value)}
-                          placeholder="Material remarks..."
+                          placeholder="Optional remarks..."
                         />
                       </TableCell>
                     </TableRow>

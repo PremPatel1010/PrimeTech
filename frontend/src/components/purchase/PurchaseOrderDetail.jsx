@@ -23,6 +23,7 @@ import GRNForm from './GRNForm';
 import GRNList from './GRNList';
 import MaterialSummary from './MaterialSummary';
 import GRNViewModal from './GRNViewModal';
+import QCReportForm from './QCReportForm.jsx';
 
 const steps = [
   { title: 'Ordered', description: 'Purchase order created' },
@@ -77,6 +78,7 @@ const PurchaseOrderDetail = ({ purchaseOrderId }) => {
 
   const handleGRNSuccess = () => {
     fetchData();
+    setIsGRNFormOpen(false);
   };
 
   const handleVerifyGRN = async (grnId) => {
@@ -160,6 +162,15 @@ const PurchaseOrderDetail = ({ purchaseOrderId }) => {
           onRefresh={fetchData}
           onView={setViewGRN}
         />
+
+        {/* QC Report Form - show if status is qc_in_progress and there is a GRN in that stage */}
+        {purchaseOrder.status === 'qc_in_progress' && grns.length > 0 && (
+          <QCReportForm
+            grn={grns.find(g => g.status === 'qc_in_progress') || grns[0]}
+            onSuccess={fetchData}
+            onCancel={fetchData}
+          />
+        )}
       </VStack>
 
       {/* GRN Form Modal */}

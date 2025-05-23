@@ -122,7 +122,10 @@ export const getPOQuantitiesSummary = async (req, res) => {
 
 export const createGRN = async (req, res) => {
   try {
-    const grn = await PurchaseOrder.createGRN(req.body);
+    const grn = await PurchaseOrder.createGRN({
+      purchase_order_id: req.params.poId,
+      ...req.body
+    });
     // If not all items received, send notification (placeholder)
     if (grn.pending > 0) {
       // TODO: Integrate with notification system

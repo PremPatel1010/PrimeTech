@@ -38,7 +38,43 @@ class PurchaseOrder {
         ORDER BY po.created_at DESC
       `;
       const result = await pool.query(query);
-      return result.rows;
+      const orders = result.rows;
+      // Fetch GRNs for each order
+      for (const order of orders) {
+        const grnsRes = await pool.query(
+          `SELECT * FROM purchase.grns WHERE purchase_order_id = $1 ORDER BY grn_date`,
+          [order.purchase_order_id]
+        );
+        // Add status to each GRN
+        const grns = grnsRes.rows.map((grn, idx, arr) => {
+          let grnStatus = 'arrived';
+          if (grn.verified) grnStatus = 'grn_verified';
+          // If this is the latest GRN and PO is in QC or later, mark as qc_in_progress
+          if (
+            idx === arr.length - 1 &&
+            ['qc_in_progress', 'returned_to_vendor', 'in_store', 'completed'].includes(order.status)
+          ) {
+            grnStatus = order.status === 'qc_in_progress' ? 'qc_in_progress' : grnStatus;
+            if (order.status === 'returned_to_vendor') grnStatus = 'returned_to_vendor';
+            if (order.status === 'in_store') grnStatus = 'in_store';
+            if (order.status === 'completed') grnStatus = 'completed';
+          }
+          return { ...grn, status: grnStatus };
+        });
+        // Fetch GRN items for each GRN
+        for (const grn of grns) {
+          const grnItemsRes = await pool.query(
+            `SELECT gi.*, rm.material_name
+             FROM purchase.grn_items gi
+             JOIN inventory.raw_materials rm ON gi.material_id = rm.material_id
+             WHERE gi.grn_id = $1`,
+            [grn.grn_id]
+          );
+          grn.materials = grnItemsRes.rows;
+        }
+        order.grns = grns;
+      }
+      return orders;
     } catch (error) {
       console.error('Error in PurchaseOrder.getAllPurchaseOrders:', error);
       throw error;
@@ -327,52 +363,60 @@ class PurchaseOrder {
     return result.rows;
   }
 
-  // Get PO quantities summary
-  static async getPOQuantitiesSummary(poId) {
-    const result = await pool.query(
-      `SELECT
-        SUM(poi.quantity) as ordered_quantity,
-        COALESCE(SUM(qc.accepted_quantity), 0) as accepted_quantity,
-        COALESCE(SUM(qc.defective_quantity), 0) as defective_quantity,
-        COALESCE(SUM(g.received_quantity), 0) as received_quantity,
-        (SUM(poi.quantity) - COALESCE(SUM(qc.accepted_quantity), 0) - COALESCE(SUM(qc.defective_quantity), 0)) as pending_quantity
-      FROM purchase.purchase_order_items poi
-      LEFT JOIN purchase.grns g ON g.purchase_order_id = poi.purchase_order_id
-      LEFT JOIN purchase.qc_reports qc ON qc.grn_id = g.grn_id AND qc.material_id = poi.material_id
-      WHERE poi.purchase_order_id = $1`,
-      [poId]
-    );
-    return result.rows[0];
-  }
+    // Get PO quantities summary
+    static async getPOQuantitiesSummary(poId) {
+        const query = `
+            SELECT
+                SUM(poi.quantity) AS ordered,
+                SUM(gri.received_quantity) AS received,
+                SUM(CASE WHEN gri.qc_status = 'returned' THEN gri.defective_quantity ELSE 0 END) AS defective,
+                SUM(CASE WHEN gri.store_status = 'sent' THEN gri.store_quantity ELSE 0 END) AS in_store,
+                SUM(CASE WHEN gri.qc_status = 'completed' AND gri.store_status IS NULL THEN gri.accepted_quantity ELSE 0 END) AS qc_completed_pending_store,
+                SUM(gri.received_quantity) - SUM(COALESCE(gri.store_quantity, 0)) - SUM(COALESCE(gri.defective_quantity, 0)) AS pending
+            FROM purchase.purchase_order_items poi
+            LEFT JOIN purchase.grn_items gri ON poi.purchase_order_item_id = gri.purchase_order_item_id
+            WHERE poi.purchase_order_id = $1
+        `;
+        const result = await pool.query(query, [poId]);
+        return result.rows[0];
+    }
 
   // Create GRN (Goods Receipt Note)
-  static async createGRN({ purchase_order_id, received_quantity, grn_date, matched_with_po, user_id }) {
-    // Only allow if PO status is 'arrived'
-    const poRes = await pool.query('SELECT status FROM purchase.purchase_order WHERE purchase_order_id = $1', [purchase_order_id]);
-    if (!poRes.rows.length || poRes.rows[0].status !== 'arrived') throw new Error('PO not in ARRIVED stage');
-    const grnRes = await pool.query(
-      `INSERT INTO purchase.grns (purchase_order_id, received_quantity, grn_date, matched_with_po, created_by) VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-      [purchase_order_id, received_quantity, grn_date, matched_with_po, user_id]
-    );
-    // Calculate total received so far
-    const totalOrderedRes = await pool.query('SELECT SUM(quantity) as ordered FROM purchase.purchase_order_items WHERE purchase_order_id = $1', [purchase_order_id]);
-    const totalOrdered = Number(totalOrderedRes.rows[0]?.ordered || 0);
-    const totalReceivedRes = await pool.query('SELECT SUM(received_quantity) as received FROM purchase.grns WHERE purchase_order_id = $1', [purchase_order_id]);
-    const totalReceived = Number(totalReceivedRes.rows[0]?.received || 0);
-    const pending = totalOrdered - totalReceived;
-    // If all received, move to grn_verified, else stay in arrived
-    if (pending <= 0) {
-      await PurchaseOrder.updateStatus(purchase_order_id, 'grn_verified', user_id, 'All items received, GRN verified');
-    } else {
-      // Optionally, send notification here about pending items
-      // Do not change status, keep as 'arrived'
+  static async createGRN({ purchase_order_id, materials, grn_date, matched_with_po, remarks, user_id }) {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      // Calculate total received_quantity from materials
+      const totalReceived = materials.reduce((sum, m) => sum + m.received_quantity, 0);
+
+      // Insert GRN header
+      const grnRes = await client.query(
+        `INSERT INTO purchase.grns (purchase_order_id, grn_date, matched_with_po, remarks, received_quantity, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         RETURNING *`,
+        [purchase_order_id, grn_date, matched_with_po, remarks, totalReceived, user_id]
+      );
+      const grn = grnRes.rows[0];
+
+      // Insert GRN items
+      for (const m of materials) {
+        await client.query(
+          `INSERT INTO purchase.grn_items (grn_id, material_id, received_quantity, defective_quantity, remarks)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [grn.grn_id, m.material_id, m.received_quantity, m.defective_quantity, m.remarks]
+        );
+      }
+
+      await client.query('COMMIT');
+      return grn;
+    } catch (error) {
+      await client.query('ROLLBACK');
+      console.error('Error in createGRN:', error);
+      throw error;
+    } finally {
+      client.release();
     }
-    return {
-      ...grnRes.rows[0],
-      totalOrdered,
-      totalReceived,
-      pending
-    };
   }
 
   // Create QC Report
@@ -451,6 +495,58 @@ class PurchaseOrder {
     await pool.query('UPDATE purchase.grns SET verified = TRUE WHERE grn_id = $1', [grnId]);
     return true;
   }
+
+  static async updateStatus(purchase_order_id) {
+    // Fetch ordered quantity
+    const orderedRes = await pool.query('SELECT SUM(quantity) as ordered FROM purchase.purchase_order_items WHERE purchase_order_id = $1', [purchase_order_id]);
+    const totalOrdered = Number(orderedRes.rows[0]?.ordered || 0);
+
+    // Fetch all GRNs
+    const grnsRes = await pool.query('SELECT * FROM purchase.grns WHERE purchase_order_id = $1', [purchase_order_id]);
+    if (!grnsRes.rows.length) {
+      await pool.query('UPDATE purchase.purchase_order SET status = $1 WHERE purchase_order_id = $2', ['ordered', purchase_order_id]);
+      return 'ordered';
+    }
+
+    // If any GRN not verified
+    if (grnsRes.rows.some(g => !g.verified)) {
+      await pool.query('UPDATE purchase.purchase_order SET status = $1 WHERE purchase_order_id = $2', ['arrived', purchase_order_id]);
+      return 'arrived';
+    }
+
+    // Fetch all QC reports
+    const qcRes = await pool.query('SELECT * FROM purchase.qc_reports WHERE grn_id IN (SELECT grn_id FROM purchase.grns WHERE purchase_order_id = $1)', [purchase_order_id]);
+    if (!qcRes.rows.length) {
+      await pool.query('UPDATE purchase.purchase_order SET status = $1 WHERE purchase_order_id = $2', ['qc_in_progress', purchase_order_id]);
+      return 'qc_in_progress';
+    }
+
+    // Calculate total accepted and defective
+    const accepted = qcRes.rows.reduce((sum, r) => sum + Number(r.accepted_quantity || 0), 0);
+    const defective = qcRes.rows.reduce((sum, r) => sum + Number(r.defective_quantity || 0), 0);
+
+    // If defective and returns exist
+    const returnsRes = await pool.query('SELECT * FROM purchase.returns WHERE grn_id IN (SELECT grn_id FROM purchase.grns WHERE purchase_order_id = $1)', [purchase_order_id]);
+    if (defective > 0 && returnsRes.rows.length > 0) {
+      await pool.query('UPDATE purchase.purchase_order SET status = $1 WHERE purchase_order_id = $2', ['returned_to_vendor', purchase_order_id]);
+      return 'returned_to_vendor';
+    }
+
+    // If total accepted < total ordered
+    if (accepted < totalOrdered) {
+      await pool.query('UPDATE purchase.purchase_order SET status = $1 WHERE purchase_order_id = $2', ['in_store', purchase_order_id]);
+      return 'in_store';
+    }
+
+    // If total accepted = total ordered
+    if (accepted === totalOrdered) {
+      await pool.query('UPDATE purchase.purchase_order SET status = $1 WHERE purchase_order_id = $2', ['completed', purchase_order_id]);
+      return 'completed';
+    }
+
+    // Default fallback
+    return null;
+  }
 }
 
-export default PurchaseOrder; 
+export default PurchaseOrder;

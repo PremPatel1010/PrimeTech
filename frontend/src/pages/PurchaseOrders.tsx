@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Badge } from '@/components/ui/badge';
 import { formatCurrency, formatDate } from '../utils/calculations';
 import { purchaseOrderService, PurchaseOrder as PurchaseOrderBase, PurchaseMaterial } from '../services/purchaseOrderService';
-import { Plus, FileText, Upload, Search, Download, Filter, ChevronDown, ChevronUp, CheckCircle, Circle, Loader2, Truck, ShieldCheck, RefreshCw, Undo2, Archive, CheckCheck } from 'lucide-react';
+import { Plus, FileText, Upload, Search, Download, Filter, ChevronDown, ChevronUp, CheckCircle, Circle, Loader2, Truck, ShieldCheck, RefreshCw, Undo2, Archive, CheckCheck, Eye } from 'lucide-react';
 import { supplierService } from '../services/supplierService';
 import { rawMaterialService } from '../services/rawMaterial.service';
 import { toast } from '@/hooks/use-toast';
@@ -18,6 +18,8 @@ import axiosInstance from '@/utils/axios';
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from '@/components/ui/accordion';
 import GRNViewModal from '../components/purchase/GRNViewModal';
 import GRNForm from '../components/purchase/GRNForm';
+import { format } from 'date-fns';
+import QCReportForm from '../components/purchase/QCReportForm.jsx';
 
 const STATUS_FLOW = [
   'ordered',
@@ -108,14 +110,15 @@ function ProgressSummaryModern({ progress }: { progress: any }) {
   const metrics = [
     { label: 'Ordered', value: progress.ordered, color: 'bg-blue-50 text-blue-700' },
     { label: 'Received', value: progress.received, color: 'bg-green-50 text-green-700' },
-    { label: 'QC Passed', value: progress.qc_passed, color: 'bg-yellow-50 text-yellow-700' },
+    { label: 'In Store', value: progress.in_store, color: 'bg-green-50 text-green-700' },
+    { label: 'QC Completed (Pending Store)', value: progress.qc_completed_pending_store, color: 'bg-yellow-50 text-yellow-700' },
     { label: 'Defective', value: progress.defective, color: 'bg-red-50 text-red-700' },
     { label: 'Pending', value: progress.pending, color: 'bg-gray-50 text-gray-700' },
   ];
   return (
     <div className="flex flex-wrap gap-2 justify-center my-2">
       {metrics.map(m => (
-        <div key={m.label} className={`rounded-full px-3 py-1 font-medium text-xs shadow-sm ${m.color}`}>{m.label}: {m.value}</div>
+        <div key={m.label} className={`rounded-full px-3 py-1 font-medium text-xs shadow-sm ${m.color}`}>{m.label}: {m.value || 0}</div>
       ))}
     </div>
   );
@@ -193,8 +196,8 @@ const PurchaseOrders: React.FC = () => {
     matched_with_po: false 
   });
   const [qcForm, setQcForm] = useState({ grn_id: '', material_id: '', inspected_quantity: '', defective_quantity: '', accepted_quantity: '', remarks: '' });
-  const [statusLogs, setStatusLogs] = useState<any[]>([]);
-  const [progressSummary, setProgressSummary] = useState<any>(null);
+  const [orderLogs, setOrderLogs] = useState<Record<number, any[]>>({});
+  const [orderProgress, setOrderProgress] = useState<Record<number, any>>({});
   const [statusLoading, setStatusLoading] = useState<number|null>(null);
   const [viewGRN, setViewGRN] = useState(null);
   const [isGRNFormOpen, setIsGRNFormOpen] = useState(false);
@@ -205,6 +208,13 @@ const PurchaseOrders: React.FC = () => {
     loadSuppliers();
     loadRawMaterials();
   }, []);
+
+  useEffect(() => {
+    purchaseOrders.forEach(order => {
+      fetchStatusLogs(order.purchase_order_id);
+      fetchProgressSummary(order.purchase_order_id);
+    });
+  }, [purchaseOrders]);
 
   const loadPurchaseOrders = async () => {
     const data = await purchaseOrderService.getAll();
@@ -390,13 +400,22 @@ const PurchaseOrders: React.FC = () => {
       });
 
       if (response.data.success) {
-        await loadPurchaseOrders();
-        try {
-          await fetchStatusLogs(order.purchase_order_id);
-          await fetchProgressSummary(order.purchase_order_id);
-        } catch (e) {
-          console.warn('Could not fetch updated order details:', e);
-        }
+        // Update local state first
+        setPurchaseOrders(prevOrders => 
+          prevOrders.map(po => 
+            po.purchase_order_id === order.purchase_order_id 
+              ? { ...po, status: newStatus }
+              : po
+          )
+        );
+        
+        // Fetch related data without reloading all purchase orders
+        await Promise.all([
+          fetchStatusLogs(order.purchase_order_id),
+          fetchProgressSummary(order.purchase_order_id)
+        ]);
+        
+        setActivePage(1);
         
         toast({ 
           title: 'Status Updated',
@@ -450,7 +469,7 @@ const PurchaseOrders: React.FC = () => {
     if (!poId) return;
     try {
       const res = await axiosInstance.get(`/purchase-orders/${poId}/status-history`);
-      setStatusLogs(res.data);
+      setOrderLogs(prev => ({ ...prev, [poId]: res.data }));
     } catch (e) {
       console.warn('Could not fetch status logs:', e);
     }
@@ -459,7 +478,7 @@ const PurchaseOrders: React.FC = () => {
     if (!poId) return;
     try {
       const res = await axiosInstance.get(`/purchase-orders/${poId}/quantities`);
-      setProgressSummary(res.data);
+      setOrderProgress(prev => ({ ...prev, [poId]: res.data }));
     } catch (e) {
       console.warn('Could not fetch progress summary:', e);
     }
@@ -483,8 +502,15 @@ const PurchaseOrders: React.FC = () => {
         remarks: grnForm.remarks || ''
       });
       setShowGRNModal(null);
-      loadPurchaseOrders();
       const grn = response.data;
+      
+      // Update the purchase order status to grn_verified
+      await axiosInstance.patch(`/purchase-orders/${orderId}/status`, {
+        status: 'grn_verified'
+      });
+      
+      loadPurchaseOrders();
+      
       if (grn.pending > 0) {
         toast({
           title: 'Partial Receipt',
@@ -534,29 +560,8 @@ const PurchaseOrders: React.FC = () => {
     toast({ title: 'QC Report submitted' });
   };
 
-  const handleDownloadGRN = async (grn) => {
-    try {
-      const response = await axiosInstance.get(`/purchase-orders/${grn.purchase_order_id}/grn/${grn.grn_id}/download`, {
-        responseType: 'blob'
-      });
-      const url = window.URL.createObjectURL(new Blob([response.data]));
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', `GRN-${grn.grn_id}.pdf`);
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      toast({ 
-        title: 'Download Started',
-        description: 'Your GRN PDF is being downloaded'
-      });
-    } catch (error) {
-      toast({ 
-        title: 'Download Failed',
-        description: 'Could not download GRN PDF. Please try again.',
-        variant: 'destructive'
-      });
-    }
+  const handleDownloadGRN = (grnId) => {
+    window.open(`${axiosInstance.defaults.baseURL}/purchase/purchase-orders/grn/${grnId}/pdf?download=1`, '_blank');
   };
   const handleVerifyGRN = async (grn) => {
     try {
@@ -675,9 +680,9 @@ const PurchaseOrders: React.FC = () => {
                         </Select>
                       </div>
                       {/* Progress Summary (only once, compact) */}
-                      <ProgressSummaryModern progress={progressSummary || { ordered: 0, received: 0, qc_passed: 0, defective: 0, pending: 0 }} />
+                      <ProgressSummaryModern progress={orderProgress[order.purchase_order_id] || { ordered: 0, received: 0, qc_passed: 0, defective: 0, pending: 0 }} />
                       {/* Status Timeline (only once, above materials) */}
-                      <StatusTimelineModern logs={statusLogs} />
+                      <StatusTimelineModern logs={orderLogs[order.purchase_order_id] || []} />
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
                         <div>
                           <p className="text-sm text-factory-gray-500">Supplier ID</p>
@@ -726,7 +731,7 @@ const PurchaseOrders: React.FC = () => {
                         <div className="mt-6 border rounded-lg p-4 bg-white shadow-sm">
                           <div className="flex justify-between items-center mb-4">
                             <h4 className="font-semibold text-lg">Goods Receipt Notes (GRN)</h4>
-                            {order.status === 'arrived' && order.materials.reduce((sum, m) => sum + (m.quantity || 0), 0) > (order.grns ? order.grns.reduce((sum, g) => sum + (g.received_quantity || 0), 0) : 0) && (
+                            {order.status === 'arrived' && (!order.grns || order.materials.reduce((sum, m) => sum + (m.quantity || 0), 0) > order.grns.reduce((sum, g) => sum + (g.received_quantity || 0), 0)) && (
                               <Button onClick={() => handleOpenGRNModal(order.purchase_order_id)}>
                                 <Plus className="w-4 h-4 mr-2" />
                                 Create GRN
@@ -740,11 +745,11 @@ const PurchaseOrders: React.FC = () => {
                               <h5 className="font-medium mb-3 text-gray-700">GRN Summary</h5>
                               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                                 <div className="bg-blue-50 p-3 rounded-lg">
-                                  <span className="text-sm text-blue-600">Ordered</span>
+                                  <span className="text-sm text-blue-600">Total Ordered</span>
                                   <p className="text-xl font-bold text-blue-700">{order.materials.reduce((sum, m) => sum + (m.quantity || 0), 0)}</p>
                                 </div>
                                 <div className="bg-green-50 p-3 rounded-lg">
-                                  <span className="text-sm text-green-600">Received</span>
+                                  <span className="text-sm text-green-600">Total Received</span>
                                   <p className="text-xl font-bold text-green-700">{order.grns.reduce((sum, g) => sum + (g.received_quantity || 0), 0)}</p>
                                 </div>
                                 <div className="bg-yellow-50 p-3 rounded-lg">
@@ -754,7 +759,7 @@ const PurchaseOrders: React.FC = () => {
                                   </p>
                                 </div>
                                 <div className="bg-red-50 p-3 rounded-lg">
-                                  <span className="text-sm text-red-600">Defective</span>
+                                  <span className="text-sm text-red-600">Total Defective</span>
                                   <p className="text-xl font-bold text-red-700">
                                     {order.grns.reduce((sum, g) => sum + (g.defective_quantity || 0), 0)}
                                   </p>
@@ -764,7 +769,7 @@ const PurchaseOrders: React.FC = () => {
                           )}
 
                           {/* GRN Table */}
-                          {order.grns && order.grns.length > 0 && (
+                          {order.grns && order.grns.length > 0 ? (
                             <div className="overflow-x-auto">
                               <Table>
                                 <TableHeader>
@@ -803,13 +808,13 @@ const PurchaseOrders: React.FC = () => {
                                             onClick={() => handleViewGRN(grn)}
                                             className="flex items-center gap-1"
                                           >
-                                            <FileText className="w-4 h-4" />
+                                            <Eye className="w-4 h-4" />
                                             View
                                           </Button>
                                           <Button 
                                             size="sm" 
                                             variant="outline" 
-                                            onClick={() => handleDownloadGRN(grn)}
+                                            onClick={() => handleDownloadGRN(grn.grn_id)}
                                             className="flex items-center gap-1"
                                           >
                                             <Download className="w-4 h-4" />
@@ -833,8 +838,19 @@ const PurchaseOrders: React.FC = () => {
                                 </TableBody>
                               </Table>
                             </div>
+                          ) : (
+                            <div className="text-center py-8 text-gray-500">
+                              No GRNs created yet.
+                            </div>
                           )}
                         </div>
+                      )}
+                      {order.status === 'qc_in_progress' && order.grns && order.grns.length > 0 && (
+                        <QCReportForm
+                          grn={order.grns.find(g => g.status === 'qc_in_progress') || order.grns[0]}
+                          onSuccess={loadPurchaseOrders}
+                          onCancel={loadPurchaseOrders}
+                        />
                       )}
                       <div className="pt-2 flex justify-end space-x-2">
                         <Button variant="outline" size="sm" onClick={() => handleEditClick(order)}>
@@ -1273,8 +1289,8 @@ const PurchaseOrders: React.FC = () => {
           onClose={() => setIsGRNFormOpen(false)}
           purchaseOrder={purchaseOrders.find(o => o.purchase_order_id === grnFormOrderId)}
           onSuccess={() => {
-            setIsGRNFormOpen(false);
             loadPurchaseOrders();
+            setIsGRNFormOpen(false);
           }}
         />
       )}
@@ -1284,23 +1300,6 @@ const PurchaseOrders: React.FC = () => {
           onClose={() => setViewGRN(null)}
         />
       )}
-      {/* QC Modal */}
-      <Dialog open={!!showQCModal} onOpenChange={open => !open && setShowQCModal(null)}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>Create QC Report</DialogTitle></DialogHeader>
-          <div className="space-y-2">
-            <Input type="number" placeholder="Material ID" value={qcForm.material_id} onChange={e => setQcForm({ ...qcForm, material_id: e.target.value })} />
-            <Input type="number" placeholder="Inspected Qty" value={qcForm.inspected_quantity} onChange={e => setQcForm({ ...qcForm, inspected_quantity: e.target.value })} />
-            <Input type="number" placeholder="Defective Qty" value={qcForm.defective_quantity} onChange={e => setQcForm({ ...qcForm, defective_quantity: e.target.value })} />
-            <Input type="number" placeholder="Accepted Qty" value={qcForm.accepted_quantity} onChange={e => setQcForm({ ...qcForm, accepted_quantity: e.target.value })} />
-            <Input placeholder="Remarks" value={qcForm.remarks} onChange={e => setQcForm({ ...qcForm, remarks: e.target.value })} />
-          </div>
-          <DialogFooter>
-            <Button onClick={handleCreateQC}>Submit</Button>
-            <Button variant="outline" onClick={() => setShowQCModal(null)}>Cancel</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 };
