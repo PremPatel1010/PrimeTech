@@ -27,14 +27,13 @@ const STATUS_FLOW = [
   'grn_verified',
   'qc_in_progress',
   'returned_to_vendor',
-  'in_store',
   'completed'
 ];
 
 function allowedNextStages(current: string) {
   const idx = STATUS_FLOW.indexOf(current);
   if (idx === -1 || idx === STATUS_FLOW.length - 1) return [];
-  if (current === 'qc_in_progress') return ['returned_to_vendor', 'in_store'];
+  if (current === 'qc_in_progress') return ['returned_to_vendor', 'completed'];
   return [STATUS_FLOW[idx + 1]];
 }
 
@@ -44,8 +43,8 @@ const STATUS_LABELS: Record<string, string> = {
   grn_verified: 'GRN Verified',
   qc_in_progress: 'QC In Progress',
   returned_to_vendor: 'Returned',
-  in_store: 'In Store',
   completed: 'Completed',
+  'completed_qc': 'QC Completed',
 };
 const STATUS_COLORS: Record<string, string> = {
   ordered: 'bg-blue-100 text-blue-800',
@@ -53,8 +52,8 @@ const STATUS_COLORS: Record<string, string> = {
   grn_verified: 'bg-yellow-100 text-yellow-800',
   qc_in_progress: 'bg-orange-100 text-orange-800',
   returned_to_vendor: 'bg-red-100 text-red-800',
-  in_store: 'bg-purple-100 text-purple-800',
   completed: 'bg-green-200 text-green-900',
+  'completed_qc': 'bg-green-100 text-green-800',
 };
 
 const STATUS_STEPS = [
@@ -63,12 +62,18 @@ const STATUS_STEPS = [
   { key: 'grn_verified', label: 'GRN Verified', icon: ShieldCheck },
   { key: 'qc_in_progress', label: 'QC In Progress', icon: RefreshCw },
   { key: 'returned_to_vendor', label: 'Returned', icon: Undo2 },
-  { key: 'in_store', label: 'In Store', icon: Archive },
   { key: 'completed', label: 'Completed', icon: CheckCheck },
 ];
 
 function StatusStepperModern({ current }: { current: string }) {
-  const currentIdx = STATUS_STEPS.findIndex(s => s.key === current);
+  const currentIdx = STATUS_STEPS.findIndex(s => {
+    const lowerCaseStatus = current?.toLowerCase();
+    if (!lowerCaseStatus) return -1;
+    if (lowerCaseStatus === 'returned/in_store' || lowerCaseStatus === 'completed_qc') {
+      return s.key === 'completed';
+    }
+    return s.key === lowerCaseStatus;
+  });
   return (
     <div className="w-full overflow-x-auto">
       <div className="flex items-center justify-between gap-0 px-1 py-2">
@@ -107,32 +112,63 @@ function StatusStepperModern({ current }: { current: string }) {
 }
 
 function ProgressSummaryModern({ progress }: { progress: any }) {
-  const metrics = [
-    { label: 'Ordered', value: progress.ordered, color: 'bg-blue-50 text-blue-700' },
-    { label: 'Received', value: progress.received, color: 'bg-green-50 text-green-700' },
-    { label: 'In Store', value: progress.in_store, color: 'bg-green-50 text-green-700' },
-    { label: 'QC Completed (Pending Store)', value: progress.qc_completed_pending_store, color: 'bg-yellow-50 text-yellow-700' },
-    { label: 'Defective', value: progress.defective, color: 'bg-red-50 text-red-700' },
-    { label: 'Pending', value: progress.pending, color: 'bg-gray-50 text-gray-700' },
-  ];
   return (
-    <div className="flex flex-wrap gap-2 justify-center my-2">
-      {metrics.map(m => (
-        <div key={m.label} className={`rounded-full px-3 py-1 font-medium text-xs shadow-sm ${m.color}`}>{m.label}: {m.value || 0}</div>
-      ))}
+    <div className="mt-4 p-4 bg-white rounded-lg shadow-sm border border-gray-100">
+      <h4 className="font-semibold text-gray-700 mb-3">Progress Summary</h4>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="p-3 bg-blue-50 rounded-lg">
+          <div className="text-sm text-blue-600 font-medium">Ordered</div>
+          <div className="text-2xl font-bold text-blue-700">{progress.ordered || 0}</div>
+        </div>
+        <div className="p-3 bg-green-50 rounded-lg">
+          <div className="text-sm text-green-600 font-medium">Received</div>
+          <div className="text-2xl font-bold text-green-700">{progress.received || 0}</div>
+        </div>
+        <div className="p-3 bg-purple-50 rounded-lg">
+          <div className="text-sm text-purple-600 font-medium">In Store</div>
+          <div className="text-2xl font-bold text-purple-700">{progress.passed_qc || 0}</div>
+        </div>
+        <div className="p-3 bg-red-50 rounded-lg">
+          <div className="text-sm text-red-600 font-medium">Defective</div>
+          <div className="text-2xl font-bold text-red-700">{progress.defective || 0}</div>
+        </div>
+      </div>
+      {progress.pending > 0 && (
+        <div className="mt-3 p-2 bg-yellow-50 rounded-lg">
+          <div className="text-sm text-yellow-600 font-medium">Pending</div>
+          <div className="text-lg font-bold text-yellow-700">{progress.pending}</div>
+        </div>
+      )}
     </div>
   );
 }
 
 function StatusTimelineModern({ logs }: { logs: any[] }) {
+  // Filter out duplicate status entries
+  const uniqueLogs = logs.reduce((acc, log) => {
+    const lastLog = acc[acc.length - 1];
+    if (!lastLog || lastLog.status !== log.status) {
+      acc.push(log);
+    }
+    return acc;
+  }, [] as any[]);
+
   return (
     <div className="mt-4">
       <h4 className="font-semibold text-gray-700 mb-2">Status Timeline</h4>
       <ul className="space-y-3">
-        {logs.map(log => (
+        {uniqueLogs.map(log => (
           <li key={log.log_id} className="flex items-start gap-3">
             <div className="flex-shrink-0 w-8 text-center">
-              <span className={`inline-block w-2 h-2 rounded-full mt-2 ${log.status === 'completed' ? 'bg-green-500' : log.status === 'ordered' ? 'bg-blue-500' : 'bg-gray-400'}`}></span>
+              <span className={`inline-block w-2 h-2 rounded-full mt-2 ${
+                log.status === 'completed' ? 'bg-green-500' : 
+                log.status === 'ordered' ? 'bg-blue-500' : 
+                log.status === 'arrived' ? 'bg-green-400' :
+                log.status === 'grn_verified' ? 'bg-yellow-500' :
+                log.status === 'qc_in_progress' ? 'bg-orange-500' :
+                log.status === 'returned_to_vendor' ? 'bg-red-500' :
+                'bg-gray-400'
+              }`}></span>
             </div>
             <div className="flex-1">
               <div className="flex items-center gap-2">
@@ -141,6 +177,14 @@ function StatusTimelineModern({ logs }: { logs: any[] }) {
                 <span className="text-xs text-gray-400">@ {formatDate(log.created_at)}</span>
               </div>
               {log.notes && <div className="text-xs text-gray-500 mt-1">{log.notes}</div>}
+              {log.quantity_details && (
+                <div className="text-xs text-gray-500 mt-1">
+                  Received: {log.quantity_details.received || 0} | 
+                  Pending: {log.quantity_details.pending || 0} | 
+                  Passed QC: {log.quantity_details.passed_qc || 0} | 
+                  Defective: {log.quantity_details.defective || 0}
+                </div>
+              )}
             </div>
           </li>
         ))}
@@ -149,7 +193,17 @@ function StatusTimelineModern({ logs }: { logs: any[] }) {
   );
 }
 
-type PurchaseOrder = PurchaseOrderBase & { grns?: any[] };
+type PurchaseOrder = PurchaseOrderBase & { 
+  grns?: any[];
+  overall_summary?: {
+    total_ordered: number;
+    total_received: number;
+    total_qc_passed: number;
+    total_defective: number;
+    total_in_store: number;
+    total_pending: number;
+  };
+};
 
 const PurchaseOrders: React.FC = () => {
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrder[]>([]);
@@ -202,6 +256,8 @@ const PurchaseOrders: React.FC = () => {
   const [viewGRN, setViewGRN] = useState(null);
   const [isGRNFormOpen, setIsGRNFormOpen] = useState(false);
   const [grnFormOrderId, setGrnFormOrderId] = useState<number|null>(null);
+  const [qcGrnId, setQcGrnId] = useState<number|null>(null);
+  const [selectedPO, setSelectedPO] = useState<PurchaseOrder | null>(null);
 
   useEffect(() => {
     loadPurchaseOrders();
@@ -348,7 +404,7 @@ const PurchaseOrders: React.FC = () => {
       case 'qc_in_progress': return 'bg-orange-100 text-orange-800';
       case 'returned_to_vendor': return 'bg-red-100 text-red-800';
       case 'completed': return 'bg-green-200 text-green-900';
-      case 'in_store': return 'bg-purple-100 text-purple-800';
+      case 'completed_qc': return 'bg-green-100 text-green-800';
       case 'cancelled': return 'bg-gray-200 text-gray-800';
       default: return 'bg-gray-100 text-gray-800';
     }
@@ -365,7 +421,10 @@ const PurchaseOrders: React.FC = () => {
       setIsEditDialogOpen(false);
       setEditOrder(null);
       loadPurchaseOrders();
-      toast({ title: 'Purchase order updated successfully' });
+      toast({
+        title: 'Purchase order updated successfully',
+        variant: 'default'
+      });
     }
   };
 
@@ -378,62 +437,94 @@ const PurchaseOrders: React.FC = () => {
       await purchaseOrderService.delete(deleteOrderId);
       setDeleteOrderId(null);
       loadPurchaseOrders();
-      toast({ title: 'Purchase order deleted successfully' });
+      toast({
+        title: 'Purchase order deleted successfully',
+        variant: 'default'
+      });
     }
   };
 
-  const handleStatusChange = async (order: PurchaseOrder, newStatus: string) => {
-    if (!order.purchase_order_id) {
-      toast({ 
-        title: 'Error',
-        description: 'Invalid purchase order ID',
-        variant: 'destructive'
-      });
-      return;
-    }
-
-    setStatusLoading(order.purchase_order_id);
+  const handleStatusUpdate = async (poId: number, newStatus: string) => {
     try {
-      const response = await axiosInstance.put(`/purchase-orders/${order.purchase_order_id}/status`, { 
-        status: newStatus,
-        notes: `Status changed to ${STATUS_LABELS[newStatus]}`
+      await axiosInstance.put(`/purchase-orders/${poId}/status`, { status: newStatus });
+      toast({
+        title: 'Status Updated',
+        description: 'Purchase order status has been updated successfully',
       });
+      loadPurchaseOrders();
+    } catch (error) {
+      console.error('Error updating status:', error);
+      toast({
+        title: 'Error',
+        description: error.response?.data?.error || 'Failed to update status',
+        variant: 'destructive',
+      });
+    } 
+  };
 
-      if (response.data.success) {
-        // Update local state first
-        setPurchaseOrders(prevOrders => 
-          prevOrders.map(po => 
-            po.purchase_order_id === order.purchase_order_id 
-              ? { ...po, status: newStatus }
-              : po
-          )
-        );
-        
-        // Fetch related data without reloading all purchase orders
-        await Promise.all([
-          fetchStatusLogs(order.purchase_order_id),
-          fetchProgressSummary(order.purchase_order_id)
-        ]);
-        
-        setActivePage(1);
-        
-        toast({ 
-          title: 'Status Updated',
-          description: `Order ${order.order_number} status changed to ${STATUS_LABELS[newStatus]}`,
-          variant: 'default'
-        });
-      }
-    } catch (e: any) {
-      console.error('Status update error:', e);
-      const errorMessage = e?.response?.data?.error || 'Could not update status. Please try again.';
-      toast({ 
-        title: 'Status Update Failed', 
-        description: errorMessage,
+  const handleQCUpdate = async (grnItemId: number, qcData: any) => {
+    try {
+      await axiosInstance.patch(`/purchase-orders/grn-item/${grnItemId}/qc`, qcData);
+      
+      // Refresh the purchase order data
+      await loadPurchaseOrders();
+      
+      toast({
+        title: 'QC Status Updated',
+        description: 'Quality check status has been updated successfully',
+        variant: 'default'
+      });
+    } catch (error) {
+      console.error('Error updating QC status:', error);
+      toast({
+        title: 'Error',
+        description: error.response?.data?.error || 'Failed to update QC status',
         variant: 'destructive'
       });
-    } finally {
-      setStatusLoading(null);
     }
+  };
+
+  const renderStatusHistory = () => {
+    const logs = orderLogs[selectedPO?.purchase_order_id || 0] || [];
+    if (!logs.length) {
+      return <p className="text-gray-500">No status history available</p>;
+    }
+
+    return (
+      <div className="flex flex-col space-y-4">
+        {logs.map((log: any, index: number) => (
+          <div key={index} className="p-4 border rounded-md">
+            <div className="flex justify-between items-center">
+              <Badge className={STATUS_COLORS[log.status] || 'bg-gray-100 text-gray-800'}>
+                {log.status}
+              </Badge>
+              <p className="text-sm text-gray-500">
+                {new Date(log.created_at).toLocaleString()}
+              </p>
+            </div>
+            {log.quantity_details && ( // Assuming quantity_details is a JSONB field
+              <div className="mt-2">
+                <p className="text-sm font-bold">Quantity Details:</p>
+                <div className="grid grid-cols-2 gap-2 mt-1 text-sm">
+                  <p>Ordered: {log.quantity_details.ordered}</p>
+                  <p>Received: {log.quantity_details.received}</p>
+                  <p>Pending: {log.quantity_details.pending}</p>
+                  <p>Passed QC: {log.quantity_details.passed_qc}</p>
+                  <p>Defective: {log.quantity_details.defective}</p>
+                  <p>In Store: {log.quantity_details.in_store}</p>
+                  <p>Returned: {log.quantity_details.returned_to_vendor}</p>
+                </div>
+              </div>
+            )}
+            {log.notes && (
+              <p className="text-sm mt-2">
+                Notes: {log.notes}
+              </p>
+            )}
+          </div>
+        ))}
+      </div>
+    );
   };
 
   const handleOpenDialog = async () => {
@@ -504,12 +595,8 @@ const PurchaseOrders: React.FC = () => {
       setShowGRNModal(null);
       const grn = response.data;
       
-      // Update the purchase order status to grn_verified
-      await axiosInstance.patch(`/purchase-orders/${orderId}/status`, {
-        status: 'grn_verified'
-      });
-      
-      loadPurchaseOrders();
+      // Refresh the purchase orders list
+      await loadPurchaseOrders();
       
       if (grn.pending > 0) {
         toast({
@@ -523,53 +610,57 @@ const PurchaseOrders: React.FC = () => {
           )
         });
       } else {
-        toast({ 
+        toast({
           title: 'GRN Created',
-          description: 'Goods receipt note has been created successfully.'
+          description: 'Goods receipt note has been created successfully.',
+          variant: 'default'
         });
       }
     } catch (error) {
-      toast({ 
-        title: 'Error Creating GRN',
-        description: error?.response?.data?.error || 'Could not create GRN. Please try again.',
-        variant: 'destructive'
-      });
+      // If it's a duplicate status error, show a more user-friendly message
+      if (error?.response?.data?.error?.includes('Duplicate status entry')) {
+        toast({
+          title: 'GRN Created',
+          description: 'Goods receipt note has been created successfully.',
+          variant: 'default'
+        });
+        await loadPurchaseOrders();
+      } else {
+        toast({
+          title: 'Error Creating GRN',
+          description: error?.response?.data?.error || 'Could not create GRN. Please try again.',
+          variant: 'destructive'
+        });
+      }
     }
   };
   const handleContinueWithPartial = async (orderId: number) => {
     // Optionally, move to next stage for received goods only
     await axiosInstance.put(`/purchase-orders/${orderId}/status`, { status: 'grn_verified', notes: 'Continue process for received goods' });
     loadPurchaseOrders();
-    toast({ title: 'Process continued for received goods' });
-  };
-  const handleOpenQCModal = (grnId: number) => {
-    setShowQCModal(grnId);
-    setQcForm({ grn_id: grnId.toString(), material_id: '', inspected_quantity: '', defective_quantity: '', accepted_quantity: '', remarks: '' });
-  };
-  const handleCreateQC = async () => {
-    await axiosInstance.post('/qc-report', {
-      grn_id: Number(qcForm.grn_id),
-      material_id: Number(qcForm.material_id),
-      inspected_quantity: Number(qcForm.inspected_quantity),
-      defective_quantity: Number(qcForm.defective_quantity),
-      accepted_quantity: Number(qcForm.accepted_quantity),
-      remarks: qcForm.remarks
+    toast({
+      title: 'Process continued for received goods',
+      variant: 'default'
     });
-    setShowQCModal(null);
-    loadPurchaseOrders();
-    toast({ title: 'QC Report submitted' });
   };
-
   const handleDownloadGRN = (grnId) => {
     window.open(`${axiosInstance.defaults.baseURL}/purchase/purchase-orders/grn/${grnId}/pdf?download=1`, '_blank');
   };
   const handleVerifyGRN = async (grn) => {
     try {
       await axiosInstance.put(`/purchase-orders/${grn.purchase_order_id}/grn/${grn.grn_id}/verify`);
-      toast({ title: 'GRN Verified', description: `GRN #${grn.grn_id} marked as verified.` });
+      toast({
+        title: 'GRN Verified',
+        description: `GRN #${grn.grn_id} marked as verified.`,
+        variant: 'default'
+      });
       loadPurchaseOrders();
     } catch (e) {
-      toast({ title: 'Verification Failed', description: e?.response?.data?.error || 'Could not verify GRN', variant: 'destructive' });
+      toast({
+        title: 'Verification Failed',
+        description: e?.response?.data?.error || 'Could not verify GRN',
+        variant: 'destructive'
+      });
     }
   };
 
@@ -645,7 +736,7 @@ const PurchaseOrders: React.FC = () => {
                       <StatusStepperModern current={order.status} />
                       {/* Status update dropdown (modern, compact, SaaS-style) */}
                       <div className="flex justify-center mb-4">
-                        <Select value={order.status} onValueChange={val => handleStatusChange(order, val)} disabled={!!statusLoading}>
+                        <Select value={order.status} onValueChange={val => handleStatusUpdate(order.purchase_order_id, val)} disabled={!!statusLoading}>
                           <SelectTrigger className="w-[200px] h-10 text-base font-medium border border-gray-200 shadow-sm rounded-full bg-white focus:ring-2 focus:ring-blue-100">
                             <div className="flex items-center gap-2">
                               <span className={`w-3 h-3 rounded-full ${STATUS_COLORS[order.status]}`}></span>
@@ -727,7 +818,7 @@ const PurchaseOrders: React.FC = () => {
                           </Table>
                         </div>
                       </div>
-                      {['arrived', 'grn_verified', 'qc_in_progress', 'returned_to_vendor', 'in_store', 'completed'].includes(order.status) && (
+                      {['arrived', 'grn_verified', 'qc_in_progress', 'returned_to_vendor', 'completed'].includes(order.status) && (
                         <div className="mt-6 border rounded-lg p-4 bg-white shadow-sm">
                           <div className="flex justify-between items-center mb-4">
                             <h4 className="font-semibold text-lg">Goods Receipt Notes (GRN)</h4>
@@ -755,13 +846,19 @@ const PurchaseOrders: React.FC = () => {
                                 <div className="bg-yellow-50 p-3 rounded-lg">
                                   <span className="text-sm text-yellow-600">Pending</span>
                                   <p className="text-xl font-bold text-yellow-700">
-                                    {Math.max(order.materials.reduce((sum, m) => sum + (m.quantity || 0), 0) - order.grns.reduce((sum, g) => sum + (g.received_quantity || 0), 0), 0)}
+                                    {Math.max(order.materials.reduce((sum, m) => sum + (m.quantity || 0), 0) - order.grns.reduce((sum, g) => sum + g.materials.reduce((itemSum, item) => itemSum + (item.received_quantity || 0), 0), 0), 0)}
                                   </p>
                                 </div>
                                 <div className="bg-red-50 p-3 rounded-lg">
                                   <span className="text-sm text-red-600">Total Defective</span>
                                   <p className="text-xl font-bold text-red-700">
-                                    {order.grns.reduce((sum, g) => sum + (g.defective_quantity || 0), 0)}
+                                    {order.grns.reduce((sum, g) => sum + g.materials.reduce((itemSum, item) => itemSum + (item.defective_quantity || 0), 0), 0)}
+                                  </p>
+                                </div>
+                                <div className="bg-purple-50 p-3 rounded-lg">
+                                  <span className="text-sm text-purple-600">Total In Store</span>
+                                  <p className="text-xl font-bold text-purple-700">
+                                    {order.overall_summary?.total_in_store || 0}
                                   </p>
                                 </div>
                               </div>
@@ -831,6 +928,15 @@ const PurchaseOrders: React.FC = () => {
                                               Verify
                                             </Button>
                                           )}
+                                          {grn.verified && !grn.materials.every(item => item.qc_status === 'passed' || item.qc_status === 'returned') && (
+                                            <Button 
+                                              size="sm" 
+                                              variant="default"
+                                              onClick={() => setQcGrnId(grn.grn_id)}
+                                            >
+                                              Perform QC
+                                            </Button>
+                                          )}
                                         </div>
                                       </TableCell>
                                     </TableRow>
@@ -845,12 +951,13 @@ const PurchaseOrders: React.FC = () => {
                           )}
                         </div>
                       )}
-                      {order.status === 'qc_in_progress' && order.grns && order.grns.length > 0 && (
-                        <QCReportForm
-                          grn={order.grns.find(g => g.status === 'qc_in_progress') || order.grns[0]}
-                          onSuccess={loadPurchaseOrders}
-                          onCancel={loadPurchaseOrders}
-                        />
+                      {/* QC Report Form Modal */}
+                      {qcGrnId !== null && (
+                          <QCReportForm
+                              grn={purchaseOrders.find(po => po.purchase_order_id === order.purchase_order_id)?.grns?.find(g => g.grn_id === qcGrnId)}
+                              onSuccess={loadPurchaseOrders}
+                              onCancel={() => setQcGrnId(null)}
+                          />
                       )}
                       <div className="pt-2 flex justify-end space-x-2">
                         <Button variant="outline" size="sm" onClick={() => handleEditClick(order)}>

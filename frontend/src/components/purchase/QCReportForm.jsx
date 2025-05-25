@@ -3,6 +3,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Textarea } from '@/components/ui/textarea';
+import { toast } from '@/hooks/use-toast';
 import axiosInstance from '../../utils/axios';
 
 const QCReportForm = ({ grn, onSuccess, onCancel }) => {
@@ -10,7 +13,9 @@ const QCReportForm = ({ grn, onSuccess, onCancel }) => {
   const [materials, setMaterials] = useState([]);
   const [returnHistory, setReturnHistory] = useState([]);
   const [returnHistoryLoading, setReturnHistoryLoading] = useState(false);
-  const [storeLoading, setStoreLoading] = useState(false);
+  const [qcStatus, setQcStatus] = useState('pending'); // 'pending', 'in_progress', 'completed'
+  const [qcLoading, setQcLoading] = useState(false);
+  const [qcData, setQcData] = useState([]);
 
   useEffect(() => {
     if (grn && grn.materials) {
@@ -18,8 +23,14 @@ const QCReportForm = ({ grn, onSuccess, onCancel }) => {
         ...m,
         defective_quantity: m.defective_quantity || 0,
         accepted_quantity: (m.received_quantity || 0) - (m.defective_quantity || 0),
-        remarks: m.remarks || ''
+        remarks: m.remarks || '',
+        qc_status: m.qc_status || 'pending',
+        store_status: m.store_status || 'pending'
       })));
+      // Set overall QC status based on materials
+      const allCompleted = grn.materials.every(m => m.qc_status === 'completed');
+      const anyInProgress = grn.materials.some(m => m.qc_status === 'in_progress');
+      setQcStatus(allCompleted ? 'completed' : anyInProgress ? 'in_progress' : 'pending');
     } else {
       setMaterials([]);
     }
@@ -40,89 +51,202 @@ const QCReportForm = ({ grn, onSuccess, onCancel }) => {
     }
   };
 
-  const handleDefectiveChange = (idx, value) => {
-    setMaterials(prev => prev.map((m, i) => i === idx ? {
-      ...m,
-      defective_quantity: value,
-      accepted_quantity: (m.received_quantity || 0) - value
-    } : m));
-  };
+  const handleQuantityChange = (idx, field, value) => {
+    const newItems = [...materials]; // Use materials state directly
+    const receivedQty = newItems[idx].received_quantity;
+    let newValue = parseFloat(value) || 0;
 
-  const handleRemarksChange = (idx, value) => {
-    setMaterials(prev => prev.map((m, i) => i === idx ? { ...m, remarks: value } : m));
+    // Ensure quantity does not exceed received quantity and is not negative
+    newValue = Math.max(0, Math.min(newValue, receivedQty));
+
+    newItems[idx][field] = newValue;
+
+    // Recalculate the other quantity based on the change
+    if (field === 'defective_quantity') {
+      newItems[idx].accepted_quantity = receivedQty - newValue;
+    } else if (field === 'accepted_quantity') {
+      newItems[idx].defective_quantity = receivedQty - newValue;
+    }
+
+    // Set status to 'in_progress' if quantities are being changed from initial state
+    if (newItems[idx].qc_status !== 'passed' && newItems[idx].qc_status !== 'returned') {
+         newItems[idx].qc_status = 'in_progress';
+    }
+
+    setMaterials(newItems); // Update materials state
   };
 
   const handleSaveQC = async () => {
+    console.log('Save QC button clicked.');
     setLoading(true);
     try {
-      for (const m of materials) {
-        if (m.defective_quantity > m.received_quantity) {
-          throw new Error(`Defective quantity cannot exceed received quantity for ${m.material_name}`);
-        }
-        await axiosInstance.patch(`/purchase/${grn.purchase_order_id}/grn/${grn.grn_id}/qc`, {
-          grn_id: grn.grn_id,
-          material_id: m.material_id,
-          defective_quantity: m.defective_quantity,
-          accepted_quantity: m.accepted_quantity,
-          remarks: m.remarks
-        });
+      // Iterate through each material and call the save function for that item
+      for (const material of materials) {
+        // Call the specific handler for saving a single item's QC
+        await handleSaveQCForItem(material);
       }
-      window.toast && window.toast({ title: 'QC saved', variant: 'default' });
+
+      // After all items are processed, trigger a full data refresh for the PO
+      // The individual item saves already trigger onSuccess, but a final one here ensures consistency.
+
+      toast({ title: 'All QC results saved successfully', variant: 'default' });
+      console.log('All QC results saved successfully.');
     } catch (e) {
-      window.toast && window.toast({ title: 'Error', description: e?.message || e?.response?.data?.error || 'Failed to save QC', variant: 'destructive' });
+      console.error('Error saving QC:', e);
+      toast({ 
+        title: 'Error', 
+        description: e?.message || e?.response?.data?.error || 'Failed to save QC for one or more items', // More general error message
+        variant: 'destructive' 
+      });
     } finally {
       setLoading(false);
     }
   };
 
-  const handleReturn = async (m) => {
-    console.log('handleReturn called', m);
+  const handleSaveQCForItem = async (item) => {
+    console.log('Save QC for item clicked.');
     setLoading(true);
     try {
-      if (!m.remarks) {
-        throw new Error('Please add remarks for defective items before returning');
+      // Validate the item
+      if (item.defective_quantity > item.received_quantity) {
+        throw new Error(`Defective quantity cannot exceed received quantity for ${item.material_name}`);
       }
-      await axiosInstance.post(`/purchase/${grn.purchase_order_id}/grn/${grn.grn_id}/return`, {
+      // Remarks are now optional, removed validation
+       // if (item.defective_quantity > 0 && !item.remarks) {
+       //     throw new Error(`Please add remarks for defective items in ${item.material_name}`);
+       // }
+        // if (item.accepted_quantity < item.received_quantity && !item.remarks) {
+        //      throw new Error(`Please add remarks for partially accepted items in ${item.material_name}`);
+        // }
+
+      // Determine the QC status based on quantities
+      let determinedQcStatus = 'passed';
+      if (item.defective_quantity > 0) {
+        determinedQcStatus = 'returned';
+      } else if (item.accepted_quantity === item.received_quantity) {
+        determinedQcStatus = 'passed';
+      } else {
+          // This case should ideally not happen if sum of accepted and defective equals received, but as a fallback:
+          determinedQcStatus = 'in_progress';
+      }
+
+      console.log('Sending QC data to backend:', {
         grn_id: grn.grn_id,
-        material_id: m.material_id,
-        quantity: m.defective_quantity,
-        remarks: m.remarks
+        grn_item_id: item.grn_item_id,
+        material_id: item.material_id,
+        defective_quantity: item.defective_quantity,
+        accepted_quantity: item.accepted_quantity,
+        remarks: item.remarks,
+        qc_status: determinedQcStatus // Send the determined status
       });
-      window.toast && window.toast({ title: 'Return entry created', variant: 'default' });
-      setMaterials(prev => {
-        console.log('Updating materials state after return:', prev.map(item => item.material_id === m.material_id ? { ...item, qc_status: 'returned' } : item));
-        return prev.map(item => item.material_id === m.material_id ? { ...item, qc_status: 'returned' } : item);
+
+      // Use the correct backend endpoint for updating GRN item QC status
+      await axiosInstance.patch(`/purchase-orders/grn-item/${item.grn_item_id}/qc`, {
+        defective_quantity: item.defective_quantity,
+        accepted_quantity: item.accepted_quantity,
+        remarks: item.remarks || null, // Send null if remarks are empty
+        qc_status: determinedQcStatus
       });
-      fetchReturnHistory(grn.grn_id);
+
+      // Update local state to reflect the saved QC status
+      setMaterials(prev => prev.map(m =>
+        m.grn_item_id === item.grn_item_id
+          ? { ...m, qc_status: determinedQcStatus, remarks: item.remarks, defective_quantity: item.defective_quantity, accepted_quantity: item.accepted_quantity }
+          : m
+      ));
+
+      toast({ title: 'QC saved successfully', variant: 'default' });
+      // Trigger a full data refresh for the PO to update overall status and summaries
+      console.log('QC saved successfully.');
     } catch (e) {
-      window.toast && window.toast({ title: 'Error', description: e?.message || e?.response?.data?.error || 'Failed to create return', variant: 'destructive' });
+      console.error('Error saving QC:', e);
+      toast({ 
+        title: 'Error', 
+        description: e?.message || e?.response?.data?.error || 'Failed to save QC', 
+        variant: 'destructive' 
+      });
     } finally {
       setLoading(false);
     }
   };
 
-  const handleSendToStore = async (m) => {
-    console.log('handleSendToStore called', m);
-    setStoreLoading(true);
+  const handleReturnItem = async (item) => {
+    console.log('Return Defective button clicked for material:', item);
+    setLoading(true);
     try {
-      if (m.accepted_quantity <= 0) {
-        throw new Error('No accepted quantity to send to store');
+      if (item.defective_quantity <= 0) {
+        throw new Error('No defective items to return');
       }
-      await axiosInstance.post(`/purchase/${grn.purchase_order_id}/grn/${grn.grn_id}/store`, {
+
+      console.log('Sending return data to backend:', {
         grn_id: grn.grn_id,
-        material_id: m.material_id,
-        quantity: m.accepted_quantity
+        material_id: item.material_id,
+        quantity: item.defective_quantity,
+        remarks: item.remarks
       });
-      window.toast && window.toast({ title: 'Sent to store', variant: 'default' });
-      setMaterials(prev => {
-        console.log('Updating materials state after send to store:', prev.map(item => item.material_id === m.material_id ? { ...item, store_status: 'sent' } : item));
-        return prev.map(item => item.material_id === m.material_id ? { ...item, store_status: 'sent' } : item);
+
+      // Call the specific backend endpoint for returning a GRN item
+      await axiosInstance.put(`/purchase-orders/grn-item/${item.grn_item_id}/return`, {
+        quantity: item.defective_quantity, // Quantity to return
+        remarks: item.remarks // Remarks for return
       });
+
+      // Update local state to reflect the return status
+      setMaterials(prev => prev.map(m =>
+        m.grn_item_id === item.grn_item_id
+          ? { ...m, qc_status: 'returned', defective_quantity: item.defective_quantity, remarks: item.remarks, store_status: 'returned' } // Mark as returned, update defective qty and remarks, set store_status to 'returned'
+          : m
+      ));
+
+      toast({ title: 'Item Marked as Returned', description: 'Defective item quantity marked for return.' });
+      // Trigger a full data refresh for the PO to update overall status and summaries
       onSuccess && onSuccess();
+      console.log('Return entry created successfully.');
     } catch (e) {
-      window.toast && window.toast({ title: 'Error', description: e?.message || e?.response?.data?.error || 'Failed to send to store', variant: 'destructive' });
+      console.error('Error creating return:', e);
+      toast({ 
+        title: 'Error', 
+        description: e?.message || e?.response?.data?.error || 'Failed to create return', 
+        variant: 'destructive' 
+      });
     } finally {
-      setStoreLoading(false);
+      setLoading(false);
+    }
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setQcLoading(true);
+    try {
+      const qcReportData = {
+        grn_id: grn.grn_id,
+        items: qcData.map(item => ({
+          grn_item_id: item.grn_item_id,
+          qc_status: item.qc_status,
+          qc_quantity: item.qc_quantity,
+          qc_notes: item.qc_notes
+        }))
+      };
+
+      await axiosInstance.post(`/purchase-orders/${grn.purchase_order_id}/qc`, qcReportData);
+      toast({ title: 'QC Report Submitted', description: 'QC report has been submitted successfully' });
+      onSuccess();
+    } catch (error) {
+      console.error('Error submitting QC report:', error);
+      toast({
+        title: 'Error',
+        description: error.response?.data?.error || 'Failed to submit QC report',
+        status: 'error'
+      });
+    } finally {
+      setQcLoading(false);
+    }
+  };
+
+  // Prevent closing dialog if loading
+  const handleOpenChange = (open) => {
+    if (!loading) {
+      if (!open) onCancel();
     }
   };
 
@@ -131,151 +255,133 @@ const QCReportForm = ({ grn, onSuccess, onCancel }) => {
   }
 
   return (
-    <div className="p-4 border rounded-lg">
-      <h2 className="text-lg font-bold mb-4">QC In Progress</h2>
-
-      {/* Summary */}
-      <div className="mb-4 grid grid-cols-3 gap-4">
-        <div className="p-3 bg-blue-50 rounded-lg">
-          <div className="text-sm text-blue-600">Total Received (This GRN)</div>
-          <div className="text-2xl font-bold">{materials.reduce((sum, m) => sum + (m.received_quantity || 0), 0)}</div>
-        </div>
-        <div className="p-3 bg-green-50 rounded-lg">
-          <div className="text-sm text-green-600">Total Accepted (This GRN)</div>
-          <div className="text-2xl font-bold">{materials.reduce((sum, m) => sum + (m.accepted_quantity || 0), 0)}</div>
-        </div>
-        <div className="p-3 bg-red-50 rounded-lg">
-          <div className="text-sm text-red-600">Total Defective (This GRN)</div>
-          <div className="text-2xl font-bold">{materials.reduce((sum, m) => sum + (m.defective_quantity || 0), 0)}</div>
-        </div>
-      </div>
-
-      {/* QC Table */}
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Material</TableHead>
-            <TableHead>Received</TableHead>
-            <TableHead>Defective</TableHead>
-            <TableHead>Accepted</TableHead>
-            <TableHead>Remarks</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead>Actions</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {materials.map((m, idx) => {
-            console.log(`Material ${m.material_id}: defective_quantity=${m.defective_quantity}, accepted_quantity=${m.accepted_quantity}, qc_status=${m.qc_status}, store_status=${m.store_status}, loading=${loading}, storeLoading=${storeLoading}`);
-            return (
-              <TableRow key={m.material_id}>
-                <TableCell>
-                  <div className="font-medium">{m.material_name}</div>
-                  <div className="text-sm text-gray-500">#{m.material_id}</div>
-                </TableCell>
-                <TableCell>{m.received_quantity}</TableCell>
-                <TableCell>
-                  <Input
-                    type="number"
-                    min={0}
-                    max={m.received_quantity}
-                    value={m.defective_quantity}
-                    onChange={e => handleDefectiveChange(idx, Number(e.target.value))}
-                    className="w-24"
-                  />
-                </TableCell>
-                <TableCell>
-                  <Badge variant={m.accepted_quantity > 0 ? "success" : "outline"}>
-                    {m.accepted_quantity}
-                  </Badge>
-                </TableCell>
-                <TableCell>
-                  <Input 
-                    value={m.remarks} 
-                    onChange={e => handleRemarksChange(idx, e.target.value)} 
-                    className="w-full"
-                    placeholder="Add remarks for defective items"
-                  />
-                </TableCell>
-                <TableCell>
-                  {m.store_status === 'sent' ? (
-                    <Badge variant="success">Sent to Store</Badge>
-                  ) : m.qc_status === 'returned' ? (
-                    <Badge variant="destructive">Returned</Badge>
-                  ) : m.qc_status === 'completed' ? (
-                    <Badge variant="default">QC Completed</Badge>
-                  ) : m.defective_quantity > 0 ? (
-                    <Badge variant="destructive">Defective (Pending Return)</Badge>
-                  ) : m.accepted_quantity > 0 ? (
-                    <Badge variant="success">Accepted (Pending Store)</Badge>
-                  ) : (
-                    <Badge variant="outline">Pending QC</Badge>
-                  )}
-                </TableCell>
-                <TableCell>
-                  <div className="flex gap-2">
-                    <Button size="sm" onClick={handleSaveQC} disabled={loading}>
-                      {loading ? 'Saving...' : 'Save QC'}
-                    </Button>
-                    <Button size="sm" variant="outline" onClick={() => handleReturn(m)} disabled={loading || m.defective_quantity <= 0 || m.qc_status === 'returned'}>
-                      {loading ? 'Returning...' : 'Return Defective'}
-                    </Button>
-                    <Button size="sm" variant="secondary" onClick={() => handleSendToStore(m)} disabled={storeLoading || m.accepted_quantity <= 0 || m.store_status === 'sent'}>
-                      {storeLoading ? 'Sending...' : 'Send to Store'}
-                    </Button>
-                  </div>
-                </TableCell>
-              </TableRow>
-            );
-          })}
-        </TableBody>
-      </Table>
-
-      {/* Return History */}
-      <div className="mt-6">
-        <h3 className="font-bold mb-4">Return History</h3>
-        {returnHistoryLoading ? (
-          <div className="text-center py-4">Loading...</div>
-        ) : returnHistory.length === 0 ? (
-          <div className="text-center py-4 text-gray-500">No returns yet.</div>
-        ) : (
+    <Dialog open={!!grn} onOpenChange={handleOpenChange}>
+      <DialogContent className="sm:max-w-[1000px] max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>QC In Progress for GRN #{grn?.grn_id}</DialogTitle>
+        </DialogHeader>
+        <div className="py-4">
+          {/* Summary adapted for this GRN */}
+          <div className="grid grid-cols-3 gap-4 mb-6">
+            <div className="p-3 bg-blue-50 rounded-lg text-center">
+              <div className="text-sm text-blue-600 font-medium">Total Received (This GRN)</div>
+              <div className="text-2xl font-bold text-blue-700">{grn?.received_quantity || 0}</div>
+            </div>
+            <div className="p-3 bg-green-50 rounded-lg text-center">
+              <div className="text-sm text-green-600 font-medium">Total Accepted (Added to Store)</div>
+              <div className="text-2xl font-bold text-green-700">{materials.reduce((sum, item) => sum + item.accepted_quantity, 0) || 0}</div>
+            </div>
+            <div className="p-3 bg-red-50 rounded-lg text-center">
+              <div className="text-sm text-red-600 font-medium">Total Defective (This GRN)</div>
+              <div className="text-2xl font-bold text-red-700">{materials.reduce((sum, item) => sum + item.defective_quantity, 0) || 0}</div>
+            </div>
+          </div>
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Date</TableHead>
                 <TableHead>Material</TableHead>
-                <TableHead>Qty Returned</TableHead>
-                <TableHead>Status</TableHead>
+                <TableHead>Received</TableHead>
+                <TableHead className="w-[100px]">Defective</TableHead>
+                <TableHead className="w-[100px]">Accepted</TableHead>
                 <TableHead>Remarks</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="w-[200px]">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {returnHistory.map(r => (
-                <TableRow key={r.return_id}>
-                  <TableCell>{r.date ? new Date(r.date).toLocaleDateString() : ''}</TableCell>
-                  <TableCell>
-                    <div className="font-medium">{r.material_name}</div>
-                    <div className="text-sm text-gray-500">#{r.material_id}</div>
+              {materials.map((item, index) => (
+                <TableRow key={item.grn_item_id || index}>
+                  <TableCell className="font-medium">{item.material_name || 'N/A'} #{item.material_id}</TableCell>
+                  <TableCell px={2} py={2}>{item.received_quantity}</TableCell>
+                  <TableCell px={2} py={2}>
+                    <Input
+                      type="number"
+                      min="0"
+                      value={item.defective_quantity}
+                      onChange={(e) => handleQuantityChange(index, 'defective_quantity', e.target.value)}
+                      disabled={item.qc_status === 'passed' || item.qc_status === 'returned' || item.store_status === 'sent'}
+                       width="80px"
+                       textAlign="right"
+                    />
                   </TableCell>
-                  <TableCell>{r.quantity_returned}</TableCell>
-                  <TableCell>
-                    <Badge variant={r.status === 'completed' ? 'success' : r.status === 'pending' ? 'warning' : 'outline'}>
-                      {r.status}
-                    </Badge>
+                  <TableCell px={2} py={2}>
+                    <Input
+                      type="number"
+                      min="0"
+                      value={item.accepted_quantity}
+                      onChange={(e) => handleQuantityChange(index, 'accepted_quantity', e.target.value)}
+                      disabled={item.qc_status === 'passed' || item.qc_status === 'returned' || item.store_status === 'sent'}
+                      width="80px"
+                      textAlign="right"
+                    />
                   </TableCell>
-                  <TableCell>{r.remarks}</TableCell>
+                  <TableCell px={2} py={2}>
+                    <Textarea
+                      value={item.remarks}
+                      onChange={(e) => handleQuantityChange(index, 'remarks', e.target.value)}
+                      placeholder="Remarks for defective items"
+                      disabled={item.qc_status === 'passed' || item.qc_status === 'returned' || item.store_status === 'sent'}
+                      size="sm"
+                    />
+                  </TableCell>
+                  <TableCell px={2} py={2}>
+                     <Badge variant={
+                       item.qc_status === 'returned' ? 'destructive' :
+                       item.store_status === 'sent' ? 'default' :
+                       item.qc_status === 'passed' ? 'success' :
+                       item.qc_status === 'in_progress' ? 'secondary' :
+                       'outline'
+                     }>
+                       {item.qc_status === 'returned' ? 'Returned' : // Prioritize 'Returned' status
+                        item.store_status === 'sent' ? 'Sent to Store' : // Then 'Sent to Store'
+                        item.qc_status === 'passed' ? 'QC Passed (Pending Store)' : // If passed QC but not sent
+                        item.qc_status === 'in_progress' ? 'QC In Progress' : // During QC
+                        item.defective_quantity > 0 && item.qc_status !== 'returned' ? 'Defective (Pending Return)' : // Defective but not yet returned
+                        'Pending QC'} {/* Default status */}
+                     </Badge>
+                   </TableCell>
+                 <TableCell px={2} py={2} className="space-y-2">
+                   {/* Button to Save initial QC Result (sets qc_status to passed or returned) */}
+                   {(item.qc_status === 'pending' || item.qc_status === 'in_progress') && item.received_quantity > 0 && (item.accepted_quantity !== item.received_quantity || item.defective_quantity > 0) && (
+                         <Button size="sm" onClick={() => handleSaveQCForItem(item)} disabled={loading}>
+                           Save QC Result
+                         </Button>
+                    )}
+
+                   {/* Button to Return Defective Quantity - Logic moved to Save QC, keep button for visibility? Or remove? */}
+                    {/* Decided to remove this button as recording defective quantity is now part of Save QC */}
+
+                   {/* Display badges for final states */}
+                   {item.qc_status === 'returned' && (
+                        <Badge variant="destructive">Returned ({item.defective_quantity})</Badge>
+                   )}
+                   {/* Changed store_status check to qc_status for completed QC */}
+                   {item.qc_status === 'passed' && item.qc_passed_quantity > 0 && (
+                        <Badge colorScheme="green">QC Completed ({item.qc_passed_quantity})</Badge>
+                    )}
+
+                   {/* Badge for QC Passed but not yet sent to store - REMOVED */}
+                    {/* {item.qc_status === 'passed' && item.store_status === 'pending' && item.qc_passed_quantity > 0 && (
+                         <Badge colorScheme="green">QC Passed (Pending Store)</Badge>
+                    )} */}
+
+                 </TableCell>
                 </TableRow>
               ))}
             </TableBody>
           </Table>
-        )}
-      </div>
-
-      {/* Actions */}
-      <div className="mt-6 text-right space-x-2">
-        <Button variant="outline" onClick={onCancel}>Cancel</Button>
-        <Button onClick={onSuccess}>Done</Button>
-      </div>
-    </div>
+          {/* Add Return History section if needed */}
+          <div className="mt-6">
+            <h4 className="font-semibold mb-2 text-gray-700">Return History (This GRN)</h4>
+            {/* You would fetch and display return history for this GRN here */}
+            <div className="text-gray-500 text-sm italic">No return history found for this GRN.</div>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onCancel} disabled={loading}>Close</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 };
 

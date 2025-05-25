@@ -165,6 +165,7 @@ CREATE TABLE IF NOT EXISTS purchase.purchase_order_status_logs (
     purchase_order_id INTEGER NOT NULL REFERENCES purchase.purchase_order(purchase_order_id) ON DELETE CASCADE,
     status VARCHAR(32) NOT NULL,
     notes TEXT,
+    quantity_details JSONB,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     created_by INTEGER REFERENCES auth.users(user_id)
 );
@@ -202,13 +203,12 @@ CREATE TABLE IF NOT EXISTS purchase.grn_items (
 
 -- Add QC status tracking fields to GRN items
 ALTER TABLE purchase.grn_items
-ADD COLUMN IF NOT EXISTS qc_status VARCHAR(20) DEFAULT 'pending' CHECK (qc_status IN ('pending', 'completed', 'returned')),
+ADD COLUMN IF NOT EXISTS qc_status VARCHAR(20) DEFAULT 'pending' CHECK (qc_status IN ('pending', 'passed', 'returned')),
 ADD COLUMN IF NOT EXISTS qc_date TIMESTAMPTZ,
 ADD COLUMN IF NOT EXISTS qc_by INTEGER REFERENCES auth.users(user_id),
-ADD COLUMN IF NOT EXISTS store_status VARCHAR(20) DEFAULT 'pending' CHECK (store_status IN ('pending', 'sent', 'partial')),
-ADD COLUMN IF NOT EXISTS store_date TIMESTAMPTZ,
-ADD COLUMN IF NOT EXISTS store_by INTEGER REFERENCES auth.users(user_id),
-ADD COLUMN IF NOT EXISTS store_quantity DECIMAL(10,2) DEFAULT 0;
+ADD COLUMN IF NOT EXISTS qc_quantity DECIMAL(10,2) DEFAULT 0,
+ADD COLUMN IF NOT EXISTS qc_updated_at TIMESTAMPTZ,
+ADD COLUMN IF NOT EXISTS qc_notes TEXT;
 
 -- QC Reports table
 CREATE TABLE IF NOT EXISTS purchase.qc_reports (
@@ -492,27 +492,74 @@ EXECUTE FUNCTION inventory.check_stock_levels();
 -- RETURNS TABLE
 -- ========================
 CREATE TABLE IF NOT EXISTS purchase.returns (
-  return_id SERIAL PRIMARY KEY,
-  grn_id INTEGER REFERENCES purchase.grns(grn_id),
-  material_id INTEGER REFERENCES inventory.raw_materials(material_id),
-  quantity_returned NUMERIC NOT NULL,
-  status VARCHAR(32) DEFAULT 'pending',
-  date TIMESTAMP DEFAULT NOW(),
-  received_against_return NUMERIC DEFAULT 0,
-  remarks TEXT
+    return_id SERIAL PRIMARY KEY,
+    grn_id INTEGER NOT NULL REFERENCES purchase.grns(grn_id) ON DELETE CASCADE,
+    material_id INTEGER NOT NULL REFERENCES inventory.raw_materials(material_id),
+    quantity_returned DECIMAL(10,2) NOT NULL,
+    remarks TEXT,
+    status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending', 'processed', 'cancelled')),
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    created_by INTEGER REFERENCES auth.users(user_id),
+    processed_at TIMESTAMPTZ,
+    processed_by INTEGER REFERENCES auth.users(user_id)
 );
 
--- Add return tracking fields to returns table
-ALTER TABLE purchase.returns
-ADD COLUMN IF NOT EXISTS replacement_expected BOOLEAN DEFAULT true,
-ADD COLUMN IF NOT EXISTS replacement_received_date TIMESTAMPTZ,
-ADD COLUMN IF NOT EXISTS replacement_grn_id INTEGER REFERENCES purchase.grns(grn_id),
-ADD COLUMN IF NOT EXISTS created_by INTEGER REFERENCES auth.users(user_id);
-
--- Add indexes for performance
+-- Add index for faster status lookups
 CREATE INDEX IF NOT EXISTS idx_grn_items_qc_status ON purchase.grn_items(qc_status);
 CREATE INDEX IF NOT EXISTS idx_grn_items_store_status ON purchase.grn_items(store_status);
-CREATE INDEX IF NOT EXISTS idx_grns_qc_status ON purchase.grns(qc_status);
 CREATE INDEX IF NOT EXISTS idx_returns_status ON purchase.returns(status);
+
+-- Add trigger to prevent duplicate status entries
+CREATE OR REPLACE FUNCTION prevent_duplicate_status()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 
+        FROM purchase.purchase_order_status_logs 
+        WHERE purchase_order_id = NEW.purchase_order_id 
+        AND status = NEW.status 
+        AND created_at > NOW() - INTERVAL '1 second'
+    ) THEN
+        RAISE EXCEPTION 'Duplicate status entry detected';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER prevent_duplicate_status_trigger
+BEFORE INSERT ON purchase.purchase_order_status_logs
+FOR EACH ROW
+EXECUTE FUNCTION prevent_duplicate_status();
+
+-- Add trigger to validate status transitions
+CREATE OR REPLACE FUNCTION validate_status_transition()
+RETURNS TRIGGER AS $$
+DECLARE
+    valid_transitions TEXT[] := ARRAY[
+        'ordered->arrived',
+        'arrived->grn_verified',
+        'arrived->returned_to_vendor',
+        'grn_verified->qc_in_progress',
+        'grn_verified->returned_to_vendor',
+        'qc_in_progress->returned_to_vendor',
+        'qc_in_progress->in_store',
+        'returned_to_vendor->in_store',
+        'in_store->completed'
+    ];
+    transition TEXT;
+BEGIN
+    transition := OLD.status || '->' || NEW.status;
+    IF NOT (transition = ANY(valid_transitions)) THEN
+        RAISE EXCEPTION 'Invalid status transition from % to %', OLD.status, NEW.status;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER validate_status_transition_trigger
+BEFORE UPDATE OF status ON purchase.purchase_order
+FOR EACH ROW
+WHEN (OLD.status IS DISTINCT FROM NEW.status)
+EXECUTE FUNCTION validate_status_transition();
 
 

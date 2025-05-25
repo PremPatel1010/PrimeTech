@@ -20,7 +20,7 @@ const createGRN = async (req, res) => {
 
     // Get the purchase order details
     const poResult = await client.query(
-      'SELECT * FROM purchase.purchase_orders WHERE purchase_order_id = $1',
+      'SELECT * FROM purchase.purchase_order WHERE purchase_order_id = $1',
       [purchase_order_id]
     );
 
@@ -272,7 +272,7 @@ const downloadGRNPDF = async (req, res) => {
           )
         ) as materials
        FROM purchase.grns g
-       JOIN purchase.purchase_orders po ON g.purchase_order_id = po.purchase_order_id
+       JOIN purchase.purchase_order po ON g.purchase_order_id = po.purchase_order_id
        JOIN purchase.suppliers s ON po.supplier_id = s.supplier_id
        LEFT JOIN auth.users u ON g.created_by = u.user_id
        LEFT JOIN purchase.grn_items gm ON g.grn_id = gm.grn_id
@@ -536,70 +536,122 @@ const editGRNForQC = async (req, res) => {
 
     const receivedQuantity = Number(grnItemResult.rows[0].received_quantity);
     const newDefectiveQuantity = Number(defective_quantity);
+    const accepted_quantity = receivedQuantity - newDefectiveQuantity;
 
-    // Validate defective quantity
-    console.log(`editGRNForQC: Validating defective quantity. Received: ${receivedQuantity}, New Defective: ${newDefectiveQuantity}`);
-    if (newDefectiveQuantity < 0) {
-      throw new Error('Defective quantity cannot be negative');
+    // Validate quantities
+    console.log(`editGRNForQC: Validating quantities. Received: ${receivedQuantity}, Accepted: ${accepted_quantity}, Defective: ${newDefectiveQuantity}`);
+    if (newDefectiveQuantity < 0 || accepted_quantity < 0) {
+      throw new Error('Quantities cannot be negative');
     }
-    if (newDefectiveQuantity > receivedQuantity) {
-      throw new Error(`Defective quantity (${newDefectiveQuantity}) cannot exceed received quantity (${receivedQuantity})`);
+    if (newDefectiveQuantity + accepted_quantity !== receivedQuantity) {
+        throw new Error('Accepted and defective quantities must sum up to received quantity');
     }
-    console.log('editGRNForQC: Defective quantity validated.');
+    console.log('editGRNForQC: Quantities validated.');
 
     await client.query('BEGIN');
     console.log('editGRNForQC: Transaction started.');
 
+    // Determine qc_status
+    const qc_status = newDefectiveQuantity > 0 ? 'returned' : 'passed';
+
     // Update grn_items for this material
-    console.log('editGRNForQC: Updating grn_items...');
+    console.log(`editGRNForQC: Updating grn_items with qc_status: ${qc_status}...`);
     const result = await client.query(
-      `UPDATE purchase.grn_items SET defective_quantity = $1, remarks = $2 WHERE grn_id = $3 AND material_id = $4 RETURNING *`,
-      [newDefectiveQuantity, remarks, grn_id, material_id]
+      `UPDATE purchase.grn_items SET defective_quantity = $1, remarks = $2, qc_status = $3, qc_passed_quantity = $4 WHERE grn_id = $5 AND material_id = $6 RETURNING *`,
+      [newDefectiveQuantity, remarks, qc_status, accepted_quantity, grn_id, material_id]
     );
     console.log('editGRNForQC: grn_items updated.', result.rows);
 
     if (result.rows.length === 0) throw new Error('GRN item not found after update');
 
-    // Recalculate accepted_quantity
-    const grnItem = result.rows[0];
-    const accepted_quantity = Number(grnItem.received_quantity) - Number(defective_quantity);
-    console.log(`editGRNForQC: Recalculated accepted quantity: ${accepted_quantity}`);
-
-    // Check if QC report exists
-    console.log('editGRNForQC: Checking for existing qc_report...');
-    const existingReport = await client.query(
-      `SELECT 1 FROM purchase.qc_reports WHERE grn_id = $1 AND material_id = $2`,
-      [grn_id, material_id]
-    );
-
-    if (existingReport.rows.length > 0) {
-      // Update existing QC report
-      console.log('editGRNForQC: Updating existing qc_report...');
-      await client.query(
-        `UPDATE purchase.qc_reports SET inspected_quantity = $1, defective_quantity = $2, accepted_quantity = $3, remarks = $4 WHERE grn_id = $5 AND material_id = $6`,
-        [Number(grnItem.received_quantity), Number(defective_quantity), accepted_quantity, remarks, grn_id, material_id]
-      );
-      console.log('editGRNForQC: qc_report updated.');
-    } else {
-      // Insert new QC report
-      console.log('editGRNForQC: Inserting new qc_report...');
-      await client.query(
-        `INSERT INTO purchase.qc_reports (grn_id, material_id, inspected_quantity, defective_quantity, accepted_quantity, remarks)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        [grn_id, material_id, Number(grnItem.received_quantity), Number(defective_quantity), accepted_quantity, remarks]
-      );
-      console.log('editGRNForQC: qc_report inserted.');
+    // Add accepted quantity to inventory
+    if (accepted_quantity > 0) {
+        console.log(`editGRNForQC: Adding ${accepted_quantity} to inventory for material ${material_id}...`);
+        await client.query(
+            `UPDATE inventory.raw_materials SET current_stock = current_stock + $1 WHERE material_id = $2`,
+            [accepted_quantity, material_id]
+        );
+        console.log('editGRNForQC: Inventory updated.');
     }
 
+    // Create return entry if defective quantity > 0
+    if (newDefectiveQuantity > 0) {
+        console.log(`editGRNForQC: Creating return entry for ${newDefectiveQuantity} defective items for material ${material_id}...`);
+        await client.query(
+            `INSERT INTO purchase.returns (grn_id, material_id, quantity, reason) VALUES ($1, $2, $3, $4)`,
+            [grn_id, material_id, newDefectiveQuantity, remarks || 'Defective during QC']
+        );
+        console.log('editGRNForQC: Return entry created.');
+    }
 
+    // Check if QC is completed for all items in this GRN
+    const pendingQcItems = await client.query(
+        `SELECT COUNT(*) FROM purchase.grn_items WHERE grn_id = $1 AND qc_status = 'pending'`,
+        [grn_id]
+    );
+    const qcCompletedForGRN = Number(pendingQcItems.rows[0].count) === 0;
+
+    // Update PO status based on overall QC status of all GRN items for this PO
+    // This logic should be in purchaseOrder.model.updateStatus, but we'll trigger it here.
+    // The updateStatus function needs to be enhanced to check all GRN items for the PO.
+    console.log('editGRNForQC: Calling purchaseOrder.model.updateStatus...');
+    // We need to pass the client to updateStatus if it's part of this transaction
+    // For now, we'll call it outside the transaction or modify updateStatus to accept a client.
+    // Let's assume updateStatus can handle being called independently for now.
+    await import('../models/purchaseOrder.model.js').then(async m => {
+        // Fetch all GRN items for the PO to determine overall status
+        const poGrnItemsStatusRes = await client.query(
+            `SELECT
+               COUNT(*) as total_items,
+               COUNT(CASE WHEN gi.qc_status = 'pending' THEN 1 END) as qc_pending_count,
+               COUNT(CASE WHEN gi.qc_status = 'passed' THEN 1 END) as qc_passed_count,
+               COUNT(CASE WHEN gi.qc_status = 'returned' THEN 1 END) as qc_returned_count
+             FROM purchase.grn_items gi
+             JOIN purchase.grns g ON gi.grn_id = g.grn_id
+             WHERE g.purchase_order_id = $1`,
+            [purchase_order_id]
+        );
+        const poStatusCounts = poGrnItemsStatusRes.rows[0];
+
+        let newPOStatus = null;
+
+        if (Number(poStatusCounts.qc_pending_count) > 0) {
+            newPOStatus = 'qc_in_progress';
+        } else if (Number(poStatusCounts.qc_returned_count) > 0) {
+            newPOStatus = 'returned_to_vendor';
+        } else if (Number(poStatusCounts.qc_passed_count) > 0 && Number(poStatusCounts.qc_pending_count) === 0 && Number(poStatusCounts.qc_returned_count) === 0) {
+             // Check if total accepted quantity equals total ordered quantity for the PO
+             const poSummary = await m.default.getOverallPOQuantitiesSummary(purchase_order_id);
+             if (poSummary.total_qc_passed >= poSummary.total_ordered) {
+                 newPOStatus = 'completed';
+             } else {
+                 // If all items are QC'd (passed or returned) but not all ordered quantity is accepted
+                 // This state might need refinement based on exact flow requirements.
+                 // For now, if there are no pending/returned and some passed, keep as in_store or completed if total matches.
+                 // Let's assume 'in_store' if not fully completed.
+                 newPOStatus = 'in_store';
+             }
+        }
+
+        if (newPOStatus) {
+             // Fetch current PO status to avoid unnecessary updates and log entries
+             const currentPOStatusRes = await client.query('SELECT status FROM purchase.purchase_order WHERE purchase_order_id = $1', [purchase_order_id]);
+             const currentPOStatus = currentPOStatusRes.rows[0]?.status;
+
+             if (currentPOStatus !== newPOStatus) {
+                 console.log(`editGRNForQC: Updating PO status to ${newPOStatus}...`);
+                 await m.default.updateStatus(purchase_order_id, newPOStatus, req.user.user_id); // Pass user_id for logging
+                 console.log('editGRNForQC: purchaseOrder.model.updateStatus called.');
+             } else {
+                 console.log(`editGRNForQC: PO status remains ${currentPOStatus}. No update needed.`);
+             }
+        } else {
+             console.log('editGRNForQC: No PO status change determined.');
+        }
+    });
 
     await client.query('COMMIT');
     console.log('editGRNForQC: Transaction committed.');
-
-    // Call PO status update
-    console.log('editGRNForQC: Calling purchaseOrder.model.updateStatus...');
-    await import('../models/purchaseOrder.model.js').then(m => m.default.updateStatus(purchase_order_id));
-    console.log('editGRNForQC: purchaseOrder.model.updateStatus called.');
 
     res.json({ success: true });
     console.log('editGRNForQC: Response sent.');
@@ -621,37 +673,20 @@ const createReturnEntry = async (req, res) => {
     const { material_id, quantity, remarks } = req.body;
     await client.query('BEGIN');
     const result = await client.query(
-      `INSERT INTO purchase.return_entries (grn_id, material_id, quantity, remarks) VALUES ($1, $2, $3, $4) RETURNING *`,
+      `INSERT INTO purchase.returns (grn_id, material_id, quantity_returned, remarks) VALUES ($1, $2, $3, $4) RETURNING *`,
       [grn_id, material_id, quantity, remarks]
     );
+
+    // Update the qc_status in grn_items to 'returned'
+    await client.query(
+      `UPDATE purchase.grn_items SET qc_status = 'returned' WHERE grn_id = $1 AND material_id = $2`,
+      [grn_id, material_id]
+    );
+
     await client.query('COMMIT');
     // Call PO status update
     await import('../models/purchaseOrder.model.js').then(m => m.default.updateStatus(purchase_order_id));
     res.json(result.rows[0]);
-  } catch (error) {
-    await client.query('ROLLBACK');
-    res.status(500).json({ error: error.message });
-  } finally {
-    client.release();
-  }
-};
-
-// Send accepted quantity to store (inventory update)
-const sendToStore = async (req, res) => {
-  const client = await pool.connect();
-  try {
-    const { purchase_order_id, grn_id } = req.params;
-    const { material_id, quantity } = req.body;
-    await client.query('BEGIN');
-    // Update inventory
-    await client.query(
-      `UPDATE inventory.raw_materials SET current_stock = current_stock + $1 WHERE material_id = $2`,
-      [quantity, material_id]
-    );
-    await client.query('COMMIT');
-    // Call PO status update
-    await import('../models/purchaseOrder.model.js').then(m => m.default.updateStatus(purchase_order_id));
-    res.json({ success: true });
   } catch (error) {
     await client.query('ROLLBACK');
     res.status(500).json({ error: error.message });
@@ -698,7 +733,7 @@ const callPurchaseOrderUpdateStatus = async (req, res) => {
         s.address as supplier_address,
         s.phone as supplier_phone
        FROM purchase.grns g
-       JOIN purchase.purchase_orders po ON g.purchase_order_id = po.purchase_order_id
+       JOIN purchase.purchase_order po ON g.purchase_order_id = po.purchase_order_id
        JOIN purchase.suppliers s ON po.supplier_id = s.supplier_id
        WHERE g.grn_id = $1`,
       [grn_id]
@@ -712,7 +747,7 @@ const callPurchaseOrderUpdateStatus = async (req, res) => {
 
     // Update Purchase Order status
     const poRes = await client.query(
-      `UPDATE purchase.purchase_orders 
+      `UPDATE purchase.purchase_order 
        SET status = $1
        WHERE purchase_order_id = $2
        RETURNING *`,
@@ -747,7 +782,6 @@ export {
   generateGRNPDF,
   editGRNForQC,
   createReturnEntry,
-  sendToStore,
   getReturnHistoryForGRN,
   callPurchaseOrderUpdateStatus,
 };

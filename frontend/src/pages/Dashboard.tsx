@@ -46,6 +46,7 @@ const Dashboard: React.FC = () => {
   const [orderStatusDistribution, setOrderStatusDistribution] = useState<{ status: string, count: number }[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [useDummyData, setUseDummyData] = useState(true);
   
   const rawMaterialValue = calculateRawMaterialValue(rawMaterials);
   const finishedProductValue = calculateFinishedProductValue(finishedProducts);
@@ -92,47 +93,75 @@ const Dashboard: React.FC = () => {
         setLoading(true);
         setError(null);
 
-        // Fetch inventory values
-        const inventoryRes = await axiosInstance.get('/kpi/inventory-values');
-        if (inventoryRes.data.success) {
-          setInventoryValues(inventoryRes.data.data);
-        }
+        if (useDummyData) {
+          // Add dummy data for salesTrend
+          const dummySalesTrend = [
+            { date: '2023-10-01', sales: 1500 },
+            { date: '2023-10-02', sales: 1800 },
+            { date: '2023-10-03', sales: 1200 },
+            { date: '2023-10-04', sales: 2000 },
+            { date: '2023-10-05', sales: 1700 },
+            { date: '2023-10-06', sales: 2200 },
+            { date: '2023-10-07', sales: 1900 },
+          ];
+          setSalesTrend(dummySalesTrend);
 
-        // Fetch manufacturing efficiency
-        const efficiencyRes = await axiosInstance.get('/kpi/manufacturing-efficiency');
-        if (efficiencyRes.data.success) {
-          setManufacturingEfficiency(efficiencyRes.data.data);
-        }
+          // Add dummy data for orderStatusDistribution
+          const dummyOrderStatusDistribution = [
+            { status: 'pending', count: 5 },
+            { status: 'in_production', count: 8 },
+            { status: 'confirmed', count: 12 },
+            { status: 'delivered', count: 20 },
+            { status: 'cancelled', count: 3 },
+          ];
+          setOrderStatusDistribution(dummyOrderStatusDistribution);
 
-        // Fetch order status distribution
-        const distributionRes = await axiosInstance.get('/kpi/order-status-distribution');
-        if (distributionRes.data.success) {
-          setOrderStatusDistribution(distributionRes.data.data);
-        }
+          setLoading(false);
+        } else {
+          // Fetch inventory values
+          const inventoryRes = await axiosInstance.get('/kpi/inventory-values');
+          if (inventoryRes.data.success) {
+            setInventoryValues(inventoryRes.data.data);
+          }
 
-        // Fetch sales trend
-        const today = new Date();
-        const startDate = '2000-01-01';
-        const endDate = today.toISOString().slice(0, 10);
-        const trendRes = await axiosInstance.get('/kpi/sales-trend', {
-          params: { periodType: 'day', startDate, endDate }
-        });
-        if (trendRes.data.success) {
-          setSalesTrend(trendRes.data.data.map((d: any) => ({
-            date: d.period_start,
-            sales: Number(d.total_revenue)
-          })));
+          // Fetch manufacturing efficiency
+          const efficiencyRes = await axiosInstance.get('/kpi/manufacturing-efficiency');
+          if (efficiencyRes.data.success) {
+            setManufacturingEfficiency(efficiencyRes.data.data);
+          }
+
+          // Fetch order status distribution
+          const distributionRes = await axiosInstance.get('/kpi/order-status-distribution');
+          if (distributionRes.data.success) {
+            setOrderStatusDistribution(distributionRes.data.data);
+          }
+
+          // Fetch sales trend
+          const today = new Date();
+          const startDate = '2000-01-01';
+          const endDate = today.toISOString().slice(0, 10);
+          const trendRes = await axiosInstance.get('/kpi/sales-trend', {
+            params: { periodType: 'day', startDate, endDate }
+          });
+          if (trendRes.data.success) {
+            setSalesTrend(trendRes.data.data.map((d: any) => ({
+              date: d.period_start,
+              sales: Number(d.total_revenue)
+            })));
+          }
         }
       } catch (err) {
         console.error('Error fetching KPIs:', err);
         setError('Failed to load dashboard data. Please try again later.');
       } finally {
-        setLoading(false);
+        if (!useDummyData) {
+          setLoading(false);
+        }
       }
     };
 
     fetchKPIs();
-  }, []);
+  }, [useDummyData]);
 
   // Get status icon component
   const getStatusIcon = (status: OrderStatus) => {

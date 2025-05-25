@@ -12,38 +12,36 @@ import {
   createQCReport,
   updatePOStatus,
   getProgress,
-  verifyGRN
+  verifyGRN,
+  updateGRNItemQCStatus,
+  returnGRNItem
 } from '../controllers/purchaseOrder.controller.js';
 import { authenticate } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
 
-// Apply authentication middleware to all routes
+// Protected routes
 router.use(authenticate);
 
-// Specific routes (must come before parameterized routes)
-router.get('/next-number', getNextOrderNumber);
-
-// Basic CRUD routes
+// Purchase Order main routes
 router.get('/', getAllPurchaseOrders);
+router.get('/next-number', getNextOrderNumber);
+router.get('/:id', getPurchaseOrder);
 router.post('/', createPurchaseOrder);
-
-// Status and history routes
+router.put('/:poId', updatePurchaseOrder);
+router.delete('/:poId', deletePurchaseOrder);
 router.get('/:poId/status-history', getPOStatusHistory);
-router.get('/:poId/quantities', getPOQuantitiesSummary);
 router.put('/:poId/status', updatePOStatus);
+router.get('/:poId/quantities', getPOQuantitiesSummary);
+router.get('/:poId/progress', getProgress);
 
 // GRN and QC routes
 router.post('/:poId/grn', createGRN);
 router.post('/:poId/qc', createQCReport);
 router.put('/:poId/grn/:grnId/verify', verifyGRN);
 
-// Progress route
-router.get('/:poId/progress', getProgress);
-
-// Parameterized routes (moved to end)
-router.get('/:poId', getPurchaseOrder);
-router.put('/:poId', updatePurchaseOrder);
-router.delete('/:poId', deletePurchaseOrder);
+// Item-level actions
+router.patch('/grn-item/:grnItemId/qc', updateGRNItemQCStatus);
+router.put('/grn-item/:grnItemId/return', returnGRNItem);
 
 export default router; 

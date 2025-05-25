@@ -17,7 +17,7 @@ import {
 import { format } from 'date-fns';
 import axiosInstance from '../../utils/axios.ts';
 
-const GRNList = ({ grns, onVerify, onRefresh, onView }) => {
+const GRNList = ({ grns, onVerify, onRefresh, onView, purchaseOrderStatus }) => {
   const toast = useToast();
   const [pdfModal, setPdfModal] = useState({ open: false, grnId: null });
 
@@ -86,7 +86,7 @@ const GRNList = ({ grns, onVerify, onRefresh, onView }) => {
                   <Button size="sm" colorScheme="green" onClick={() => handleDownload(grn.grn_id)}>
                     Download
                   </Button>
-                  {!grn.verified && (
+                  {purchaseOrderStatus === 'arrived' && !grn.verified && (
                     <Button size="sm" colorScheme="green" onClick={() => onVerify(grn.grn_id)}>
                       Verify
                     </Button>
