@@ -7,7 +7,7 @@ import authRoutes from './routes/auth.routes.js';
 import pool from './db/db.js';
 import productRoutes from './routes/product.route.js';
 import rawMaterialRoutes from './routes/rawMaterial.routes.js';
-import purchaseOrderRoutes from './routes/purchaseOrder.routes.js';
+import purchaseOrderRoutes from './routes/purchaseOrder.routes.js'
 import supplierRoutes from './routes/supplier.routes.js';
 import salesOrderRoutes from './routes/salesOrder.routes.js';
 import manufacturingStageRoutes from './routes/manufacturingStage.routes.js';
@@ -17,7 +17,6 @@ import revenueAnalysisRoutes from './routes/revenueAnalysis.routes.js';
 import notificationRoutes from './routes/notification.routes.js';
 import kpiRoutes from './routes/kpi.routes.js';
 import companySettingsRoutes from './routes/companySettings.routes.js';
-import purchaseRoutes from './routes/purchase.routes.js';
 
 dotenv.config();
 
@@ -44,7 +43,6 @@ app.use('/api/revenue-analysis', revenueAnalysisRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/kpi', kpiRoutes);
 app.use('/api/company-settings', companySettingsRoutes);
-app.use('/api/purchase', purchaseRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {

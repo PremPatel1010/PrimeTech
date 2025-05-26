@@ -17,13 +17,14 @@ import Inventory from "./pages/Inventory";
 import Manufacturing from "./pages/Manufacturing";
 import Reports from "./pages/Reports";
 import Products from "./pages/Products";
-import PurchaseOrders from "./pages/PurchaseOrders";
+
 import Suppliers from "./pages/Suppliers";
 import NotFound from "./pages/NotFound";
 import UserManagement from "./pages/Users";
 import SettingsPage from "./pages/settings";
 import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
+import { PurchaseOrderDashboard } from './components/po/PurchaseOrderDashboard';
 
 const queryClient = new QueryClient();
 
@@ -58,7 +59,7 @@ const App: React.FC = () => {
                 <Route path="/manufacturing" element={<Manufacturing />} />
                 <Route path="/reports" element={<Reports />} />
                 <Route path="/products" element={<Products />} />
-                <Route path="/purchase" element={<PurchaseOrders />} />
+                <Route path="/purchase" element={<PurchaseOrderDashboard />} />
                 <Route path="/suppliers" element={<Suppliers />} />
                 {admin && <Route path="/users" element={<UserManagement />} />}
                 <Route path="/settings" element={<SettingsPage />} />

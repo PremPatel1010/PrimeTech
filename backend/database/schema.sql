@@ -134,121 +134,156 @@ CREATE TABLE IF NOT EXISTS purchase.suppliers (
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
--- Purchase Order table
-CREATE TABLE IF NOT EXISTS purchase.purchase_order (
-    purchase_order_id SERIAL PRIMARY KEY,
-    order_number VARCHAR(32) NOT NULL UNIQUE,
-    order_date DATE NOT NULL,
-    supplier_id INTEGER REFERENCES purchase.suppliers(supplier_id),
-    status VARCHAR(32) NOT NULL DEFAULT 'ordered',
-    discount NUMERIC(10,2) DEFAULT 0,
-    gst NUMERIC(10,2) DEFAULT 18,
-    total_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+-- Purchase Orders table
+CREATE TABLE purchase.purchase_orders (
+    po_id SERIAL PRIMARY KEY,
+    po_number VARCHAR(50) UNIQUE NOT NULL,
+    date DATE NOT NULL,
+    supplier_id INTEGER NOT NULL REFERENCES purchase.suppliers(supplier_id),
+    status VARCHAR(50) NOT NULL CHECK (status IN (
+        'ordered', 'arrived', 'grn_verified', 'qc_in_progress', 
+        'returned_to_vendor', 'completed'
+    )),
+    gst_percent DECIMAL(5,2) NOT NULL,
+    discount_percent DECIMAL(5,2) NOT NULL,
+    subtotal DECIMAL(12,2) NOT NULL,
+    total_amount DECIMAL(12,2) NOT NULL,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Purchase Order Items table
-CREATE TABLE IF NOT EXISTS purchase.purchase_order_items (
+CREATE TABLE purchase.po_items (
     item_id SERIAL PRIMARY KEY,
-    purchase_order_id INTEGER REFERENCES purchase.purchase_order(purchase_order_id) ON DELETE CASCADE,
-    material_id INTEGER REFERENCES inventory.raw_materials(material_id),
-    quantity DECIMAL(10, 2) NOT NULL,
-    unit VARCHAR(20) DEFAULT 'pcs',
-    unit_price DECIMAL(10, 2) NOT NULL,
-    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
-);
-
--- Purchase Order Status Logs table
-CREATE TABLE IF NOT EXISTS purchase.purchase_order_status_logs (
-    log_id SERIAL PRIMARY KEY,
-    purchase_order_id INTEGER NOT NULL REFERENCES purchase.purchase_order(purchase_order_id) ON DELETE CASCADE,
-    status VARCHAR(32) NOT NULL,
-    notes TEXT,
-    quantity_details JSONB,
+    po_id INTEGER NOT NULL REFERENCES purchase.purchase_orders(po_id) ON DELETE CASCADE,
+    material_id INTEGER NOT NULL REFERENCES inventory.raw_materials(material_id),
+    quantity DECIMAL(12,2) NOT NULL,
+    unit_price DECIMAL(12,2) NOT NULL,
+    amount DECIMAL(12,2) NOT NULL,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    created_by INTEGER REFERENCES auth.users(user_id)
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
--- GRNs table
-CREATE TABLE IF NOT EXISTS purchase.grns (
+-- GRN (Goods Receipt Note) table
+CREATE TABLE purchase.grns (
     grn_id SERIAL PRIMARY KEY,
-    purchase_order_id INTEGER NOT NULL REFERENCES purchase.purchase_order(purchase_order_id) ON DELETE CASCADE,
-    received_quantity DECIMAL(10,2) NOT NULL,
-    grn_date DATE NOT NULL DEFAULT CURRENT_DATE,
-    matched_with_po BOOLEAN NOT NULL DEFAULT FALSE,
-    status VARCHAR(20) CHECK (status IN ('pending', 'qc_in_progress', 'completed')) DEFAULT 'pending',
-    notes TEXT,
-    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    created_by INTEGER REFERENCES auth.users(user_id),
-    UNIQUE (purchase_order_id, grn_date)
-);
-
--- Add QC summary fields to GRN
-ALTER TABLE purchase.grns
-ADD COLUMN IF NOT EXISTS qc_status VARCHAR(20) DEFAULT 'pending' CHECK (qc_status IN ('pending', 'in_progress', 'completed')),
-ADD COLUMN IF NOT EXISTS qc_completed_at TIMESTAMPTZ,
-ADD COLUMN IF NOT EXISTS qc_completed_by INTEGER REFERENCES auth.users(user_id);
-
--- GRN Items table
-CREATE TABLE IF NOT EXISTS purchase.grn_items (
-    grn_item_id SERIAL PRIMARY KEY,
-    grn_id INTEGER NOT NULL REFERENCES purchase.grns(grn_id) ON DELETE CASCADE,
-    material_id INTEGER NOT NULL REFERENCES inventory.raw_materials(material_id),
-    received_quantity DECIMAL(10,2) NOT NULL,
-    defective_quantity DECIMAL(10,2) NOT NULL DEFAULT 0,
+    po_id INTEGER NOT NULL REFERENCES purchase.purchase_orders(po_id) ON DELETE CASCADE,
+    grn_number VARCHAR(50) NOT NULL UNIQUE,
+    date DATE NOT NULL,
+    status VARCHAR(50) NOT NULL CHECK (status IN ('pending', 'qc_completed')),
     remarks TEXT,
-    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+    grn_type VARCHAR(50) NOT NULL CHECK (grn_type IN ('initial', 'replacement')),
+    replacement_for INTEGER REFERENCES purchase.grns(grn_id),
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
--- Add QC status tracking fields to GRN items
-ALTER TABLE purchase.grn_items
-ADD COLUMN IF NOT EXISTS qc_status VARCHAR(20) DEFAULT 'pending' CHECK (qc_status IN ('pending', 'passed', 'returned')),
-ADD COLUMN IF NOT EXISTS qc_date TIMESTAMPTZ,
-ADD COLUMN IF NOT EXISTS qc_by INTEGER REFERENCES auth.users(user_id),
-ADD COLUMN IF NOT EXISTS qc_quantity DECIMAL(10,2) DEFAULT 0,
-ADD COLUMN IF NOT EXISTS qc_updated_at TIMESTAMPTZ,
-ADD COLUMN IF NOT EXISTS qc_notes TEXT;
-
--- QC Reports table
-CREATE TABLE IF NOT EXISTS purchase.qc_reports (
-    qc_id SERIAL PRIMARY KEY,
+-- GRN Materials table
+CREATE TABLE purchase.grn_materials (
+    grn_material_id SERIAL PRIMARY KEY,
     grn_id INTEGER NOT NULL REFERENCES purchase.grns(grn_id) ON DELETE CASCADE,
     material_id INTEGER NOT NULL REFERENCES inventory.raw_materials(material_id),
-    inspected_quantity DECIMAL(10,2) NOT NULL,
-    defective_quantity DECIMAL(10,2) NOT NULL DEFAULT 0,
-    accepted_quantity DECIMAL(10,2) NOT NULL DEFAULT 0,
-    status VARCHAR(20) CHECK (status IN ('pending', 'completed')) DEFAULT 'pending',
-    notes TEXT,
+    ordered_qty DECIMAL(12,2) NOT NULL,
+    received_qty DECIMAL(12,2) NOT NULL,
+    qc_status VARCHAR(50) CHECK (qc_status IN ('pending', 'completed')),
+    accepted_qty DECIMAL(12,2),
+    defective_qty DECIMAL(12,2),
+    qc_remarks TEXT,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    created_by INTEGER REFERENCES auth.users(user_id),
-    CONSTRAINT qc_quantity_check CHECK (inspected_quantity = defective_quantity + accepted_quantity)
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
--- Create indexes for purchase order tables
-CREATE INDEX IF NOT EXISTS idx_po_status_logs_po_id ON purchase.purchase_order_status_logs(purchase_order_id);
-CREATE INDEX IF NOT EXISTS idx_po_items_po_id ON purchase.purchase_order_items(purchase_order_id);
-CREATE INDEX IF NOT EXISTS idx_grns_po_id ON purchase.grns(purchase_order_id);
-CREATE INDEX IF NOT EXISTS idx_qc_reports_grn_id ON purchase.qc_reports(grn_id);
+-- Indexes for better query performance
+CREATE INDEX idx_po_supplier ON purchase.purchase_orders(supplier_id);
+CREATE INDEX idx_po_status ON purchase.purchase_orders(status);
+CREATE INDEX idx_po_items_po ON purchase.po_items(po_id);
+CREATE INDEX idx_po_items_material ON purchase.po_items(material_id);
+CREATE INDEX idx_grns_po ON purchase.grns(po_id);
+CREATE INDEX idx_grn_materials_grn ON purchase.grn_materials(grn_id);
+CREATE INDEX idx_grn_materials_material ON purchase.grn_materials(material_id);
 
--- Create trigger function for status logging
-CREATE OR REPLACE FUNCTION purchase.log_po_status_change()
+-- Trigger to update updated_at timestamp for purchase order tables
+CREATE OR REPLACE FUNCTION purchase.update_purchase_timestamp()
 RETURNS TRIGGER AS $$
 BEGIN
-    IF OLD.status IS NULL OR NEW.status != OLD.status THEN
-        INSERT INTO purchase.purchase_order_status_logs (purchase_order_id, status)
-        VALUES (NEW.purchase_order_id, NEW.status);
+    NEW.updated_at = CURRENT_TIMESTAMP;
+    RETURN NEW;
+END;
+$$ language 'plpgsql';
+
+-- Apply the trigger to all purchase order tables
+CREATE TRIGGER update_purchase_orders_timestamp
+    BEFORE UPDATE ON purchase.purchase_orders
+    FOR EACH ROW
+    EXECUTE FUNCTION purchase.update_purchase_timestamp();
+
+CREATE TRIGGER update_po_items_timestamp
+    BEFORE UPDATE ON purchase.po_items
+    FOR EACH ROW
+    EXECUTE FUNCTION purchase.update_purchase_timestamp();
+
+CREATE TRIGGER update_grns_timestamp
+    BEFORE UPDATE ON purchase.grns
+    FOR EACH ROW
+    EXECUTE FUNCTION purchase.update_purchase_timestamp();
+
+CREATE TRIGGER update_grn_materials_timestamp
+    BEFORE UPDATE ON purchase.grn_materials
+    FOR EACH ROW
+    EXECUTE FUNCTION purchase.update_purchase_timestamp();
+
+-- Function to update raw material stock when GRN is QC completed
+CREATE OR REPLACE FUNCTION purchase.update_material_stock()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Only update stock when QC is completed and accepted quantity changes
+    IF NEW.qc_status = 'completed' AND 
+       (OLD.qc_status IS NULL OR OLD.qc_status != 'completed') AND
+       NEW.accepted_qty > 0 THEN
+        
+        -- Update raw material stock
+        UPDATE inventory.raw_materials
+        SET current_stock = current_stock + NEW.accepted_qty,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE material_id = NEW.material_id;
+
+        -- Create notification for stock update
+        INSERT INTO auth.notifications (
+            user_id,
+            title,
+            message,
+            type,
+            reference_id,
+            reference_type
+        )
+        SELECT 
+            u.user_id,
+            'Material Stock Updated',
+            format('Stock updated for material "%s" via GRN %s. Added quantity: %s %s',
+                rm.material_name,
+                g.grn_number,
+                NEW.accepted_qty,
+                rm.unit
+            ),
+            'inventory',
+            NEW.material_id,
+            'raw_material'
+        FROM auth.users u
+        CROSS JOIN purchase.grns g
+        CROSS JOIN inventory.raw_materials rm
+        WHERE u.role IN ('admin', 'manager')
+        AND g.grn_id = NEW.grn_id
+        AND rm.material_id = NEW.material_id;
     END IF;
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
--- Create trigger for status changes
-DROP TRIGGER IF EXISTS po_status_change_trigger ON purchase.purchase_order;
-CREATE TRIGGER po_status_change_trigger
-AFTER INSERT OR UPDATE ON purchase.purchase_order
-FOR EACH ROW
-EXECUTE FUNCTION purchase.log_po_status_change();
+-- Trigger for material stock update
+CREATE TRIGGER update_material_stock_trigger
+    AFTER UPDATE ON purchase.grn_materials
+    FOR EACH ROW
+    EXECUTE FUNCTION purchase.update_material_stock();
 
 -- ========================
 -- MANUFACTURING STAGES
@@ -488,78 +523,8 @@ AFTER INSERT OR UPDATE ON inventory.finished_products
 FOR EACH ROW
 EXECUTE FUNCTION inventory.check_stock_levels();
 
--- ========================
--- RETURNS TABLE
--- ========================
-CREATE TABLE IF NOT EXISTS purchase.returns (
-    return_id SERIAL PRIMARY KEY,
-    grn_id INTEGER NOT NULL REFERENCES purchase.grns(grn_id) ON DELETE CASCADE,
-    material_id INTEGER NOT NULL REFERENCES inventory.raw_materials(material_id),
-    quantity_returned DECIMAL(10,2) NOT NULL,
-    remarks TEXT,
-    status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending', 'processed', 'cancelled')),
-    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    created_by INTEGER REFERENCES auth.users(user_id),
-    processed_at TIMESTAMPTZ,
-    processed_by INTEGER REFERENCES auth.users(user_id)
-);
 
--- Add index for faster status lookups
-CREATE INDEX IF NOT EXISTS idx_grn_items_qc_status ON purchase.grn_items(qc_status);
-CREATE INDEX IF NOT EXISTS idx_grn_items_store_status ON purchase.grn_items(store_status);
-CREATE INDEX IF NOT EXISTS idx_returns_status ON purchase.returns(status);
 
--- Add trigger to prevent duplicate status entries
-CREATE OR REPLACE FUNCTION prevent_duplicate_status()
-RETURNS TRIGGER AS $$
-BEGIN
-    IF EXISTS (
-        SELECT 1 
-        FROM purchase.purchase_order_status_logs 
-        WHERE purchase_order_id = NEW.purchase_order_id 
-        AND status = NEW.status 
-        AND created_at > NOW() - INTERVAL '1 second'
-    ) THEN
-        RAISE EXCEPTION 'Duplicate status entry detected';
-    END IF;
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
 
-CREATE TRIGGER prevent_duplicate_status_trigger
-BEFORE INSERT ON purchase.purchase_order_status_logs
-FOR EACH ROW
-EXECUTE FUNCTION prevent_duplicate_status();
-
--- Add trigger to validate status transitions
-CREATE OR REPLACE FUNCTION validate_status_transition()
-RETURNS TRIGGER AS $$
-DECLARE
-    valid_transitions TEXT[] := ARRAY[
-        'ordered->arrived',
-        'arrived->grn_verified',
-        'arrived->returned_to_vendor',
-        'grn_verified->qc_in_progress',
-        'grn_verified->returned_to_vendor',
-        'qc_in_progress->returned_to_vendor',
-        'qc_in_progress->in_store',
-        'returned_to_vendor->in_store',
-        'in_store->completed'
-    ];
-    transition TEXT;
-BEGIN
-    transition := OLD.status || '->' || NEW.status;
-    IF NOT (transition = ANY(valid_transitions)) THEN
-        RAISE EXCEPTION 'Invalid status transition from % to %', OLD.status, NEW.status;
-    END IF;
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER validate_status_transition_trigger
-BEFORE UPDATE OF status ON purchase.purchase_order
-FOR EACH ROW
-WHEN (OLD.status IS DISTINCT FROM NEW.status)
-EXECUTE FUNCTION validate_status_transition();
 
 
