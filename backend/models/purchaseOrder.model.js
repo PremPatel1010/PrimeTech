@@ -255,10 +255,25 @@ class PurchaseOrderModel {
                 );
             }
 
-            // Check if all GRNs are QC completed and update PO status accordingly
+            // Get the current PO and its GRNs
             const po = await this.getPurchaseOrderById(poId);
-            const allGRNsCompleted = po.grns.every(grn => grn.status === 'qc_completed');
+            
+            // Check if this is the first QC being done (transition from grn_verified to qc_in_progress)
+            const hasAnyQCCompleted = po.grns.some(grn => 
+                grn.materials.some(m => m.qcStatus === 'completed')
+            );
+            
+            if (!hasAnyQCCompleted && po.status === 'grn_verified') {
+                await client.query(
+                    `UPDATE purchase.purchase_orders 
+                    SET status = 'qc_in_progress'
+                    WHERE po_id = $1`,
+                    [poId]
+                );
+            }
 
+            // Check if all GRNs are QC completed and update PO status accordingly
+            const allGRNsCompleted = po.grns.every(grn => grn.status === 'qc_completed');
             if (allGRNsCompleted) {
                 const hasDefectiveItems = po.grns.some(grn => 
                     grn.materials.some(m => m.defectiveQty > 0)
@@ -266,9 +281,13 @@ class PurchaseOrderModel {
 
                 const hasPendingQuantity = await this.hasPendingQuantities(poId);
 
-                let newStatus = 'completed';
-                if (hasPendingQuantity) {
-                    newStatus = hasDefectiveItems ? 'returned_to_vendor' : 'qc_in_progress';
+                let newStatus;
+                if (hasDefectiveItems) {
+                    newStatus = 'returned_to_vendor';
+                } else if (hasPendingQuantity) {
+                    newStatus = 'qc_in_progress';
+                } else {
+                    newStatus = 'completed';
                 }
 
                 await client.query(

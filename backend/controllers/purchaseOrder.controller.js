@@ -169,7 +169,8 @@ class PurchaseOrderController {
             const { poId, grnId, materialId } = req.params;
             const { acceptedQty, defectiveQty, qcRemarks } = req.body;
 
-            if (!acceptedQty || !defectiveQty) {
+            // Change validation to check if they are undefined or null, allowing 0 as a valid value
+            if (acceptedQty === undefined || acceptedQty === null || defectiveQty === undefined || defectiveQty === null) {
                 return res.status(400).json({
                     error: 'acceptedQty and defectiveQty are required'
                 });

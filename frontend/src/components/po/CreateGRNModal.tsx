@@ -79,6 +79,18 @@ export const CreateGRNModal: React.FC<CreateGRNModalProps> = ({ po, isOpen, onCl
         }
     }, [isOpen, po.items]);
 
+    // Effect to update receivedQty when materialId changes in replacement GRN form
+    useEffect(() => {
+        if (formData.grnType === 'replacement' && formData.materialId) {
+            const selectedMaterial = pendingQuantities[formData.materialId];
+            if (selectedMaterial) {
+                setFormData(prev => ({ ...prev, receivedQty: selectedMaterial.defectiveQty }));
+            } else {
+                setFormData(prev => ({ ...prev, receivedQty: 0 }));
+            }
+        }
+    }, [formData.materialId, formData.grnType, pendingQuantities]);
+
     const handleItemChange = (index: number, field: keyof GRNItemForm, value: string | number) => {
         const newItems = [...items];
         const item = newItems[index];

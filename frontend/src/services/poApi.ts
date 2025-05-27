@@ -147,6 +147,7 @@ export const poApi = {
     // Pending Quantities
     async getPendingQuantities(poId: string) {
         const response = await axiosInstance.get(`${API_BASE_URL}/${poId}/pending-quantities`);
+        console.log("pending quantities", response.data);
         return response.data;
     }
 }; 
