@@ -15,11 +15,11 @@ const transformPurchaseOrder = (data: any): PurchaseOrder => ({
     subtotal: data.subtotal !== undefined ? parseFloat(data.subtotal) : 0,
     totalAmount: data.total_amount !== undefined ? parseFloat(data.total_amount) : 0,
     items: (data.items ?? []).map((item: any) => ({
-        id: item.item_id !== undefined && item.item_id !== null ? item.item_id.toString() : '',
-        materialId: item.material_id !== undefined && item.material_id !== null ? item.material_id.toString() : '',
-        materialName: item.material_name ?? '',
+        id: item.id !== undefined && item.id !== null ? item.id.toString() : '',
+        materialId: item.materialId !== undefined && item.materialId !== null ? item.materialId.toString() : '',
+        materialName: item.materialName ?? '',
         quantity: item.quantity !== undefined ? parseFloat(item.quantity) : 0,
-        unitPrice: item.unit_price !== undefined ? parseFloat(item.unit_price) : 0,
+        unitPrice: item.unitPrice !== undefined ? parseFloat(item.unitPrice) : 0,
         unit: item.unit ?? '',
         amount: item.amount !== undefined ? parseFloat(item.amount) : 0
     })),
@@ -90,6 +90,21 @@ export const poApi = {
                 orderedQty: material.orderedQty,
                 receivedQty: material.receivedQty
             }))
+        });
+        return response.data;
+    },
+
+    async createReplacementGRN(poId: string, grnData: {
+        grnNumber: string;
+        date: string;
+        remarks?: string;
+        materialId: string;
+        receivedQty: number;
+        replacementFor?: string;
+    }) {
+        const response = await axiosInstance.post(`${API_BASE_URL}/${poId}/replacement-grns`, {
+            ...grnData,
+            materialId: parseInt(grnData.materialId)
         });
         return response.data;
     },

@@ -225,6 +225,42 @@ class PurchaseOrderController {
             res.status(500).json({ error: 'Internal server error' });
         }
     }
+
+    static async createReplacementGRN(req, res) {
+        try {
+            const { poId } = req.params;
+            const { grnNumber, date, remarks, materialId, receivedQty, replacementFor } = req.body;
+
+            // Validate required fields
+            if (!grnNumber || !date || !materialId || !receivedQty) {
+                return res.status(400).json({
+                    error: 'Missing required fields: grnNumber, date, materialId, and receivedQty are required'
+                });
+            }
+
+            const grn = await PurchaseOrderModel.createReplacementGRN(poId, {
+                grnNumber,
+                date,
+                remarks,
+                materialId,
+                receivedQty,
+                replacementFor
+            });
+
+            res.status(201).json(grn);
+        } catch (error) {
+            console.error('Error creating replacement GRN:', error);
+            if (error.code === '23505') { // Unique violation
+                res.status(400).json({ error: 'GRN number already exists' });
+            } else if (error.message.includes('does not need replacement')) {
+                res.status(400).json({ error: error.message });
+            } else if (error.message.includes('cannot exceed defective quantity')) {
+                res.status(400).json({ error: error.message });
+            } else {
+                res.status(500).json({ error: 'Internal server error' });
+            }
+        }
+    }
 }
 
 export default PurchaseOrderController; 

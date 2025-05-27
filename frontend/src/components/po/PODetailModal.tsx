@@ -30,23 +30,26 @@ const statusConfig = {
 export const PODetailModal = ({ po, isOpen, onClose }: PODetailModalProps) => {
   const [isGRNModalOpen, setIsGRNModalOpen] = useState(false);
   const [selectedGRN, setSelectedGRN] = useState<any>(null);
-  const { updatePOStatus, getPendingQuantities } = usePOStore();
+  const { updatePOStatus, getPendingQuantities, getPurchaseOrder } = usePOStore();
 
   // Local state for the latest PO details
   const [loadedPO, setLoadedPO] = useState(po);
   const [loading, setLoading] = useState(false);
 
+
   useEffect(() => {
-    if (isOpen && po?.id) {
+    if (isOpen) {
       setLoading(true);
-      poApi.getPurchaseOrder(po.id)
+      getPurchaseOrder(po.id)
         .then((data) => setLoadedPO(data))
         .finally(() => setLoading(false));
     }
-  }, [isOpen, po?.id]);
+  }, [isOpen]);
+
+  
 
   // Use loadedPO for rendering
-  const currentPO = loadedPO || po;
+  const currentPO = loadedPO ;
 
   const statusInfo = statusConfig[currentPO.status];
   const pendingQuantities = getPendingQuantities(currentPO.id);
@@ -242,6 +245,7 @@ export const PODetailModal = ({ po, isOpen, onClose }: PODetailModalProps) => {
                             <TableHeader>
                               <TableRow>
                                 <TableHead>Material</TableHead>
+                                <TableHead>Ordered Qty</TableHead>
                                 <TableHead>Received Qty</TableHead>
                                 <TableHead>QC Status</TableHead>
                                 <TableHead>Accepted</TableHead>
@@ -249,23 +253,28 @@ export const PODetailModal = ({ po, isOpen, onClose }: PODetailModalProps) => {
                               </TableRow>
                             </TableHeader>
                             <TableBody>
-                              {grn.materials.map((material: any) => (
-                                <TableRow key={material.materialId}>
-                                  <TableCell>{material.materialName}</TableCell>
-                                  <TableCell>{material.receivedQty}</TableCell>
-                                  <TableCell>
-                                    <Badge variant={material.qcStatus === 'completed' ? 'default' : 'secondary'}>
-                                      {material.qcStatus === 'completed' ? 'Completed' : 'Pending'}
-                                    </Badge>
-                                  </TableCell>
-                                  <TableCell className="text-green-600">
-                                    {material.acceptedQty || '-'}
-                                  </TableCell>
-                                  <TableCell className="text-red-600">
-                                    {material.defectiveQty || '-'}
-                                  </TableCell>
-                                </TableRow>
-                              ))}
+                              {currentPO.items.map((item: any) => {
+                                // Find corresponding GRN material data if it exists
+                                const grnMaterial = grn.materials.find((m: any) => m.materialId === item.materialId);
+                                return (
+                                  <TableRow key={item.materialId}>
+                                    <TableCell>{item.materialName}</TableCell>
+                                    <TableCell>{item.quantity}</TableCell>
+                                    <TableCell>{grnMaterial?.receivedQty || '-'}</TableCell>
+                                    <TableCell>
+                                      <Badge variant={grnMaterial?.qcStatus === 'completed' ? 'default' : 'secondary'}>
+                                        {grnMaterial?.qcStatus === 'completed' ? 'Completed' : 'Pending'}
+                                      </Badge>
+                                    </TableCell>
+                                    <TableCell className="text-green-600">
+                                      {grnMaterial?.acceptedQty || '-'}
+                                    </TableCell>
+                                    <TableCell className="text-red-600">
+                                      {grnMaterial?.defectiveQty || '-'}
+                                    </TableCell>
+                                  </TableRow>
+                                );
+                              })}
                             </TableBody>
                           </Table>
                           {grn.remarks && (

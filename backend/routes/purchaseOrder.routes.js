@@ -14,6 +14,7 @@ router.get('/', authenticate, PurchaseOrderController.listPurchaseOrders);
 
 // GRN Routes
 router.post('/:poId/grns', authenticate, PurchaseOrderController.createGRN);
+router.post('/:poId/replacement-grns', authenticate, PurchaseOrderController.createReplacementGRN);
 router.get('/grns/:id', authenticate, PurchaseOrderController.getGRN);
 
 // QC Routes

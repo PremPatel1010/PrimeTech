@@ -321,27 +321,125 @@ class PurchaseOrderModel {
                     poi.material_id,
                     m.material_name,
                     poi.quantity as ordered_qty,
-                    COALESCE(SUM(gm.accepted_qty), 0) as accepted_qty
+                    COALESCE(SUM(gm.accepted_qty), 0) as accepted_qty,
+                    COALESCE(SUM(gm.defective_qty), 0) as defective_qty,
+                    m.unit,
+                    poi.unit_price
                 FROM purchase.po_items poi
                 JOIN inventory.raw_materials m ON m.material_id = poi.material_id
                 LEFT JOIN purchase.grns g ON g.po_id = poi.po_id
                 LEFT JOIN purchase.grn_materials gm ON gm.grn_id = g.grn_id AND gm.material_id = poi.material_id
                 WHERE poi.po_id = $1
-                GROUP BY poi.material_id, m.material_name, poi.quantity
+                GROUP BY poi.material_id, m.material_name, poi.quantity, m.unit, poi.unit_price
             )
             SELECT 
                 material_id,
                 material_name,
-                ordered_qty - accepted_qty as pending_qty
+                ordered_qty,
+                accepted_qty,
+                defective_qty,
+                ordered_qty - accepted_qty as pending_qty,
+                unit,
+                unit_price,
+                CASE 
+                    WHEN defective_qty > 0 THEN 'needs_replacement'
+                    WHEN ordered_qty > accepted_qty THEN 'needs_completion'
+                    ELSE 'completed'
+                END as status
             FROM material_totals
-            WHERE ordered_qty > accepted_qty`,
+            WHERE ordered_qty > accepted_qty OR defective_qty > 0`,
             [poId]
         );
 
         return result.rows.reduce((acc, row) => {
-            acc[row.material_id] = row.pending_qty;
+            acc[row.material_id] = {
+                materialId: row.material_id,
+                materialName: row.material_name,
+                orderedQty: Number(row.ordered_qty),
+                acceptedQty: Number(row.accepted_qty),
+                defectiveQty: Number(row.defective_qty),
+                pendingQty: Number(row.pending_qty),
+                unit: row.unit,
+                unitPrice: Number(row.unit_price),
+                status: row.status
+            };
             return acc;
         }, {});
+    }
+
+    static async createReplacementGRN(poId, grnData) {
+        const client = await pool.connect();
+        try {
+            await client.query('BEGIN');
+
+            // Get pending quantities to validate replacement
+            const pendingQuantities = await this.getPendingQuantities(poId);
+            const materialToReplace = pendingQuantities[grnData.materialId];
+
+            if (!materialToReplace || materialToReplace.status !== 'needs_replacement') {
+                throw new Error('Material does not need replacement or is not eligible for replacement');
+            }
+
+            if (grnData.receivedQty > materialToReplace.defectiveQty) {
+                throw new Error('Replacement quantity cannot exceed defective quantity');
+            }
+
+            // Insert GRN with replacement type
+            const grnResult = await client.query(
+                `INSERT INTO purchase.grns 
+                (po_id, grn_number, date, status, remarks, grn_type, replacement_for)
+                VALUES ($1, $2, $3, $4, $5, $6, $7)
+                RETURNING *`,
+                [
+                    poId,
+                    grnData.grnNumber,
+                    grnData.date,
+                    'pending',
+                    grnData.remarks,
+                    'replacement',
+                    grnData.replacementFor
+                ]
+            );
+
+            const grn = grnResult.rows[0];
+
+            // Insert GRN material
+            await client.query(
+                `INSERT INTO purchase.grn_materials 
+                (grn_id, material_id, ordered_qty, received_qty, qc_status)
+                VALUES ($1, $2, $3, $4, $5)`,
+                [
+                    grn.grn_id,
+                    grnData.materialId,
+                    materialToReplace.defectiveQty,
+                    grnData.receivedQty,
+                    'pending'
+                ]
+            );
+
+            // Update PO status if needed
+            const po = await this.getPurchaseOrderById(poId);
+            const hasPendingReplacements = Object.values(pendingQuantities).some(
+                material => material.status === 'needs_replacement'
+            );
+
+            if (hasPendingReplacements) {
+                await client.query(
+                    `UPDATE purchase.purchase_orders 
+                    SET status = 'returned_to_vendor'
+                    WHERE po_id = $1`,
+                    [poId]
+                );
+            }
+
+            await client.query('COMMIT');
+            return await this.getGRNById(grn.grn_id);
+        } catch (err) {
+            await client.query('ROLLBACK');
+            throw err;
+        } finally {
+            client.release();
+        }
     }
 
     // List Operations

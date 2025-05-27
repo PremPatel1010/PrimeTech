@@ -70,8 +70,10 @@ interface POStore {
   addPurchaseOrder: (po: Omit<PurchaseOrder, 'id' | 'items' | 'grns'>, items: Omit<POItem, 'id' | 'materialName' | 'unit'>[]) => Promise<void>;
   updatePOStatus: (poId: string, status: PurchaseOrder['status']) => Promise<void>;
   addGRN: (poId: string, grn: Omit<GRN, 'id' | 'materials'>, materials: Omit<GRNMaterial, 'id' | 'materialName' | 'unit'>[]) => Promise<void>;
+  addReplacementGRN: (poId: string, grnData: any) => Promise<void>;
   updateGRNMaterialQC: (poId: string, grnId: string, materialId: string, qcData: { acceptedQty: number; defectiveQty: number; qcRemarks?: string }) => Promise<void>;
   getPendingQuantities: (poId: string) => Promise<Record<string, number>>;
+  getPurchaseOrder: (poId: string) => Promise<PurchaseOrder>;
 }
 
 export const usePOStore = create<POStore>((set, get) => ({
@@ -96,6 +98,7 @@ export const usePOStore = create<POStore>((set, get) => ({
     set({ isLoading: true, error: null });
     try {
       const materials = await poApi.getMaterials();
+      
       set({ materials, isLoading: false });
     } catch (error) {
       set({ error: 'Failed to fetch materials', isLoading: false });
@@ -164,6 +167,24 @@ export const usePOStore = create<POStore>((set, get) => ({
     }
   },
 
+  addReplacementGRN: async (poId, grnData) => {
+    set({ isLoading: true, error: null });
+    try {
+      await poApi.createReplacementGRN(poId, grnData);
+      const updatedPO = await poApi.getPurchaseOrder(poId);
+      set(state => ({
+        purchaseOrders: state.purchaseOrders.map(po =>
+          po.id === poId ? updatedPO : po
+        ),
+        isLoading: false
+      }));
+    } catch (error) {
+      set({ error: 'Failed to create replacement GRN', isLoading: false });
+      console.error('Error creating replacement GRN:', error);
+      throw error;
+    }
+  },
+
   updateGRNMaterialQC: async (poId, grnId, materialId, qcData) => {
     set({ isLoading: true, error: null });
     try {
@@ -187,6 +208,16 @@ export const usePOStore = create<POStore>((set, get) => ({
       return await poApi.getPendingQuantities(poId);
     } catch (error) {
       console.error('Error getting pending quantities:', error);
+      throw error;
+    }
+  },
+
+
+  getPurchaseOrder: async (poId) => {
+    try {
+      return await poApi.getPurchaseOrder(poId);
+    } catch (error) {
+      console.error('Error getting purchase order:', error);
       throw error;
     }
   }
