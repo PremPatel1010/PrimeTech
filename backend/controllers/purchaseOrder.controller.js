@@ -231,6 +231,7 @@ class PurchaseOrderController {
         try {
             const { poId } = req.params;
             const { grnNumber, date, remarks, materialId, receivedQty, replacementFor } = req.body;
+            console.log("req.body", req.body);
 
             // Validate required fields
             if (!grnNumber || !date || !materialId || !receivedQty) {

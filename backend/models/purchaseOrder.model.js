@@ -218,14 +218,29 @@ class PurchaseOrderModel {
         const client = await pool.connect();
         try {
             await client.query('BEGIN');
-            // Update GRN material QC status
+
+            // Get the GRN details to check if it's a replacement
+            const grnResult = await client.query(
+                `SELECT grn_type, replacement_for, po_id 
+                 FROM purchase.grns 
+                 WHERE grn_id = $1`,
+                [grnId]
+            );
+            const grn = grnResult.rows[0];
+
+            if (!grn) {
+                throw new Error('GRN not found');
+            }
+
+            // Update GRN material with QC details
             await client.query(
                 `UPDATE purchase.grn_materials 
                 SET qc_status = 'completed',
                     accepted_qty = $1,
                     defective_qty = $2,
                     qc_remarks = $3
-                WHERE grn_id = $4 AND material_id = $5`,
+                WHERE grn_id = $4 AND material_id = $5
+                RETURNING *`,
                 [
                     qcData.acceptedQty,
                     qcData.defectiveQty,
@@ -234,6 +249,51 @@ class PurchaseOrderModel {
                     materialId
                 ]
             );
+
+            // If this is a replacement GRN and QC is completed, update the original GRN's defective quantity
+            if (grn.grn_type === 'replacement' && grn.replacement_for) {
+                // Get the original GRN material's defective quantity
+                const originalGrnMaterialResult = await client.query(
+                    `SELECT defective_qty 
+                     FROM purchase.grn_materials 
+                     WHERE grn_id = $1 AND material_id = $2`,
+                    [grn.replacement_for, materialId]
+                );
+
+                if (originalGrnMaterialResult.rows.length > 0) {
+                    const originalDefectiveQty = parseFloat(originalGrnMaterialResult.rows[0].defective_qty);
+                    const replacementAcceptedQty = parseFloat(qcData.acceptedQty);
+
+                    // Update the original GRN's defective quantity by subtracting the accepted replacement quantity
+                    await client.query(
+                        `UPDATE purchase.grn_materials
+                         SET defective_qty = GREATEST(0, defective_qty - $1)
+                         WHERE grn_id = $2 AND material_id = $3`,
+                        [replacementAcceptedQty, grn.replacement_for, materialId]
+                    );
+
+                    // Add accepted quantity from replacement GRN to raw material inventory
+                     if (replacementAcceptedQty > 0) {
+                        await client.query(
+                            `UPDATE inventory.raw_materials
+                             SET current_stock = current_stock + $1
+                             WHERE material_id = $2`,
+                            [replacementAcceptedQty, materialId]
+                        );
+                     }
+
+                }
+            } else if (qcData.qcStatus === 'completed') { // Ensure this only happens if QC is actually completed for initial GRNs
+                // For non-replacement (initial) GRNs, add accepted quantity to inventory if QC is completed
+                 if (parseFloat(qcData.acceptedQty) > 0) {
+                    await client.query(
+                        `UPDATE inventory.raw_materials
+                         SET current_stock = current_stock + $1
+                         WHERE material_id = $2`,
+                        [parseFloat(qcData.acceptedQty), materialId]
+                    );
+                 }
+            }
 
             // Update GRN status if all materials are QC completed
             const pendingMaterials = await client.query(
@@ -250,55 +310,45 @@ class PurchaseOrderModel {
                     WHERE grn_id = $1`,
                     [grnId]
                 );
-            }
 
-            // Get the current PO and its GRNs
-            const po = await this.getPurchaseOrderById(poId);
-            
-            // Check if this is the first QC being done (transition from grn_verified to qc_in_progress)
-            const hasAnyQCCompleted = po.grns.some(grn => 
-                grn.materials.some(m => m.qcStatus === 'completed')
-            );
-            
-            if (!hasAnyQCCompleted && po.status === 'grn_verified') {
-                await client.query(
-                    `UPDATE purchase.purchase_orders 
-                    SET status = 'qc_in_progress'
-                    WHERE po_id = $1`,
+                // Check if all GRNs for this PO are completed and update PO status
+                const poAllGrnsCompleted = await client.query(
+                    `SELECT COUNT(*) 
+                     FROM purchase.grns 
+                     WHERE po_id = $1 AND status != 'qc_completed'`,
                     [poId]
                 );
-            }
 
-            // Check if all GRNs are QC completed and update PO status accordingly
-            const allGRNsCompleted = po.grns.every(grn => grn.status === 'qc_completed');
-            if (allGRNsCompleted) {
-                const hasDefectiveItems = po.grns.some(grn => 
-                    grn.materials.some(m => m.defectiveQty > 0)
-                );
+                if (poAllGrnsCompleted.rows[0].count === '0') {
+                    // Also check if there are any pending quantities left (defective that need replacement)
+                    const pendingQuantitiesCheck = await this.hasPendingQuantities(poId);
 
-                const hasPendingQuantity = await this.hasPendingQuantities(poId);
-
-                let newStatus;
-                if (hasDefectiveItems) {
-                    newStatus = 'returned_to_vendor';
-                } else if (hasPendingQuantity) {
-                    newStatus = 'qc_in_progress';
-                } else {
-                    newStatus = 'completed';
+                    if (!pendingQuantitiesCheck) {
+                         await client.query(
+                            `UPDATE purchase.purchase_orders 
+                             SET status = 'completed'
+                             WHERE po_id = $1`,
+                            [poId]
+                         );
+                    }
                 }
-
-                await client.query(
-                    `UPDATE purchase.purchase_orders 
-                    SET status = $1
-                    WHERE po_id = $2`,
-                    [newStatus, poId]
-                );
             }
 
             await client.query('COMMIT');
-            return await this.getGRNById(grnId);
+            // Fetch the updated GRN material
+            const updatedGrnMaterialResult = await client.query(
+                 `SELECT gm.*, m.material_name, m.unit
+                  FROM purchase.grn_materials gm
+                  JOIN inventory.raw_materials m ON gm.material_id = m.material_id
+                  WHERE gm.grn_id = $1 AND gm.material_id = $2`,
+                  [grnId, materialId]
+            );
+
+            return updatedGrnMaterialResult.rows[0];
+
         } catch (err) {
             await client.query('ROLLBACK');
+            console.error('Error updating GRN material QC:', err);
             throw err;
         } finally {
             client.release();
@@ -337,8 +387,9 @@ class PurchaseOrderModel {
                     poi.material_id,
                     m.material_name,
                     poi.quantity as ordered_qty,
-                    COALESCE(SUM(gm.accepted_qty), 0) as accepted_qty,
-                    COALESCE(SUM(gm.defective_qty), 0) as defective_qty,
+                    COALESCE(SUM(CASE WHEN g.grn_type = 'initial' THEN gm.accepted_qty ELSE 0 END), 0) as initial_accepted_qty,
+                    COALESCE(SUM(CASE WHEN g.grn_type = 'replacement' THEN gm.accepted_qty ELSE 0 END), 0) as replacement_accepted_qty,
+                    COALESCE(SUM(CASE WHEN g.grn_type = 'initial' THEN gm.defective_qty ELSE 0 END), 0) as initial_defective_qty,
                     m.unit,
                     poi.unit_price
                 FROM purchase.po_items poi
@@ -352,18 +403,18 @@ class PurchaseOrderModel {
                 material_id,
                 material_name,
                 ordered_qty,
-                accepted_qty,
-                defective_qty,
-                ordered_qty - accepted_qty as pending_qty,
+                initial_accepted_qty + replacement_accepted_qty as total_accepted_qty,
+                GREATEST(0, initial_defective_qty - replacement_accepted_qty) as remaining_defective_qty,
                 unit,
                 unit_price,
+                ordered_qty - (initial_accepted_qty + replacement_accepted_qty) as pending_qty,
                 CASE 
-                    WHEN defective_qty > 0 THEN 'needs_replacement'
-                    WHEN ordered_qty > accepted_qty THEN 'needs_completion'
+                    WHEN GREATEST(0, initial_defective_qty - replacement_accepted_qty) > 0 THEN 'needs_replacement'
+                    WHEN ordered_qty > (initial_accepted_qty + replacement_accepted_qty) THEN 'needs_completion'
                     ELSE 'completed'
                 END as status
             FROM material_totals
-            WHERE ordered_qty > accepted_qty OR defective_qty > 0`,
+            WHERE ordered_qty > (initial_accepted_qty + replacement_accepted_qty) OR GREATEST(0, initial_defective_qty - replacement_accepted_qty) > 0;`,
             [poId]
         );
 
@@ -372,8 +423,8 @@ class PurchaseOrderModel {
                 materialId: row.material_id,
                 materialName: row.material_name,
                 orderedQty: Number(row.ordered_qty),
-                acceptedQty: Number(row.accepted_qty),
-                defectiveQty: Number(row.defective_qty),
+                acceptedQty: Number(row.total_accepted_qty),
+                defectiveQty: Number(row.remaining_defective_qty),
                 pendingQty: Number(row.pending_qty),
                 unit: row.unit,
                 unitPrice: Number(row.unit_price),

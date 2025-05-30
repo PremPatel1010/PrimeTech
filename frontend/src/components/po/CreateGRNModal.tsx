@@ -173,6 +173,7 @@ export const CreateGRNModal: React.FC<CreateGRNModalProps> = ({
 
       try {
         const materialToReplace = pendingQuantities[formData.materialId];
+        console.log("materialToReplace", materialToReplace);
         if (
           !materialToReplace ||
           materialToReplace.status !== "needs_replacement"
@@ -185,10 +186,10 @@ export const CreateGRNModal: React.FC<CreateGRNModalProps> = ({
         const replacementGRNData = {
           grnNumber: formData.grnNumber,
           date: formData.date,
-          materialId: formData.materialId,
+          materialId: materialToReplace.materialId,
           receivedQty: Number(formData.receivedQty),
           remarks: formData.remarks || "",
-          replacementFor: materialToReplace.materialId, // Add the material being replaced
+          replacementFor: materialToReplace.originalGrnId,
         };
 
         await addReplacementGRN(po.id, replacementGRNData);
@@ -236,7 +237,9 @@ export const CreateGRNModal: React.FC<CreateGRNModalProps> = ({
     }
   };
 
-  console.log(pendingQuantities);
+  console.log("pendingQuantities After", pendingQuantities);
+  
+
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
@@ -315,9 +318,7 @@ export const CreateGRNModal: React.FC<CreateGRNModalProps> = ({
                 <div className="space-y-2">
                   <Label>Pending Quantity</Label>
                   <p>
-                    {pendingQuantities.find(
-                      (item) => item.materialId === formData.materialId
-                    )?.qtyToReplace ?? 0}
+                    {pendingQuantities[parseInt(formData.materialId as string)]?.qtyToReplace ?? 0}
                   </p>
                 </div>
                 <div className="space-y-2">

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -9,6 +9,8 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { CheckCircle, AlertTriangle } from 'lucide-react';
 import { usePOStore, PurchaseOrder, GRN, GRNMaterial } from '@/services/poStore';
 import { toast } from '@/hooks/use-toast';
+import { Badge } from '@/components/ui/badge';
+import { DialogFooter } from '@/components/ui/dialog';
 
 interface QCModalProps {
   po: PurchaseOrder;
@@ -38,8 +40,6 @@ export const QCModal = ({ po, grn, isOpen, onClose }: QCModalProps) => {
     }))
   );
 
- 
-
   const updateQCItem = (index: number, field: keyof QCItemData, value: string | number) => {
     const updatedData = [...qcData];
     const item = updatedData[index];
@@ -49,50 +49,49 @@ export const QCModal = ({ po, grn, isOpen, onClose }: QCModalProps) => {
       const receivedQty = item.receivedQty;
       item.defectiveQty = Math.min(Math.max(0, defectiveQty), receivedQty);
       item.acceptedQty = Math.max(0, receivedQty - item.defectiveQty);
+      item.qcStatus = 'completed'; // Automatically set status to completed when quantities are updated
     } else if (field === 'qcRemarks') {
       item.qcRemarks = value as string;
     } else if (field === 'qcStatus') {
       item.qcStatus = value as 'pending' | 'completed';
+      // If status is set to completed, ensure accepted quantity is calculated
+      if (value === 'completed') {
+        item.acceptedQty = Math.max(0, item.receivedQty - item.defectiveQty);
+      }
     }
     
     setQcData(updatedData);
   };
 
-  const handleSubmitQC = async () => {
-    // Validate QC data
-    const hasInvalidData = qcData.some(item => 
-      item.defectiveQty < 0 || 
-      item.defectiveQty > item.receivedQty ||
-      item.acceptedQty < 0
-    );
-
-    if (hasInvalidData) {
-      toast({ 
-        title: 'Error', 
-        description: 'Please ensure defective quantity is valid', 
-        variant: 'destructive' 
-      });
-      return;
-    }
-
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
     try {
-      // Update each material's QC status
-      await Promise.all(qcData.map(item => 
-        updateGRNMaterialQC(po.id, grn.id, item.materialId, {
-          acceptedQty: item.acceptedQty,
-          defectiveQty: item.defectiveQty,
-          qcRemarks: item.qcRemarks
-        })
-      ));
+      // Process each material individually
+      for (const item of qcData) {
+        await updateGRNMaterialQC(
+          po.id,
+          grn.id,
+          item.materialId,
+          {
+            acceptedQty: item.acceptedQty,
+            defectiveQty: item.defectiveQty,
+            qcRemarks: item.qcRemarks
+          }
+        );
+      }
 
-      toast({ title: 'Success', description: 'Quality check completed successfully' });
+      toast({ 
+        title: 'Success',
+        description: 'QC status updated successfully'
+      });
       onClose();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error updating QC status:', error);
       toast({ 
-        title: 'Error', 
-        description: 'Failed to update QC status', 
-        variant: 'destructive' 
+        title: 'Error',
+        description: error.response?.data?.error || 'Failed to update QC status',
+        variant: 'destructive'
       });
     }
   };
@@ -102,83 +101,57 @@ export const QCModal = ({ po, grn, isOpen, onClose }: QCModalProps) => {
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-4xl">
         <DialogHeader>
-          <DialogTitle className="flex items-center space-x-2">
-            <CheckCircle className="h-5 w-5 text-blue-600" />
-            <span>Quality Control - {grn.grnNumber}</span>
-          </DialogTitle>
+          <DialogTitle>Quality Control - {grn.grnNumber}</DialogTitle>
+          <DialogDescription>
+            {grn.grnType === 'replacement' ? 'Replacement GRN QC' : 'Initial GRN QC'}
+          </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-6">
-          <div className="bg-gray-50 p-4 rounded-lg">
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <p className="text-sm text-gray-500">PO Number</p>
-                <p className="font-medium">{po.poNumber}</p>
-              </div>
-              <div>
-                <p className="text-sm text-gray-500">GRN Date</p>
-                <p className="font-medium">{new Date(grn.date).toLocaleDateString()}</p>
-              </div>
-            </div>
-          </div>
-
-          {hasDefectiveItems && (
-            <Alert className="border-orange-200 bg-orange-50">
-              <AlertTriangle className="h-4 w-4 text-orange-600" />
-              <AlertDescription className="text-orange-800">
-                Defective items detected. These will be marked for return to vendor and replacement GRN can be created.
-              </AlertDescription>
-            </Alert>
-          )}
-
-          {/* QC Table */}
-          <div>
-            <Label className="text-base font-medium">Quality Check Results</Label>
-            <Table className="mt-2">
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="grid gap-4">
+            <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Material Name</TableHead>
+                  <TableHead>Material</TableHead>
                   <TableHead>Received Qty</TableHead>
                   <TableHead>Defective Qty</TableHead>
                   <TableHead>Accepted Qty</TableHead>
                   <TableHead>Unit</TableHead>
-                  <TableHead>QC Remarks</TableHead>
+                  <TableHead>Remarks</TableHead>
+                  <TableHead>Status</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {qcData.map((item, index) => (
                   <TableRow key={item.materialId}>
-                    <TableCell className="font-medium">{item.materialName}</TableCell>
+                    <TableCell>{item.materialName}</TableCell>
                     <TableCell>{item.receivedQty}</TableCell>
                     <TableCell>
                       <Input
                         type="number"
-                        value={item.defectiveQty}
-                        onChange={(e) => updateQCItem(index, 'defectiveQty', Number(e.target.value))}
                         min="0"
                         max={item.receivedQty}
-                        className={item.defectiveQty > 0 ? 'border-red-300 bg-red-50' : ''}
+                        value={item.defectiveQty}
+                        onChange={(e) => updateQCItem(index, 'defectiveQty', e.target.value)}
+                        className="w-24"
                       />
                     </TableCell>
-                    <TableCell>
-                      <div className={`p-2 rounded text-center font-medium ${
-                        item.acceptedQty === item.receivedQty 
-                          ? 'bg-green-100 text-green-800' 
-                          : 'bg-yellow-100 text-yellow-800'
-                      }`}>
-                        {item.acceptedQty}
-                      </div>
-                    </TableCell>
+                    <TableCell>{item.acceptedQty}</TableCell>
                     <TableCell>{item.unit}</TableCell>
                     <TableCell>
-                      <Textarea
+                      <Input
+                        type="text"
                         value={item.qcRemarks}
                         onChange={(e) => updateQCItem(index, 'qcRemarks', e.target.value)}
-                        placeholder="Enter QC remarks..."
-                        className="min-h-[60px]"
+                        placeholder="Add remarks..."
                       />
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant={item.qcStatus === 'completed' ? 'default' : 'secondary'}>
+                        {item.qcStatus === 'completed' ? 'Completed' : 'Pending'}
+                      </Badge>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -186,36 +159,15 @@ export const QCModal = ({ po, grn, isOpen, onClose }: QCModalProps) => {
             </Table>
           </div>
 
-          {/* Summary */}
-          <div className="bg-gray-50 p-4 rounded-lg">
-            <h4 className="font-medium mb-2">QC Summary</h4>
-            <div className="grid grid-cols-3 gap-4">
-              <div>
-                <p className="text-sm text-gray-500">Total Received</p>
-                <p className="font-medium">{qcData.reduce((sum, item) => sum + item.receivedQty, 0)}</p>
-              </div>
-              <div>
-                <p className="text-sm text-gray-500">Total Accepted</p>
-                <p className="font-medium text-green-600">{qcData.reduce((sum, item) => sum + item.acceptedQty, 0)}</p>
-              </div>
-              <div>
-                <p className="text-sm text-gray-500">Total Defective</p>
-                <p className="font-medium text-red-600">{totalDefective}</p>
-              </div>
-            </div>
-          </div>
-
-          {/* Actions */}
-          <div className="flex justify-end space-x-2">
-            <Button variant="outline" onClick={onClose}>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onClose}>
               Cancel
             </Button>
-            <Button onClick={handleSubmitQC} className="bg-green-600 hover:bg-green-700">
-              <CheckCircle className="h-4 w-4 mr-2" />
-              Complete QC
+            <Button type="submit">
+              Update QC Status
             </Button>
-          </div>
-        </div>
+          </DialogFooter>
+        </form>
       </DialogContent>
     </Dialog>
   );
