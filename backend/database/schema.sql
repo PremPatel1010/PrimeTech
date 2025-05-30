@@ -238,7 +238,7 @@ RETURNS TRIGGER AS $$
 BEGIN
     -- Only update stock when QC is completed and accepted quantity changes
     IF NEW.qc_status = 'completed' AND 
-       (OLD.qc_status IS NULL OR OLD.qc_status != 'completed') AND
+       (OLD.qc_status IS DISTINCT FROM 'completed') AND
        NEW.accepted_qty > 0 THEN
         
         -- Update raw material stock

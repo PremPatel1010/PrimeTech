@@ -76,9 +76,6 @@ class PurchaseOrderModel {
             [id]
         );
 
-        // Debug log to verify returned fields
-        console.log('PO items from DB:', itemsResult.rows);
-
         // Map items to match frontend expectations
         const items = itemsResult.rows.map(item => ({
             id: item.item_id ? item.item_id.toString() : '',
@@ -399,9 +396,7 @@ class PurchaseOrderModel {
                 throw new Error('Material does not need replacement or is not eligible for replacement');
             }
 
-            if (grnData.receivedQty > materialToReplace.defectiveQty) {
-                throw new Error('Replacement quantity cannot exceed defective quantity');
-            }
+           
 
             // Insert GRN with replacement type
             const grnResult = await client.query(
@@ -499,7 +494,29 @@ class PurchaseOrderModel {
         query += ` ORDER BY po.date DESC`;
 
         const result = await pool.query(query, params);
-        return result.rows;
+        
+        // For each purchase order, fetch its items
+        const purchaseOrdersWithItems = await Promise.all(result.rows.map(async (po) => {
+            const itemsResult = await pool.query(
+                `SELECT poi.item_id, poi.material_id, poi.quantity, poi.unit_price, poi.amount, m.material_name, m.unit
+                FROM purchase.po_items poi
+                JOIN inventory.raw_materials m ON poi.material_id = m.material_id
+                WHERE poi.po_id = $1`,
+                [po.po_id]
+            );
+            const items = itemsResult.rows.map(item => ({
+                id: item.item_id ? item.item_id.toString() : '',
+                materialId: item.material_id ? item.material_id.toString() : '',
+                materialName: item.material_name ?? '',
+                quantity: Number(item.quantity),
+                unitPrice: Number(item.unit_price),
+                unit: item.unit ?? '',
+                amount: Number(item.amount)
+            }));
+            return { ...po, items };
+        }));
+
+        return purchaseOrdersWithItems;
     }
 
     // Material and Supplier Operations

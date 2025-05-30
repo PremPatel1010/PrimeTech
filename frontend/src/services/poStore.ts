@@ -1,5 +1,7 @@
 import { create } from 'zustand';
 import { poApi } from './poApi';
+import axios from 'axios';
+import axiosInstance from '@/utils/axios';
 
 export interface Material {
   id: string;
@@ -47,6 +49,7 @@ export interface PurchaseOrder {
   poNumber: string;
   date: string;
   supplier: string;
+  supplierId: number;
   status: 'ordered' | 'arrived' | 'grn_verified' | 'qc_in_progress' | 'returned_to_vendor' | 'completed';
   gstPercent: number;
   discountPercent: number;
@@ -56,10 +59,15 @@ export interface PurchaseOrder {
   grns: GRN[];
 }
 
+export interface Supplier {
+  id: number;
+  name: string;
+}
+
 interface POStore {
   purchaseOrders: PurchaseOrder[];
   materials: Material[];
-  suppliers: string[];
+  suppliers: Supplier[];
   isLoading: boolean;
   error: string | null;
   
@@ -74,6 +82,8 @@ interface POStore {
   updateGRNMaterialQC: (poId: string, grnId: string, materialId: string, qcData: { acceptedQty: number; defectiveQty: number; qcRemarks?: string }) => Promise<void>;
   getPendingQuantities: (poId: string) => Promise<Record<string, number>>;
   getPurchaseOrder: (poId: string) => Promise<PurchaseOrder>;
+  updatePurchaseOrder: (id: string, data: Partial<PurchaseOrder>) => Promise<PurchaseOrder>;
+  deletePurchaseOrder: (id: string) => Promise<void>;
 }
 
 export const usePOStore = create<POStore>((set, get) => ({
@@ -206,6 +216,7 @@ export const usePOStore = create<POStore>((set, get) => ({
   getPendingQuantities: async (poId) => {
     try {
       return await poApi.getPendingQuantities(poId);
+      
     } catch (error) {
       console.error('Error getting pending quantities:', error);
       throw error;
@@ -218,6 +229,43 @@ export const usePOStore = create<POStore>((set, get) => ({
       return await poApi.getPurchaseOrder(poId);
     } catch (error) {
       console.error('Error getting purchase order:', error);
+      throw error;
+    }
+  },
+
+  updatePurchaseOrder: async (id: string, data: Partial<PurchaseOrder>) => {
+    try {
+      // Ensure supplierId is a number if it exists
+      const formattedData = {
+        ...data,
+        supplierId: data.supplierId ? Number(data.supplierId) : undefined
+      };
+
+      const response = await axiosInstance.put(`/purchase-orders/${id}`, formattedData);
+      const updatedPO = response.data;
+      
+      set((state) => ({
+        purchaseOrders: state.purchaseOrders.map((po) =>
+          po.id === id ? { ...po, ...updatedPO } : po
+        ),
+      }));
+      
+      return updatedPO;
+    } catch (error) {
+      console.error('Error updating purchase order:', error);
+      throw error;
+    }
+  },
+
+  deletePurchaseOrder: async (id: string) => {
+    try {
+      await axiosInstance.delete(`/purchase-orders/${id}`);
+      
+      set((state) => ({
+        purchaseOrders: state.purchaseOrders.filter((po) => po.id !== id),
+      }));
+    } catch (error) {
+      console.error('Error deleting purchase order:', error);
       throw error;
     }
   }

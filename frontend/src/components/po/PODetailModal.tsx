@@ -81,7 +81,7 @@ export const PODetailModal = ({ po, isOpen, onClose }: PODetailModalProps) => {
         try {
           const raw = await getPendingQuantities(currentPO.id);
           const quantities = Object.values(raw); // Convert object to array
-          console.log("quantities", quantities);
+          
 
           const replacementNeededQuantities = quantities
             .filter((item: any) => item.status === "needs_replacement")

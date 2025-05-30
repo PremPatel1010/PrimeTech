@@ -4,20 +4,24 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Eye, Package } from 'lucide-react';
+import { Eye, Package, Pencil, Trash2 } from 'lucide-react';
 import { PODetailModal } from './PODetailModal';
 import { CreateGRNModal } from './CreateGRNModal';
+import { EditPOModal } from './EditPOModal';
 import { formatDate, formatCurrency } from '@/lib/utils';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { toast } from 'sonner';
 
 export interface PurchaseOrderListProps {
     onSelectPO?: (po: any) => void;
 }
 
 const PurchaseOrderList: React.FC<PurchaseOrderListProps> = ({ onSelectPO }) => {
-    const { purchaseOrders, isLoading } = usePOStore();
+    const { purchaseOrders, isLoading, deletePurchaseOrder } = usePOStore();
     const [selectedPO, setSelectedPO] = useState<any>(null);
     const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
     const [isGRNModalOpen, setIsGRNModalOpen] = useState(false);
+    const [isEditModalOpen, setIsEditModalOpen] = useState(false);
 
     const handleViewDetails = (po: any) => {
         setSelectedPO(po);
@@ -28,6 +32,21 @@ const PurchaseOrderList: React.FC<PurchaseOrderListProps> = ({ onSelectPO }) => 
     const handleCreateGRN = (po: any) => {
         setSelectedPO(po);
         setIsGRNModalOpen(true);
+    };
+
+    const handleEdit = (po: any) => {
+        setSelectedPO(po);
+        setIsEditModalOpen(true);
+    };
+
+    const handleDelete = async (po: any) => {
+        try {
+            await deletePurchaseOrder(po.id);
+            toast.success('Purchase order deleted successfully');
+        } catch (error) {
+            toast.error('Failed to delete purchase order');
+            console.error('Error deleting PO:', error);
+        }
     };
 
     const getStatusBadge = (status: string) => {
@@ -92,6 +111,42 @@ const PurchaseOrderList: React.FC<PurchaseOrderListProps> = ({ onSelectPO }) => 
                                                 <Package className="h-4 w-4" />
                                             </Button>
                                         )}
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={() => handleEdit(po)}
+                                        >
+                                            <Pencil className="h-4 w-4" />
+                                        </Button>
+                                        <AlertDialog>
+                                            <AlertDialogTrigger asChild>
+                                                <Button
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    className="text-destructive hover:text-destructive"
+                                                >
+                                                    <Trash2 className="h-4 w-4" />
+                                                </Button>
+                                            </AlertDialogTrigger>
+                                            <AlertDialogContent>
+                                                <AlertDialogHeader>
+                                                    <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+                                                    <AlertDialogDescription>
+                                                        This action cannot be undone. This will permanently delete the purchase order
+                                                        and all associated data.
+                                                    </AlertDialogDescription>
+                                                </AlertDialogHeader>
+                                                <AlertDialogFooter>
+                                                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                                    <AlertDialogAction
+                                                        onClick={() => handleDelete(po)}
+                                                        className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                                    >
+                                                        Delete
+                                                    </AlertDialogAction>
+                                                </AlertDialogFooter>
+                                            </AlertDialogContent>
+                                        </AlertDialog>
                                     </TableCell>
                                 </TableRow>
                             ))}
@@ -111,6 +166,11 @@ const PurchaseOrderList: React.FC<PurchaseOrderListProps> = ({ onSelectPO }) => 
                         po={selectedPO}
                         isOpen={isGRNModalOpen}
                         onClose={() => setIsGRNModalOpen(false)}
+                    />
+                    <EditPOModal
+                        po={selectedPO}
+                        isOpen={isEditModalOpen}
+                        onClose={() => setIsEditModalOpen(false)}
                     />
                 </>
             )}

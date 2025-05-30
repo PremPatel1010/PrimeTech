@@ -1,45 +1,56 @@
-import axiosInstance from '../utils/axios';
+import axiosInstance from '@/utils/axios';
+import { PurchaseOrder, POItem } from './poStore';
 
-export interface PurchaseMaterial {
-  material_id: number;
-  material_name?: string;
-  quantity: number;
-  unit: string;
-  unit_price: number;
-}
+// Remove the local declaration of PurchaseOrder interface
+// export interface PurchaseMaterial {
+//   materialId: string;
+//   quantity: number;
+//   unitPrice: number;
+//   amount: number;
+//   unit: string;
+//   materialName: string;
+//   batchNumber?: string;
+// }
 
-export interface PurchaseOrder {
-  purchase_order_id: number;
-  order_number: string;
-  order_date: string;
-  supplier_id: number;
-  status: string;
-  discount?: number;
-  gst?: number;
-  total_amount?: number;
-  materials: PurchaseMaterial[];
-  grns?: (any & { materials?: PurchaseMaterial[] })[];
-}
+// // Purchase Order Types
+// export interface PurchaseOrder {
+//   id: string;
+//   orderNumber: string;
+//   date: string;
+//   supplierName: string;
+//   supplierId?: string;
+//   materials: PurchaseMaterial[];
+//   status: PurchaseOrderStatus;
+//   totalValue: number;
+//   invoiceFile?: string;
+//   invoiceNumber?: string;
+//   receiptDate?: string; // Date when materials were received
+// }
 
 const PURCHASE_ORDER_URL = '/purchase-orders';
 
 export const purchaseOrderService = {
   getAll: async (): Promise<PurchaseOrder[]> => {
     const res = await axiosInstance.get(PURCHASE_ORDER_URL);
+    // Ensure items are included in the mapping
     return res.data.map((order: any) => ({
       ...order,
-      materials: order.materials || order.materials || []
+      materials: order.materials || [], // Keep existing materials mapping
+      items: order.items || [] // Explicitly include items
     }));
   },
   get: async (id: number): Promise<PurchaseOrder> => {
     const res = await axiosInstance.get(`${PURCHASE_ORDER_URL}/${id}`);
+     // Ensure items are included in the mapping
     return {
       ...res.data,
-      materials: res.data.materials || res.data.materials || []
+      materials: res.data.materials || [], // Keep existing materials mapping
+      items: res.data.items || [] // Explicitly include items
     };
   },
-  create: async (order: Omit<PurchaseOrder, 'purchase_order_id'>): Promise<PurchaseOrder> => {
-    const res = await axiosInstance.post(PURCHASE_ORDER_URL, order);
+  create: async (order: Omit<PurchaseOrder, 'id' | 'items' | 'grns'>, items: Omit<POItem, 'id' | 'materialName' | 'unit'>[]): Promise<PurchaseOrder> => {
+    // The backend expects the main PO data and items separately for creation
+    const res = await axiosInstance.post(PURCHASE_ORDER_URL, { ...order, items });
     return res.data;
   },
   update: async (id: number, order: Partial<PurchaseOrder>): Promise<PurchaseOrder> => {
