@@ -17,6 +17,7 @@ interface QCModalProps {
   grn: GRN;
   isOpen: boolean;
   onClose: () => void;
+  onSuccess: () => void;
 }
 
 interface QCItemData extends Omit<GRNMaterial, 'id' | 'qcStatus'> {
@@ -24,7 +25,7 @@ interface QCItemData extends Omit<GRNMaterial, 'id' | 'qcStatus'> {
   orderedQty: number;
 }
 
-export const QCModal = ({ po, grn, isOpen, onClose }: QCModalProps) => {
+export const QCModal = ({ po, grn, isOpen, onClose, onSuccess }: QCModalProps) => {
   const { updateGRNMaterialQC } = usePOStore();
   const [qcData, setQcData] = useState<QCItemData[]>(
     grn.materials.map((material: GRNMaterial) => ({
@@ -86,6 +87,7 @@ export const QCModal = ({ po, grn, isOpen, onClose }: QCModalProps) => {
         description: 'QC status updated successfully'
       });
       onClose();
+      onSuccess();
     } catch (error: any) {
       console.error('Error updating QC status:', error);
       toast({ 

@@ -6,7 +6,7 @@ CREATE SCHEMA IF NOT EXISTS sales;
 CREATE SCHEMA IF NOT EXISTS purchase;
 CREATE SCHEMA IF NOT EXISTS inventory;
 CREATE SCHEMA IF NOT EXISTS manufacturing;
-CREATE SCHEMA IF NOT EXISTS products;
+CREATE SCHEMA IF NOT EXISTS product;
 
 -- ========================
 -- COMPANY SETTINGS (Global)
@@ -192,6 +192,121 @@ CREATE TABLE purchase.grn_materials (
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
+
+
+
+-- Products table
+
+CREATE TABLE product.products (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    name VARCHAR(255) NOT NULL,
+    product_code VARCHAR(100) UNIQUE NOT NULL,
+    description TEXT,
+    rating_range VARCHAR(100),
+    discharge_range VARCHAR(100),
+    head_range VARCHAR(100),
+    category VARCHAR(100),
+    version VARCHAR(50) DEFAULT '1.0',
+    final_assembly_time INTEGER DEFAULT 60, -- in minutes
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Manufacturing Steps table
+CREATE TABLE product.manufacturing_steps (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    product_id UUID REFERENCES product.products(id) ON DELETE CASCADE,
+    sub_component_id UUID,
+    name VARCHAR(255) NOT NULL,
+    description TEXT,
+    estimated_time INTEGER NOT NULL, -- in minutes
+    sequence_number INTEGER NOT NULL,
+    step_type VARCHAR(50) DEFAULT 'product', -- 'product' or 'sub_component'
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Sub Components table
+CREATE TABLE product.sub_components (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    product_id UUID REFERENCES product.products(id) ON DELETE CASCADE,
+    name VARCHAR(255) NOT NULL,
+    description TEXT,
+    estimated_time INTEGER DEFAULT 30, -- in minutes
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Component Materials junction table
+CREATE TABLE product.component_materials (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    sub_component_id UUID REFERENCES product.sub_components(id) ON DELETE CASCADE,
+    material_id INTEGER REFERENCES inventory.raw_materials(material_id) ON DELETE CASCADE,
+    quantity_required DECIMAL(10,3) NOT NULL,
+    unit VARCHAR(50) NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Manufacturing Batches table
+CREATE TABLE product.manufacturing_batches (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    batch_number VARCHAR(100) UNIQUE NOT NULL,
+    product_id UUID REFERENCES product.products(id) ON DELETE CASCADE,
+    quantity INTEGER NOT NULL,
+    status VARCHAR(50) DEFAULT 'planning', -- planning, in_progress, completed, cancelled
+    priority VARCHAR(20) DEFAULT 'medium', -- low, medium, high
+    created_date TIMESTAMP DEFAULT NOW(),
+    target_completion_date TIMESTAMP,
+    actual_completion_date TIMESTAMP,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Batch Workflows table
+CREATE TABLE product.batch_workflows (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    batch_id UUID REFERENCES product.manufacturing_batches(id) ON DELETE CASCADE,
+    component_id UUID, -- can be sub_component_id or 'final-assembly'
+    component_name VARCHAR(255) NOT NULL,
+    component_type VARCHAR(50) NOT NULL, -- 'sub-component' or 'final-assembly'
+    quantity INTEGER NOT NULL,
+    assigned_team VARCHAR(100),
+    status VARCHAR(50) DEFAULT 'not_started', -- not_started, in_progress, completed, on_hold
+    start_date TIMESTAMP,
+    end_date TIMESTAMP,
+    estimated_duration INTEGER, -- in minutes
+    actual_duration INTEGER,
+    parent_batch_id UUID,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Workflow Material Consumption table
+CREATE TABLE product.workflow_material_consumption (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    workflow_id UUID REFERENCES product.batch_workflows(id) ON DELETE CASCADE,
+    material_id INTEGER REFERENCES inventory.raw_materials(material_id) ON DELETE CASCADE,
+    material_name VARCHAR(255) NOT NULL,
+    quantity_consumed DECIMAL(10,3) NOT NULL,
+    unit VARCHAR(50) NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Indexes for better performance
+CREATE INDEX idx_products_code ON product.products(product_code);
+CREATE INDEX idx_products_category ON product.products(category);
+CREATE INDEX idx_sub_components_product ON product.sub_components(product_id);
+CREATE INDEX idx_component_materials_sub_component ON product.component_materials(sub_component_id);
+CREATE INDEX idx_component_materials_material ON product.component_materials(material_id);
+CREATE INDEX idx_manufacturing_steps_product ON product.manufacturing_steps(product_id);
+CREATE INDEX idx_manufacturing_steps_sub_component ON product.manufacturing_steps(sub_component_id);
+CREATE INDEX idx_batches_product ON product.manufacturing_batches(product_id);
+CREATE INDEX idx_batches_status ON product.manufacturing_batches(status);
+CREATE INDEX idx_workflows_batch ON product.batch_workflows(batch_id);
+CREATE INDEX idx_workflows_status ON product.batch_workflows(status);
+
+-- Triggers for updated_at timestamps
+
+
 
 -- Indexes for better query performance
 CREATE INDEX idx_po_supplier ON purchase.purchase_orders(supplier_id);
@@ -525,6 +640,26 @@ EXECUTE FUNCTION inventory.check_stock_levels();
 
 
 
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$ language 'plpgsql';
 
+CREATE TRIGGER update_products_updated_at BEFORE UPDATE ON product.products
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
+CREATE TRIGGER update_sub_components_updated_at BEFORE UPDATE ON product.sub_components
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_raw_materials_updated_at BEFORE UPDATE ON inventory.raw_materials
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_batches_updated_at BEFORE UPDATE ON product.manufacturing_batches
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_workflows_updated_at BEFORE UPDATE ON product.batch_workflows
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 

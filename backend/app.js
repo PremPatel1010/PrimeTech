@@ -5,7 +5,7 @@ import morgan from 'morgan';
 import cookieParser from 'cookie-parser';
 import authRoutes from './routes/auth.routes.js';
 import pool from './db/db.js';
-import productRoutes from './routes/product.route.js';
+import productRoutes from './routes/products.route.js';
 import rawMaterialRoutes from './routes/rawMaterial.routes.js';
 import purchaseOrderRoutes from './routes/purchaseOrder.routes.js'
 import supplierRoutes from './routes/supplier.routes.js';

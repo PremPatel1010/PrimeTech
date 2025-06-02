@@ -440,6 +440,7 @@ export const PODetailModal = ({ po, isOpen, onClose }: PODetailModalProps) => {
           grn={selectedGRN}
           isOpen={!!selectedGRN}
           onClose={() => setSelectedGRN(null)}
+          onSuccess={() => getPurchaseOrder(po.id)}
         />
       )}
     </>

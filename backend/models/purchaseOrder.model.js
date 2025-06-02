@@ -382,47 +382,64 @@ class PurchaseOrderModel {
 
     static async getPendingQuantities(poId) {
         const result = await pool.query(
-            `WITH material_totals AS (
+            `WITH material_grn_summary AS (
                 SELECT 
                     poi.material_id,
                     m.material_name,
-                    poi.quantity as ordered_qty,
-                    COALESCE(SUM(CASE WHEN g.grn_type = 'initial' THEN gm.accepted_qty ELSE 0 END), 0) as initial_accepted_qty,
-                    COALESCE(SUM(CASE WHEN g.grn_type = 'replacement' THEN gm.accepted_qty ELSE 0 END), 0) as replacement_accepted_qty,
-                    COALESCE(SUM(CASE WHEN g.grn_type = 'initial' THEN gm.defective_qty ELSE 0 END), 0) as initial_defective_qty,
+                    poi.quantity AS ordered_qty,
                     m.unit,
-                    poi.unit_price
+                    poi.unit_price,
+                    COALESCE(SUM(gm.received_qty), 0) AS total_received_qty,
+                    COALESCE(SUM(CASE WHEN g.grn_type = 'initial' THEN gm.accepted_qty ELSE 0 END), 0) AS initial_accepted_qty,
+                    COALESCE(SUM(CASE WHEN g.grn_type = 'initial' THEN gm.defective_qty ELSE 0 END), 0) AS initial_defective_qty,
+                    COALESCE(SUM(CASE WHEN g.grn_type = 'replacement' THEN gm.accepted_qty ELSE 0 END), 0) AS replacement_accepted_qty
                 FROM purchase.po_items poi
                 JOIN inventory.raw_materials m ON m.material_id = poi.material_id
                 LEFT JOIN purchase.grns g ON g.po_id = poi.po_id
                 LEFT JOIN purchase.grn_materials gm ON gm.grn_id = g.grn_id AND gm.material_id = poi.material_id
                 WHERE poi.po_id = $1
                 GROUP BY poi.material_id, m.material_name, poi.quantity, m.unit, poi.unit_price
+            ),
+            calculated_fields AS (
+                SELECT
+                    *,
+                    LEAST(initial_defective_qty, replacement_accepted_qty) AS recovered_defective_qty
+                FROM material_grn_summary
+            ),
+            final_result AS (
+                SELECT
+                    material_id,
+                    material_name,
+                    ordered_qty,
+                    total_received_qty,
+                    initial_accepted_qty,
+                    replacement_accepted_qty,
+                    initial_defective_qty,
+                    recovered_defective_qty,
+                    initial_accepted_qty + replacement_accepted_qty + recovered_defective_qty AS total_accepted_qty,
+                    GREATEST(0, initial_defective_qty - replacement_accepted_qty) AS remaining_defective_qty,
+                    GREATEST(0, ordered_qty - (initial_accepted_qty + replacement_accepted_qty + recovered_defective_qty)) AS pending_qty,
+                    unit,
+                    unit_price,
+                    CASE
+                        WHEN GREATEST(0, initial_defective_qty - replacement_accepted_qty) > 0 THEN 'needs_replacement'
+                        WHEN GREATEST(0, ordered_qty - (initial_accepted_qty + replacement_accepted_qty + recovered_defective_qty)) > 0 THEN 'needs_completion'
+                        ELSE 'completed'
+                    END AS status
+                FROM calculated_fields
             )
-            SELECT 
-                material_id,
-                material_name,
-                ordered_qty,
-                initial_accepted_qty + replacement_accepted_qty as total_accepted_qty,
-                GREATEST(0, initial_defective_qty - replacement_accepted_qty) as remaining_defective_qty,
-                unit,
-                unit_price,
-                ordered_qty - (initial_accepted_qty + replacement_accepted_qty) as pending_qty,
-                CASE 
-                    WHEN GREATEST(0, initial_defective_qty - replacement_accepted_qty) > 0 THEN 'needs_replacement'
-                    WHEN ordered_qty > (initial_accepted_qty + replacement_accepted_qty) THEN 'needs_completion'
-                    ELSE 'completed'
-                END as status
-            FROM material_totals
-            WHERE ordered_qty > (initial_accepted_qty + replacement_accepted_qty) OR GREATEST(0, initial_defective_qty - replacement_accepted_qty) > 0;`,
+            SELECT *
+            FROM final_result
+            WHERE pending_qty > 0 OR remaining_defective_qty > 0;`,
             [poId]
         );
-
+    
         return result.rows.reduce((acc, row) => {
             acc[row.material_id] = {
                 materialId: row.material_id,
                 materialName: row.material_name,
                 orderedQty: Number(row.ordered_qty),
+                receivedQty: Number(row.total_received_qty),
                 acceptedQty: Number(row.total_accepted_qty),
                 defectiveQty: Number(row.remaining_defective_qty),
                 pendingQty: Number(row.pending_qty),
@@ -433,6 +450,8 @@ class PurchaseOrderModel {
             return acc;
         }, {});
     }
+    
+    
 
     static async createReplacementGRN(poId, grnData) {
         const client = await pool.connect();

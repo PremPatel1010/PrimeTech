@@ -25,7 +25,7 @@ import SettingsPage from "./pages/settings";
 import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
 import { PurchaseOrderDashboard } from './components/po/PurchaseOrderDashboard';
-
+import  ProductDashboard  from './pages/ProductDashboard';
 const queryClient = new QueryClient();
 
 const App: React.FC = () => {
@@ -58,7 +58,9 @@ const App: React.FC = () => {
                 <Route path="/inventory" element={<Inventory />} />
                 <Route path="/manufacturing" element={<Manufacturing />} />
                 <Route path="/reports" element={<Reports />} />
-                <Route path="/products" element={<Products />} />
+                {/* <Route path="/products" element={<Products />} /> */}
+                <Route path="/products" element={<ProductDashboard />} />
+
                 <Route path="/purchase" element={<PurchaseOrderDashboard />} />
                 <Route path="/suppliers" element={<Suppliers />} />
                 {admin && <Route path="/users" element={<UserManagement />} />}

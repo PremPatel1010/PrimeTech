@@ -1,0 +1,23 @@
+import express from 'express';
+import productController from '../controllers/products.controller.js';
+
+const router = express.Router();
+
+// Product routes
+router.get('/', productController.getAllProducts);
+router.get('/:id', productController.getProductById);
+router.post('/', productController.createProduct);
+router.put('/:id', productController.updateProduct);
+router.delete('/:id', productController.deleteProduct);
+
+// Sub-component routes
+router.post('/:id/sub-components', productController.addSubComponent);
+router.post('/:id/sub-components/:subComponentId/materials', productController.addMaterialToSubComponent);
+
+// Raw materials routes
+router.get('/raw-materials', productController.getAllRawMaterials);
+router.get('/raw-materials/low-stock', productController.getLowStockMaterials);
+router.post('/raw-materials', productController.createRawMaterial);
+router.patch('/raw-materials/:materialId/stock', productController.updateMaterialStock);
+
+export default router;

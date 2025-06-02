@@ -14,7 +14,7 @@ class Product {
                    'unit', rm.unit
                  )
                ) FILTER (WHERE b.material_id IS NOT NULL), '[]') as bom_items
-        FROM products.product p
+        FROM product.products p
         LEFT JOIN products.bom b ON p.product_id = b.product_id
         LEFT JOIN inventory.raw_materials rm ON b.material_id = rm.material_id
         GROUP BY p.product_id
@@ -41,7 +41,7 @@ class Product {
                    'unit', rm.unit
                  )
                ) FILTER (WHERE b.material_id IS NOT NULL), '[]') as bom_items
-        FROM products.product p
+        FROM product.products p
         LEFT JOIN products.bom b ON p.product_id = b.product_id
         LEFT JOIN inventory.raw_materials rm ON b.material_id = rm.material_id
         WHERE p.product_id = $1
@@ -60,7 +60,7 @@ class Product {
   static async createProduct({ product_name, product_code, discharge_range, head_range, rating_range, price, cost_price, manufacturing_steps }) {
     try {
       const query = `
-        INSERT INTO products.product 
+        INSERT INTO product.products 
         (product_name, product_code, discharge_range, head_range, rating_range, price, cost_price, manufacturing_steps)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         RETURNING *
@@ -87,7 +87,7 @@ class Product {
                    'unit', rm.unit
                  )
                ) FILTER (WHERE b.material_id IS NOT NULL), '[]') as bom_items
-        FROM products.product p
+        FROM product.products p
         LEFT JOIN products.bom b ON p.product_id = b.product_id
         LEFT JOIN inventory.raw_materials rm ON b.material_id = rm.material_id
         WHERE p.product_id = $1
@@ -201,7 +201,7 @@ class Product {
       values.push(productId);
 
       const query = `
-        UPDATE products.product
+        UPDATE product.products
         SET ${setClauses.join(', ')}
         WHERE product_id = $${paramCount}
         RETURNING *
@@ -218,7 +218,7 @@ class Product {
   // Delete a product by its ID
   static async deleteProduct(productId) {
     try {
-      const query = 'DELETE FROM products.product WHERE product_id = $1 RETURNING *';
+      const query = 'DELETE FROM product.products WHERE product_id = $1 RETURNING *';
       const result = await pool.query(query, [productId]);
       return result.rows[0];
     } catch (error) {
