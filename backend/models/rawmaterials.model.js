@@ -5,7 +5,7 @@ class RawMaterial {
     try {
       const query = `
         SELECT id, name, unit, stock_quantity, min_stock_level, cost_per_unit, supplier_id, created_at, updated_at
-        FROM raw_materials
+        FROM inventory.raw_materials
         ORDER BY name ASC
       `;
       
@@ -30,7 +30,7 @@ class RawMaterial {
     try {
       const query = `
         SELECT id, name, unit, stock_quantity, min_stock_level, cost_per_unit, supplier_id, created_at, updated_at
-        FROM raw_materials
+        FROM inventory.raw_materials
         WHERE id = $1
       `;
       
@@ -60,7 +60,7 @@ class RawMaterial {
   static async create(materialData) {
     try {
       const query = `
-        INSERT INTO raw_materials (name, unit, stock_quantity, min_stock_level, cost_per_unit, supplier_id)
+        INSERT INTO inventory.raw_materials (name, unit, stock_quantity, min_stock_level, cost_per_unit, supplier_id)
         VALUES ($1, $2, $3, $4, $5, $6)
         RETURNING *
       `;
@@ -94,7 +94,7 @@ class RawMaterial {
   static async update(id, materialData) {
     try {
       const query = `
-        UPDATE raw_materials 
+        UPDATE inventory.raw_materials 
         SET name = $1, unit = $2, stock_quantity = $3, min_stock_level = $4, 
             cost_per_unit = $5, supplier_id = $6, updated_at = NOW()
         WHERE id = $7
@@ -135,7 +135,7 @@ class RawMaterial {
   static async updateStock(id, newStock) {
     try {
       const query = `
-        UPDATE raw_materials 
+        UPDATE inventory.raw_materials 
         SET stock_quantity = $1, updated_at = NOW()
         WHERE id = $2
         RETURNING *
@@ -190,7 +190,7 @@ class RawMaterial {
 
   static async delete(id) {
     try {
-      const query = 'DELETE FROM raw_materials WHERE id = $1 RETURNING *';
+      const query = 'DELETE FROM inventory.raw_materials WHERE id = $1 RETURNING *';
       const result = await pool.query(query, [id]);
       
       if (result.rows.length === 0) {

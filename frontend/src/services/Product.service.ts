@@ -1,4 +1,3 @@
-
 import axiosInstance from '@/utils/axios';
 import { toast } from 'sonner';
 
@@ -44,16 +43,19 @@ export interface ComponentMaterial {
 }
 
 export interface RawMaterial {
-  id: string;
-  name: string;
+  material_id: string;
+  material_code: string;
+  material_name: string;
   description?: string;
   unit: string;
-  stockQuantity: number;
-  minStockLevel: number;
-  unitCost: number;
+  current_stock: string;
+  minimum_stock: string;
+  unit_price: string;
   supplier?: string;
   createdAt: string;
   updatedAt: string;
+  moc: string;
+  unit_weight: string;
 }
 
 export interface ManufacturingStep {
@@ -116,6 +118,7 @@ export class ProductService {
   // Products CRUD
   static async getAllProducts(): Promise<ApiResponse<Product[]>> {
     const response = await axiosInstance.get('/products');
+    console.log(response.data);
     return response.data;
   }
 
@@ -149,6 +152,27 @@ export class ProductService {
     return response.data;
   }
 
+  static async updateSubComponent(
+    productId: string,
+    subComponentId: string,
+    subComponentData: Partial<SubComponent>
+  ): Promise<ApiResponse<SubComponent>> {
+    const response = await axiosInstance.put(
+      `/products/${productId}/sub-components/${subComponentId}`,
+      subComponentData
+    );
+    toast.success('Sub-component updated successfully');
+    return response.data;
+  }
+
+  static async deleteSubComponent(productId: string, subComponentId: string): Promise<ApiResponse<void>> {
+    const response = await axiosInstance.delete(
+      `/products/${productId}/sub-components/${subComponentId}`
+    );
+    toast.success('Sub-component deleted successfully');
+    return response.data;
+  }
+
   static async addMaterialToSubComponent(
     productId: string, 
     subComponentId: string, 
@@ -162,6 +186,28 @@ export class ProductService {
     return response.data;
   }
 
+  static async updateMaterial(
+    productId: string,
+    subComponentId: string,
+    materialId: string,
+    materialData: Partial<ComponentMaterial>
+  ): Promise<ApiResponse<ComponentMaterial>> {
+    const response = await axiosInstance.put(
+      `/products/${productId}/sub-components/${subComponentId}/materials/${materialId}`,
+      materialData
+    );
+    toast.success('Material updated successfully');
+    return response.data;
+  }
+
+  static async deleteMaterial(productId: string, subComponentId: string, materialId: string): Promise<ApiResponse<void>> {
+    const response = await axiosInstance.delete(
+      `/products/${productId}/sub-components/${subComponentId}/materials/${materialId}`
+    );
+    toast.success('Material deleted successfully');
+    return response.data;
+  }
+  
   // BOM and Analysis
   static async getProductBOM(productId: string, quantity: number = 1): Promise<ApiResponse<BOMItem[]>> {
     const response = await axiosInstance.get(`/products/${productId}/bom?quantity=${quantity}`);

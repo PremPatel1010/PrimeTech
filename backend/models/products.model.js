@@ -4,57 +4,94 @@ class Product {
   static async findAll() {
     try {
       const query = `
-       SELECT
-  p.*,
-  COALESCE(
-    (
-      SELECT
-        json_agg(
-          jsonb_build_object(
-            'id', sc.id,
-            'name', sc.name,
-            'description', sc.description,
-            'estimatedTime', sc.estimated_time
-            -- Removed 'materials' and 'manufacturingSteps' as they are not in product.sub_components table
-          ) ORDER BY sc.id ASC -- Ensure consistent order for the aggregated array
-        )
-      FROM
-        product.sub_components sc
-      WHERE
-        sc.product_id = p.id -- <<< CRITICAL FIX: Correlate sub_components to the current product
-    ),
-    '[]'::json -- Default to an empty JSON array if no sub_components are found
-  ) AS sub_components,
-  COALESCE(
-    (
-      SELECT
-        json_agg(
-          jsonb_build_object(
-            'sequence', ms.sequence_number,
-            'id', ms.id,
-            'name', ms.name,
-            'description', ms.description,
-            'estimatedTime', ms.estimated_time
-          ) ORDER BY ms.sequence_number ASC -- Ensure consistent order
-        )
-      FROM
-        product.manufacturing_steps ms
-      WHERE
-        ms.product_id = p.id -- Correlate manufacturing_steps to the current product
-        AND ms.step_type = 'product'
-    ),
-    '[]'::json -- Default to an empty JSON array if no manufacturing_steps are found
-  ) AS manufacturing_steps
-FROM
-  product.products p
-GROUP BY
-  p.id -- This is valid in PostgreSQL if p.id is the primary key, as p.* columns are functionally dependent.
-ORDER BY
-  p.created_at DESC;
-
-
+        SELECT 
+          p.*,
+          COALESCE(
+            (
+              SELECT
+                json_agg(
+                  jsonb_build_object(
+                    'id', sc.id,
+                    'name', sc.name,
+                    'description', sc.description,
+                    'estimatedTime', sc.estimated_time,
+                    'materials', COALESCE(
+                      (
+                        SELECT 
+                          json_agg(
+                            jsonb_build_object(
+                              'materialId', cm.material_id,
+                              'materialName', rm.material_name,
+                              'quantityRequired', cm.quantity_required,
+                              'unit', rm.unit
+                            ) ORDER BY cm.material_id ASC
+                          )
+                        FROM 
+                          product.component_materials cm
+                        LEFT JOIN 
+                          inventory.raw_materials rm ON cm.material_id = rm.material_id
+                        WHERE 
+                          cm.sub_component_id = sc.id
+                      ),
+                      '[]'::json
+                    ),
+                    'manufacturingSteps', COALESCE(
+                      (
+                        SELECT 
+                          json_agg(
+                            jsonb_build_object(
+                              'id', ms.id,
+                              'name', ms.name,
+                              'description', ms.description,
+                              'estimatedTime', ms.estimated_time,
+                              'sequence', ms.sequence_number
+                            ) ORDER BY ms.sequence_number ASC
+                          )
+                        FROM 
+                          product.manufacturing_steps ms
+                        WHERE 
+                          ms.sub_component_id = sc.id
+                          AND ms.step_type = 'sub_component'
+                      ),
+                      '[]'::json
+                    )
+                  ) ORDER BY sc.id ASC
+                )
+              FROM
+                product.sub_components sc
+              WHERE
+                sc.product_id = p.id
+            ),
+            '[]'::json
+          ) AS sub_components,
+          COALESCE(
+            (
+              SELECT
+                json_agg(
+                  jsonb_build_object(
+                    'sequence', ms.sequence_number,
+                    'id', ms.id,
+                    'name', ms.name,
+                    'description', ms.description,
+                    'estimatedTime', ms.estimated_time
+                  ) ORDER BY ms.sequence_number ASC
+                )
+              FROM
+                product.manufacturing_steps ms
+              WHERE
+                ms.product_id = p.id
+                AND ms.step_type = 'product'
+            ),
+            '[]'::json
+          ) AS manufacturing_steps
+        FROM
+          product.products p
+        GROUP BY
+          p.id
+        ORDER BY
+          p.created_at DESC;
       `;
-
+      
       const result = await pool.query(query);
       return result.rows.map((row) => ({
         id: row.id,
@@ -251,6 +288,70 @@ ORDER BY
     }
   }
 
+  static async updateSubComponent(productId, subComponentId, subComponentData) {
+    const client = await pool.connect();
+
+    try {
+      await client.query("BEGIN");
+
+      const updateQuery = `
+        UPDATE product.sub_components
+        SET name = $1, description = $2, estimated_time = $3
+        WHERE product_id = $4 AND id = $5
+        RETURNING *
+      `;
+
+      const result = await client.query(updateQuery, [
+        subComponentData.name,
+        subComponentData.description,
+        subComponentData.estimatedTime,
+        productId,
+        subComponentId,
+      ]);
+
+      if (result.rows.length === 0) {
+        throw new Error("Sub-component not found");
+      }
+
+      await client.query("COMMIT");
+      return result.rows[0];
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+
+  static async deleteSubComponent(productId, subComponentId) {
+    const client = await pool.connect();
+
+    try {
+      await client.query("BEGIN");
+
+      const deleteQuery = `
+        DELETE FROM product.sub_components
+        WHERE product_id = $1 AND id = $2
+        RETURNING *
+      `;
+
+      const result = await client.query(deleteQuery, [productId, subComponentId]);
+
+      if (result.rows.length === 0) {
+        throw new Error("Sub-component not found");
+      }
+
+      await client.query("COMMIT");
+      return result.rows[0];
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   static async addMaterialToSubComponent(
     productId,
     subComponentId,
@@ -271,6 +372,58 @@ ORDER BY
         materialData.quantityRequired,
         materialData.unit,
       ]);
+
+      await client.query("COMMIT");
+      return await this.findById(productId);
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  static async updateMaterial(productId, subComponentId, materialId, materialData) {
+    const client = await pool.connect();
+
+    try {
+      await client.query("BEGIN");
+
+      const updateQuery = `
+        UPDATE product.component_materials
+        SET quantity_required = $1, unit = $2
+        WHERE sub_component_id = $3 AND material_id = $4
+      `;
+
+      await client.query(updateQuery, [
+        materialData.quantityRequired,
+        materialData.unit,
+        subComponentId,
+        materialId,
+      ]);
+
+      await client.query("COMMIT");
+      return await this.findById(productId);
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  static async deleteMaterial(productId, subComponentId, materialId) {
+    const client = await pool.connect();
+
+    try {
+      await client.query("BEGIN");
+
+      const deleteQuery = `
+        DELETE FROM product.component_materials
+        WHERE sub_component_id = $1 AND material_id = $2
+      `;
+
+      await client.query(deleteQuery, [subComponentId, materialId]);
 
       await client.query("COMMIT");
       return await this.findById(productId);

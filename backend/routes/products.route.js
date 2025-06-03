@@ -13,6 +13,11 @@ router.delete('/:id', productController.deleteProduct);
 // Sub-component routes
 router.post('/:id/sub-components', productController.addSubComponent);
 router.post('/:id/sub-components/:subComponentId/materials', productController.addMaterialToSubComponent);
+router.put('/:id/sub-components/:subComponentId', productController.updateSubComponent);
+router.delete('/:id/sub-components/:subComponentId', productController.deleteSubComponent);
+router.put('/:id/sub-components/:subComponentId/materials/:materialId', productController.updateMaterial);
+router.delete('/:id/sub-components/:subComponentId/materials/:materialId', productController.deleteMaterial);
+
 
 // Raw materials routes
 router.get('/raw-materials', productController.getAllRawMaterials);

@@ -184,6 +184,96 @@ const productController = {
     }
   },
 
+  // Update sub-component
+  async updateSubComponent(req, res) {
+    try {
+      const { id, subComponentId } = req.params;
+      const subComponentData = req.body;
+
+      const product = await Product.updateSubComponent(id, subComponentId, subComponentData);
+
+      res.json({
+        success: true,
+        data: product,
+        message: 'Sub-component updated successfully' 
+      });
+    } catch (error) {
+      console.error('Error updating sub-component:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error updating sub-component',
+        error: error.message
+      });
+    }
+  },
+
+  // Delete sub-component
+  async deleteSubComponent(req, res) {
+    try {
+      const { id, subComponentId } = req.params;
+
+      const product = await Product.deleteSubComponent(id, subComponentId);
+
+      res.json({
+        success: true,
+        data: product,
+        message: 'Sub-component deleted successfully'
+      });
+    } catch (error) {
+      console.error('Error deleting sub-component:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error deleting sub-component',
+        error: error.message
+      });
+    }
+  },
+
+  // Update material in sub-component
+  async updateMaterial(req, res) {
+    try {
+      const { id, subComponentId, materialId } = req.params;
+      const materialData = req.body;
+
+      const product = await Product.updateMaterial(id, subComponentId, materialId, materialData);
+
+      res.json({
+        success: true,
+        data: product,
+        message: 'Material updated successfully'
+      });
+    } catch (error) {
+      console.error('Error updating material:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error updating material',
+        error: error.message
+      });
+    }
+  },
+
+  // Delete material from sub-component
+  async deleteMaterial(req, res) {
+    try {
+      const { id, subComponentId, materialId } = req.params;
+
+      const product = await Product.deleteMaterial(id, subComponentId, materialId);
+      
+      res.json({
+        success: true,
+        data: product,
+        message: 'Material deleted successfully'
+      });
+    } catch (error) {
+      console.error('Error deleting material:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error deleting material',
+        error: error.message
+      });
+    }
+  },
+
   // Add material to sub-component
   async addMaterialToSubComponent(req, res) {
     try {
