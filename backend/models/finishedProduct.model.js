@@ -5,8 +5,8 @@ class FinishedProduct {
     const result = await pool.query(`
       SELECT 
         MIN(fp.finished_product_id) AS finished_product_id,
-        p.product_id,
-        p.product_name,
+        p.id,
+        p.name,
         p.product_code,
         p.discharge_range,
         p.head_range,
@@ -16,8 +16,8 @@ class FinishedProduct {
         SUM(COALESCE(fp.total_price, fp.quantity_available * fp.unit_price)) AS total_price,
         MAX(fp.added_on) AS added_on
       FROM inventory.finished_products fp
-      JOIN products.product p ON fp.product_id = p.product_id
-      GROUP BY p.product_id, p.product_name, p.product_code, p.discharge_range, p.head_range, p.rating_range
+      JOIN product.products p ON fp.product_id = p.id
+      GROUP BY p.id, p.name, p.product_code, p.discharge_range, p.head_range, p.rating_range
       ORDER BY MAX(fp.added_on) DESC
     `);
     return result.rows;
@@ -27,13 +27,13 @@ class FinishedProduct {
     const result = await pool.query(`
       SELECT 
         fp.*,
-        p.product_name,
+        p.name,
         p.product_code,
         p.discharge_range,
         p.head_range,
         p.rating_range
       FROM inventory.finished_products fp
-      JOIN products.product p ON fp.product_id = p.product_id
+      JOIN product.products p ON fp.product_id = p.id
       WHERE fp.finished_product_id = $1
     `, [finishedProductId]);
     return result.rows[0];
@@ -46,7 +46,7 @@ class FinishedProduct {
 
       // Verify product exists
       const productCheck = await client.query(`
-        SELECT product_id FROM products.product WHERE product_id = $1
+        SELECT id FROM product.products WHERE id = $1
       `, [productData.product_id]);
 
       if (productCheck.rows.length === 0) {
@@ -188,10 +188,10 @@ class FinishedProduct {
     const result = await pool.query(`
       SELECT 
         fp.*,
-        p.product_name,
+        p.name,
         p.product_code
       FROM inventory.finished_products fp
-      JOIN products.product p ON fp.product_id = p.product_id
+      JOIN product.products p ON fp.product_id = p.id
       WHERE fp.product_id = $1
     `, [productId]);
     return result.rows;

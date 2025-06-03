@@ -1,744 +1,555 @@
-import React, { useState, useEffect } from 'react';
-import { useFactory } from '../context/FactoryContext';
-import { Card, CardContent, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
+import { useState, useEffect } from 'react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { formatDate as originalFormatDate } from '../utils/calculations';
-import ProgressSteps from '../components/ui-custom/ProgressSteps';
-import ProgressBar from '../components/ui-custom/ProgressBar';
-import { ManufacturingBatch, ProductionStage, SalesOrder } from '../types';
-import { Plus, CheckCircle, AlertCircle } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import { productService, ManufacturingStage } from '../services/productService';
-import { createBatch, updateBatchStage, fetchBatches, deleteBatch as apiDeleteBatch, editBatch as apiEditBatch } from '../services/manufacturingService';
-import { toast } from '@/components/ui/use-toast';
+import { Progress } from '@/components/ui/progress';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { 
+  Select, 
+  SelectContent, 
+  SelectItem, 
+  SelectTrigger, 
+  SelectValue 
+} from '@/components/ui/select';
+import { 
+  DropdownMenu, 
+  DropdownMenuContent, 
+  DropdownMenuItem, 
+  DropdownMenuTrigger 
+} from '@/components/ui/dropdown-menu';
+import { 
+  Package, 
+  Calendar, 
+  AlertTriangle, 
+  Play, 
+  Pause, 
+  CheckCircle, 
+  MoreVertical,
+  Plus 
+} from 'lucide-react';
+import { ManufacturingService, Product, ManufacturingBatch, RawMaterial } from '@/services/manufacturing.service';
 
-// Defensive formatDate for UI
-const formatDate = (date: string | undefined) => {
-  if (!date || date === '' || date === 'Invalid Date') return '-';
-  const d = new Date(date);
-  return isNaN(d.getTime()) ? '-' : d.toLocaleDateString();
-};
-
-// Find the ManufacturingBatch type definition and add custom_stage_name as an optional string property
-
-
-const Manufacturing: React.FC = () => {
- const { manufacturingBatches, finishedProducts, backendProducts, salesOrders, rawMaterials, addManufacturingBatch, updateManufacturingStage, setManufacturingBatches, getActiveBatches, getCompletedBatches } = useFactory(); 
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [backendStages, setBackendStages] = useState<ManufacturingStage[]>([]);
-  const [newBatch, setNewBatch] = useState<Partial<ManufacturingBatch>>({
-    batchNumber: `B-${new Date().getFullYear()}-${String(manufacturingBatches.length + 1).padStart(3, '0')}`,
-    productId: '',
-    productName: '',
-    quantity: 1,
-    currentStage: 'cutting',
-    startDate: new Date().toISOString().split('T')[0],
-    estimatedCompletionDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-    stageCompletionDates: {
-      cutting: null,
-      assembly: null,
-      testing: null,
-      packaging: null,
-      completed: null
-    },
-    progress: 0
-  });
-  const [editBatchData, setEditBatchData] = useState<ManufacturingBatch | null>(null);
-  const [isEditMode, setIsEditMode] = useState(false);
-  const [productStagesMap, setProductStagesMap] = useState<Record<string, ManufacturingStage[]>>({});
-  const [completedBatchPage, setCompletedBatchPage] = useState(1);
-  const COMPLETED_BATCHES_PER_PAGE = 10;
-  const totalCompletedBatchPages = Math.ceil(getCompletedBatches(manufacturingBatches).length / COMPLETED_BATCHES_PER_PAGE);
-  const activeBatches = getActiveBatches(manufacturingBatches);
-  const completedBatches = getCompletedBatches(manufacturingBatches);
-  const paginatedCompletedBatches = completedBatches.slice((completedBatchPage - 1) * COMPLETED_BATCHES_PER_PAGE, completedBatchPage * COMPLETED_BATCHES_PER_PAGE);
+export const ManufacturingDashboard = () => {
+  const [products, setProducts] = useState<Product[]>([]);
+  const [batches, setBatches] = useState<ManufacturingBatch[]>([]);
+  const [rawMaterials, setRawMaterials] = useState<RawMaterial[]>([]);
+  const [lowStockMaterials, setLowStockMaterials] = useState<RawMaterial[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<string>('all');
   
-  // Fetch stages from backend on mount
+  // Batch creation form
+  const [selectedProductId, setSelectedProductId] = useState('');
+  const [quantity, setQuantity] = useState(1);
+  const [targetDate, setTargetDate] = useState('');
+  const [priority, setPriority] = useState<'low' | 'medium' | 'high'>('medium');
+
   useEffect(() => {
-    productService.getManufacturingStages()
-      .then(stages => setBackendStages(stages))
-      .catch(() => setBackendStages([]));
+    loadData();
   }, []);
 
-  // Add useEffect to fetch product stages when newBatch.productId changes
-  useEffect(() => {
-    if (newBatch.productId && !isNaN(Number(newBatch.productId))) {
-      fetchProductStages(String(newBatch.productId));
+  const loadData = async () => {
+    setLoading(true);
+    try {
+      const [productsData, batchesData, materialsData, lowStockData] = await Promise.all([
+        ManufacturingService.getAllProducts(),
+        ManufacturingService.getAllBatches(),
+        ManufacturingService.getAllRawMaterials(),
+        ManufacturingService.getLowStockMaterials()
+      ]);
+     
+      setProducts(productsData);
+      setBatches(batchesData);
+      setRawMaterials(materialsData);
+      setLowStockMaterials(lowStockData);
+    } catch (error) {
+      console.error('Error loading data:', error);
+    } finally {
+      setLoading(false);
     }
-  }, [newBatch.productId]);
-
-  // Helper to fetch and cache product stages
-  const fetchProductStages = async (productId: string) => {
-    if (!productId || isNaN(Number(productId))) return [];
-    if (!productStagesMap[productId]) {
-      const stages = await productService.getProductStages(Number(productId));
-      setProductStagesMap(prev => ({ ...prev, [productId]: stages }));
-      return stages;
-    }
-    return productStagesMap[productId];
   };
 
-  // Helper to get stages for a batch, always using product_stages
-  const getStagesForBatch = (batch: ManufacturingBatch) => {
-    const stages = productStagesMap[batch.productId] || [];
-    if (stages.length > 0) {
-      // Only add 'Completed' if not present
-      if (!stages.some(s => s.stage_name.toLowerCase() === 'completed')) {
-        return [
-          ...stages,
-          { stage_id: 9999, component_type: 'custom', stage_name: 'Completed', sequence: stages.length + 1 }
-        ];
-      }
-      return stages;
-    }
-    // Fallback: use stageCompletionDates keys in their original order, except for legacy defaults
-    if (batch.stageCompletionDates && Object.keys(batch.stageCompletionDates).length > 0) {
-      const keys = Object.keys(batch.stageCompletionDates)
-        .filter(k => !!k && !['cutting','assembly','testing','packaging','completed','Completed'].includes(k));
-      // If only 'Completed' is present, fallback to product stages or just Completed
-      const onlyCompleted = keys.length === 0 && (batch.stageCompletionDates['Completed'] !== undefined || batch.stageCompletionDates['completed'] !== undefined);
-      if (onlyCompleted) {
-        if (stages.length > 0) {
-          return stages;
+  const selectedProduct = products.find(p => p.id === selectedProductId);
+
+  const calculateMaterialRequirements = () => {
+    if (!selectedProduct) return [];
+    
+    const requirements: Record<string, { name: string; total: number; unit: string; available: number; isLowStock: boolean }> = {};
+    
+    selectedProduct.subComponents?.forEach(subComponent => {
+      subComponent.materials?.forEach(material => {
+        
+        const totalRequired = material.quantityRequired * quantity;
+        const rawMaterial = rawMaterials.find(rm => rm.material_id === material.materialId);
+        
+        
+        if (requirements[material.materialId]) {
+          requirements[material.materialId].total += totalRequired;
+        } else {
+          requirements[material.materialId] = {
+            name: material.materialName,
+            total: totalRequired,
+            unit: material.unit,
+            available: rawMaterial?.current_stock || 0,
+            isLowStock: lowStockMaterials.some(lsm => lsm.id === material.materialId)
+          };
         }
-        return [
-          { stage_id: 1, component_type: 'custom', stage_name: 'Completed', sequence: 1 }
-        ];
-      }
-      const customStages = keys.map((k, idx) => ({
-        stage_id: idx + 1,
-        component_type: 'custom',
-        stage_name: k,
-        sequence: idx + 1
-      }));
-      // Add 'Completed' only once at the end if present in stageCompletionDates
-      if (
-        batch.stageCompletionDates['Completed'] !== undefined ||
-        batch.stageCompletionDates['completed'] !== undefined
-      ) {
-        customStages.push({
-          stage_id: customStages.length + 1,
-          component_type: 'custom',
-          stage_name: 'Completed',
-          sequence: customStages.length + 1
-        });
-      }
-      return customStages.length > 0 ? customStages : [
-        { stage_id: 1, component_type: 'custom', stage_name: 'Completed', sequence: 1 }
-      ];
-    }
-    // Fallback: only show Completed if nothing else
-    return [
-      { stage_id: 1, component_type: 'custom', stage_name: 'Completed', sequence: 1 }
-    ];
-  };
-
-  // On mount or when manufacturingBatches change, fetch stages for all products in batches
-  useEffect(() => {
-    const uniqueProductIds = Array.from(new Set(manufacturingBatches.map(b => b.productId)));
-    uniqueProductIds.forEach(pid => {
-      fetchProductStages(pid);
+      });
     });
-  }, [manufacturingBatches]);
-
-  // Helper to get the component type for a batch
-  const getComponentType = (batch: ManufacturingBatch) => {
-    // Try to get from batch (if available)
-    if ((batch as any).componentType) return (batch as any).componentType;
-    // Try to get from product
-    const product = finishedProducts.find(p => p.id === batch.productId);
-    if (product && (product as any).componentType) return (product as any).componentType;
-    // Fallback to 'combined'
-    return 'combined';
+    
+    return Object.values(requirements);
   };
 
-  // Use backend stages if available, else fallback
-  const manufacturingStages: { value: ProductionStage, label: string }[] =
-    backendStages.length > 0
-      ? backendStages.map(s => ({ value: s.stage_name.toLowerCase(), label: s.stage_name }))
-      : [
-          { value: 'cutting', label: 'Cutting' },
-          { value: 'assembly', label: 'Assembly' },
-          { value: 'testing', label: 'Testing' },
-          { value: 'packaging', label: 'Packaging' },
-          { value: 'completed', label: 'Completed' }
-        ];
-
-  // Get orders awaiting materials for manufacturing
-  const ordersAwaitingMaterials = (salesOrders || []).filter(order => 
-    order.status === 'awaiting_materials'
-  );
-
-  // Get raw materials needed for a product
-  const getRawMaterialsNeeded = (productId: string, quantity: number) => {
-    const product = backendProducts.find((p: any) => String(p.product_id) === productId);
-    if (!product || !product.bom_items) return [];
-    return product.bom_items.map((item: any) => {
-      const material = rawMaterials.find(m => m.id === String(item.material_id));
-      const totalNeeded = item.quantity_required * quantity;
-      const available = material ? material.quantity : 0;
-      return {
-        materialId: String(item.material_id),
-        materialName: item.material_name || '',
-        needed: totalNeeded,
-        available,
-        missing: Math.max(0, totalNeeded - available),
-        unit: material ? material.unit : ''
-      };
-    });
+  const calculateEstimatedDuration = () => {
+    if (!selectedProduct) return 0;
+    
+    const subComponentTime = selectedProduct.subComponents?.reduce((total, sc) => 
+      total + (sc.estimatedTime * quantity), 0) || 0;
+    const finalAssemblyTime = selectedProduct.finalAssemblyTime * quantity;
+    
+    return Math.round((subComponentTime + finalAssemblyTime) / 60); // Convert to hours
   };
 
-  // Calculate the maximum possible quantity that can be manufactured with current raw materials
-  const getMaxPossibleQuantity = (productId: string) => {
-    const product = backendProducts.find((p: any) => String(p.product_id) === productId);
-    if (!product || !product.bom_items) return 0;
-    let maxQty = Infinity;
-    for (const item of product.bom_items) {
-      const material = rawMaterials.find(m => m.id === String(item.material_id));
-      if (!material) return 0;
-      const possible = Math.floor(material.quantity / item.quantity_required);
-      if (possible < maxQty) maxQty = possible;
-    }
-    return isFinite(maxQty) ? maxQty : 0;
-  };
-
-  // Check if raw materials are available for manufacturing
-  const checkRawMaterialsAvailability = () => {
-    if (!newBatch.productId) return { available: true, missing: [], maxPossible: 0 };
-    const product = backendProducts.find((p: any) => String(p.product_id) === newBatch.productId);
-    if (!product || !product.bom_items || product.bom_items.length === 0) {
-      return { available: false, missing: [], maxPossible: 0 };
-    }
-    if (!rawMaterials || rawMaterials.length === 0) {
-      const missing = product.bom_items.map((item: any) => ({
-        materialId: String(item.material_id),
-        materialName: item.material_name || '',
-        needed: item.quantity_required * (newBatch.quantity || 0),
-        available: 0,
-        missing: item.quantity_required * (newBatch.quantity || 0),
-        unit: ''
-      }));
-      return { available: false, missing, maxPossible: 0 };
-    }
-    const materialsNeeded = getRawMaterialsNeeded(newBatch.productId, newBatch.quantity || 0);
-    const missingMaterials = materialsNeeded.filter(m => m.missing > 0 || m.available === 0);
-    const maxPossible = getMaxPossibleQuantity(newBatch.productId);
-    return {
-      available: missingMaterials.length === 0,
-      missing: missingMaterials,
-      maxPossible
+  const handleCreateBatch = async () => {
+    if (!selectedProduct) return;
+    
+    const batchNumber = `BATCH-${Date.now().toString().slice(-6)}`;
+    const newBatch = {
+      batchNumber: batchNumber,
+      productId: selectedProduct.id,
+      quantity,
+      status: 'planning' as const,
+      priority,
+      targetCompletionDate: targetDate || undefined
     };
-  };
-  
-  const handleProductChange = (productId: string) => {
-    const product = backendProducts.find((p: any) => String(p.product_id) === productId);
-    setNewBatch({
-      ...newBatch,
-      productId,
-      productName: product?.product_name || ''
-    });
-  };
-  
-  const handleEditBatch = (batch: ManufacturingBatch) => {
-    setEditBatchData(batch);
-    setNewBatch({ ...batch });
-    setIsEditMode(true);
-    setIsDialogOpen(true);
-  };
-  
-  const handleSaveBatch = async () => {
-    if (
-      newBatch.batchNumber &&
-      newBatch.productId &&
-      newBatch.quantity &&
-      newBatch.startDate &&
-      newBatch.estimatedCompletionDate
-    ) {
-      if (isEditMode && editBatchData) {
-        // Edit mode
-        let updated = await apiEditBatch(editBatchData.id, {
-          batch_number: newBatch.batchNumber,
-          product_id: newBatch.productId,
-          product_name: newBatch.productName,
-          quantity_in_process: newBatch.quantity,
-          start_date: newBatch.startDate,
-          estimated_completion_date: newBatch.estimatedCompletionDate,
-          current_stage: newBatch.currentStage,
-          stage_completion_dates: newBatch.stageCompletionDates,
-          progress: newBatch.progress,
-          status: newBatch.status
-        });
-        setManufacturingBatches(prev => prev.map(b => (b.id === updated.id || b.id === updated.id ? { ...b, ...updated } : b)));
-        setIsDialogOpen(false);
-        setIsEditMode(false);
-        setEditBatchData(null);
-      } else {
-        // Add mode
-        addManufacturingBatch(newBatch as Omit<ManufacturingBatch, 'id'>);
-        setIsDialogOpen(false);
+    
+    const createdBatch = await ManufacturingService.createBatch(newBatch);
+    console.log(createdBatch);
+    if (createdBatch) {
+      // Create workflows for the batch
+      if (selectedProduct.subComponents) {
+        for (const subComponent of selectedProduct.subComponents) {
+          await ManufacturingService.createWorkflow({
+            batchId: createdBatch.id,
+            componentId: subComponent.id,
+            componentName: subComponent.name,
+            componentType: 'sub-component',
+            quantity,
+            estimatedDuration: subComponent.estimatedTime * quantity
+          });
+        }
       }
-      resetNewBatch();
-    }
-  };
-  
-  const resetNewBatch = () => {
-    setNewBatch({
-      batchNumber: `B-${new Date().getFullYear()}-${String(manufacturingBatches.length + 1).padStart(3, '0')}`,
-      productId: '',
-      productName: '',
-      quantity: 1,
-      currentStage: getStagesForBatch(newBatch as ManufacturingBatch)[0]?.stage_name.toLowerCase() || 'cutting',
-      startDate: new Date().toISOString().split('T')[0],
-      estimatedCompletionDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-      stageCompletionDates: {
-        cutting: null,
-        assembly: null,
-        testing: null,
-        packaging: null,
-        completed: null
-      },
-      progress: 0
-    });
-  };
-  
-  // Helper to get steps for progress indicator
-  const getManufacturingProgressSteps = (batch: ManufacturingBatch) => {
-    const stagesForBatch = getStagesForBatch(batch);
-    const stageNames = stagesForBatch.map(s => s.stage_name.toLowerCase());
-    // Find the index of the current stage
-    let currentStageIdx = stageNames.findIndex(
-      s => (batch.custom_stage_name ? batch.custom_stage_name.toLowerCase() : batch.currentStage) === s
-    );
-    // If not found, default to 0
-    if (currentStageIdx === -1) currentStageIdx = 0;
-    // If the batch is completed, mark all as completed
-    const isCompleted = (batch.status === 'completed' || batch.currentStage === 'completed' || batch.custom_stage_name?.toLowerCase() === 'completed');
-    return stagesForBatch.map((stage, idx) => {
-      let completed = isCompleted ? true : idx <= currentStageIdx;
-      let current = idx === currentStageIdx && !isCompleted;
-      return {
-        label: stage.stage_name,
-        completed,
-        current
-      };
-    });
-  };
-  
-  // Update stage handler
-  const handleUpdateStage = async (batch: ManufacturingBatch, newStage: string) => {
-    try {
-      // Use context's updateManufacturingStage to ensure state is updated
-      await updateManufacturingStage(batch.id, newStage);
-    } catch (err) {
-      toast({ title: 'Error', description: 'Failed to update stage', variant: 'destructive' });
+      
+      // Create final assembly workflow
+      await ManufacturingService.createWorkflow({
+        batchId: createdBatch.id,
+        componentId: 'final-assembly',
+        componentName: 'Final Assembly',
+        componentType: 'final-assembly',
+        quantity,
+        estimatedDuration: selectedProduct.finalAssemblyTime * quantity
+      });
+      
+      // Reset form and reload data
+      setSelectedProductId('');
+      setQuantity(1);
+      setTargetDate('');
+      setPriority('medium');
+      loadData();
     }
   };
 
-  // Delete batch handler
-  const handleDeleteBatch = async (batchId: string) => {
-    if (!batchId || batchId === 'undefined' || batchId === undefined) {
-      toast({ title: 'Error', description: 'Invalid batch ID. Cannot delete batch.', variant: 'destructive' });
-      return;
-    }
-    try {
-      await apiDeleteBatch(batchId);
-      setManufacturingBatches(prev => prev.filter(b => b.id !== batchId));
-      toast({ title: 'Batch Deleted', description: 'The batch has been deleted.' });
-    } catch (err) {
-      toast({ title: 'Error', description: 'Failed to delete batch', variant: 'destructive' });
+  const handleWorkflowStatusChange = async (batchId: string, workflowId: string, newStatus: 'not_started' | 'in_progress' | 'completed' | 'on_hold') => {
+    await ManufacturingService.updateWorkflowStatus(workflowId, newStatus);
+    loadData();
+  };
+
+  const getBatchProgress = async (batchId: string) => {
+    return await ManufacturingService.getBatchProgress(batchId);
+  };
+
+  const filteredBatches = batches.filter(batch => {
+    if (statusFilter === 'all') return true;
+    return batch.status === statusFilter;
+  });
+
+  const materialRequirements = calculateMaterialRequirements();
+  const estimatedDuration = calculateEstimatedDuration();
+  const hasInsufficientStock = materialRequirements.some(req => req.total > req.available);
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'planning': return 'bg-gray-500';
+      case 'in_progress': return 'bg-blue-500';
+      case 'completed': return 'bg-green-500';
+      case 'cancelled': return 'bg-red-500';
+      case 'not_started': return 'bg-gray-400';
+      case 'on_hold': return 'bg-yellow-500';
+      default: return 'bg-gray-400';
     }
   };
+
+  const getWorkflowStatusColor = (status: string) => {
+    switch (status) {
+      case 'not_started': return 'bg-gray-400';
+      case 'in_progress': return 'bg-blue-500';
+      case 'completed': return 'bg-green-500';
+      case 'on_hold': return 'bg-yellow-500';
+      default: return 'bg-gray-400';
+    }
+  };
+
+  if (loading) {
+    return <div className="flex justify-center items-center h-64">Loading...</div>;
+  }
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h1 className="text-2xl font-bold text-factory-gray-900">Manufacturing</h1>
-        <Button 
-          onClick={() => setIsDialogOpen(true)}
-          className="bg-factory-primary hover:bg-factory-primary/90"
-        >
-          <Plus className="mr-2 h-4 w-4" />
-          New Batch
-        </Button>
+      <div className="flex items-center space-x-2">
+        <Package className="h-6 w-6" />
+        <h2 className="text-3xl font-bold">Manufacturing Dashboard</h2>
       </div>
 
-      {/* Orders awaiting materials section */}
-      {ordersAwaitingMaterials.length > 0 && (
-        <div className="mb-4">
-          <h2 className="text-lg font-medium mb-3 flex items-center gap-2">
-            <AlertCircle className="h-5 w-5 text-red-500" />
-            Orders Awaiting Materials
-          </h2>
-          
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {ordersAwaitingMaterials.map(order => {
-              // Get all products that need to be manufactured for this order
-              const productsToManufacture = order.products.filter(product => {
-                const finishedProduct = finishedProducts.find(p => p.id === product.productId);
-                return finishedProduct && finishedProduct.quantity < product.quantity;
-              });
-              
-              return (
-                <Card key={order.id} className="border-red-200">
-                  <CardHeader className="bg-red-50 py-3 border-b border-red-200">
-                    <div className="flex justify-between">
-                      <CardTitle className="text-base flex items-center gap-2">
-                        <span>Order {order.orderNumber}</span>
-                        <Badge variant="outline" className="bg-red-100 text-red-800 border-red-200">
-                          Awaiting Materials
-                        </Badge>
-                      </CardTitle>
-                      <span className="text-sm text-red-700">{order.customerName}</span>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="p-4 space-y-3">
-                    <div>
-                      <h4 className="text-sm font-medium mb-1">Products Requiring Manufacturing</h4>
-                      <div className="space-y-2">
-                        {productsToManufacture.map((product, idx) => {
-                          const finishedProduct = finishedProducts.find(p => p.id === product.productId);
-                          const availableQty = finishedProduct ? finishedProduct.quantity : 0;
-                          const manufacturingQty = product.quantity - availableQty;
-                          
-                          // Get missing raw materials for this product
-                          const materialStatus = getRawMaterialsNeeded(product.productId, manufacturingQty);
-                          const missingMaterials = materialStatus.filter(m => m.missing > 0);
-                          
-                          return (
-                            <div key={idx} className="border rounded p-2">
-                              <div className="flex justify-between">
-                                <span className="font-medium">{product.productName}</span>
-                                <span className="text-sm">{manufacturingQty} units needed</span>
-                              </div>
-                              
-                              <div className="mt-2">
-                                <h5 className="text-xs font-medium text-red-800 mb-1">Missing Raw Materials</h5>
-                                <div className="space-y-1">
-                                  {missingMaterials.map((material, midx) => (
-                                    <div key={midx} className="flex justify-between text-xs">
-                                      <span>{material.materialName}</span>
-                                      <span>
-                                        Missing: {material.missing} {material.unit} 
-                                        (Have: {material.available}/{material.needed} {material.unit})
-                                      </span>
-                                    </div>
-                                  ))}
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              );
-            })}
-          </div>
-        </div>
-      )}
-      
-      <div className="space-y-6">
-        <div>
-          <h2 className="text-lg font-medium mb-4">Active Manufacturing Batches</h2>
-          {activeBatches.length > 0 ? (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              {activeBatches.map(batch => (
-                <Card key={batch.id} className="overflow-hidden">
-                  <CardHeader className="bg-factory-gray-50 py-3">
-                    <div className="flex justify-between">
-                      <CardTitle className="text-base">{batch.productName || '-'}</CardTitle>
-                      <span className="text-sm text-factory-gray-600">Batch: {batch.batchNumber || '-'}</span>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="p-4 space-y-4">
-                    <div className="grid grid-cols-3 gap-4 text-sm">
-                      <div>
-                        <p className="text-factory-gray-500">Quantity</p>
-                        <p className="font-medium">{batch.quantity ?? '-'}</p>
-                      </div>
-                      <div>
-                        <p className="text-factory-gray-500">Start Date</p>
-                        <p className="font-medium">{formatDate(batch.startDate)}</p>
-                      </div>
-                      <div>
-                        <p className="text-factory-gray-500">Est. Completion</p>
-                        <p className="font-medium">{formatDate(batch.estimatedCompletionDate)}</p>
-                      </div>
-                    </div>
-                    
-                    <div className="pt-2">
-                      <p className="text-sm mb-2">Manufacturing Progress</p>
-                      <ProgressSteps steps={getManufacturingProgressSteps(batch)} />
-                      <ProgressBar 
-                        value={batch.progress} 
-                        showLabel 
-                        className="mt-4" 
-                        colorVariant={
-                          batch.progress > 66 ? 'success' : 
-                          batch.progress > 33 ? 'warning' : 
-                          'default'
-                        }
-                      />
-                    </div>
-                    
-                    {/* Show linked sales order if available */}
-                    {batch.linkedSalesOrderId && (
-                      <div className="text-sm text-factory-gray-600">
-                        Linked to order: {salesOrders.find(o => o.id === batch.linkedSalesOrderId)?.orderNumber || 'Unknown'}
-                      </div>
-                    )}
-                  </CardContent>
-                  <CardFooter className="bg-factory-gray-50 py-3 flex justify-between">
-                    <div className="flex gap-2">
-                      <Button size="sm" variant="outline" onClick={() => handleEditBatch(batch)}>Edit</Button>
-                      <Button size="sm" variant="destructive" onClick={() => handleDeleteBatch(batch.id)}>Delete</Button>
-                    </div>
-                    <p className="text-sm text-factory-gray-600">
-                      Current Stage: <span className="font-medium">
-                        {getStagesForBatch(batch).find(s => s.stage_name.toLowerCase() === batch.currentStage)?.stage_name || getStagesForBatch(batch)[0]?.stage_name || '-'}
-                      </span>
-                    </p>
-                    <Select 
-                      value={batch.currentStage}
-                      onValueChange={(value: ProductionStage) => handleUpdateStage(batch, value)}
-                    >
-                      <SelectTrigger className="w-[180px]">
-                        <SelectValue placeholder="Update Stage" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {getStagesForBatch(batch).map((stage) => (
-                          <SelectItem key={stage.stage_name.toLowerCase()} value={stage.stage_name.toLowerCase()}>{stage.stage_name}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </CardFooter>
-                </Card>
+      {lowStockMaterials.length > 0 && (
+        <Card className="border-orange-200 bg-orange-50">
+          <CardHeader>
+            <CardTitle className="text-orange-800 flex items-center">
+              <AlertTriangle className="h-5 w-5 mr-2" />
+              Low Stock Alert
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap gap-2">
+              {lowStockMaterials.map(material => (
+                <Badge key={material.id} variant="destructive">
+                  {material.name}: {material.stockQuantity} {material.unit}
+                </Badge>
               ))}
             </div>
+          </CardContent>
+        </Card>
+      )}
+
+      <Tabs defaultValue="dashboard" className="w-full">
+        <TabsList className="grid w-full grid-cols-2">
+          <TabsTrigger value="dashboard">Production Dashboard</TabsTrigger>
+          <TabsTrigger value="create-batch">Create New Batch</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="dashboard" className="space-y-6">
+          <div className="flex justify-between items-center">
+            <h3 className="text-xl font-semibold">Active Batches</h3>
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-48">
+                <SelectValue placeholder="Filter by status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Batches</SelectItem>
+                <SelectItem value="planning">Planning</SelectItem>
+                <SelectItem value="in_progress">In Progress</SelectItem>
+                <SelectItem value="completed">Completed</SelectItem>
+                <SelectItem value="cancelled">Cancelled</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {filteredBatches.length === 0 ? (
+            <Card>
+              <CardContent className="p-8 text-center">
+                <p className="text-gray-500">No manufacturing batches found. Create a batch to get started.</p>
+              </CardContent>
+            </Card>
           ) : (
-            <div className="text-center py-12 bg-white rounded-lg border">
-              <p className="text-factory-gray-500">No active manufacturing batches. Create your first batch!</p>
+            <div className="grid gap-6">
+              {filteredBatches.map((batch) => (
+                <BatchCard 
+                  key={batch.id} 
+                  batch={batch} 
+                  onWorkflowStatusChange={handleWorkflowStatusChange}
+                  getStatusColor={getStatusColor}
+                  getWorkflowStatusColor={getWorkflowStatusColor}
+                />
+              ))}
             </div>
           )}
-        </div>
-        
-        <div>
-          <h2 className="text-lg font-medium mb-4 flex items-center gap-2">
-            <CheckCircle className="h-4 w-4 text-factory-success" />
-            Completed Batches
-          </h2>
-          
-          {completedBatches.length > 0 ? (
-            <div className="bg-white rounded-lg overflow-hidden border">
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="bg-factory-gray-50 text-left">
-                      <th className="px-6 py-3 font-medium text-factory-gray-600">Batch #</th>
-                      <th className="px-6 py-3 font-medium text-factory-gray-600">Product</th>
-                      <th className="px-6 py-3 font-medium text-factory-gray-600">Quantity</th>
-                      <th className="px-6 py-3 font-medium text-factory-gray-600">Start Date</th>
-                      <th className="px-6 py-3 font-medium text-factory-gray-600">Completion Date</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y">
-                    {paginatedCompletedBatches.map((batch) => (
-                      <tr key={batch.id} className="hover:bg-factory-gray-50">
-                        <td className="px-6 py-4">{batch.batchNumber}</td>
-                        <td className="px-6 py-4">{batch.productName}</td>
-                        <td className="px-6 py-4">{batch.quantity}</td>
-                        <td className="px-6 py-4">{formatDate(batch.startDate)}</td>
-                        <td className="px-6 py-4">
-                          {batch.stageCompletionDates.completed 
-                            ? formatDate(batch.stageCompletionDates.completed) 
-                            : '—'}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              {totalCompletedBatchPages > 1 && (
-                <div className="flex justify-center mt-4 gap-2">
-                  <button
-                    className={`px-3 py-1 rounded border ${completedBatchPage === 1 ? 'opacity-50 cursor-not-allowed' : 'bg-white text-factory-primary border-factory-primary'}`}
-                    onClick={() => completedBatchPage > 1 && setCompletedBatchPage(completedBatchPage - 1)}
-                    disabled={completedBatchPage === 1}
-                    aria-label="Previous Page"
-                  >
-                    &#60;
-                  </button>
-                  <span className="px-2 py-1 text-sm text-gray-700">{completedBatchPage} <span className="mx-1">of</span> {totalCompletedBatchPages}</span>
-                  <button
-                    className={`px-3 py-1 rounded border ${completedBatchPage === totalCompletedBatchPages ? 'opacity-50 cursor-not-allowed' : 'bg-white text-factory-primary border-factory-primary'}`}
-                    onClick={() => completedBatchPage < totalCompletedBatchPages && setCompletedBatchPage(completedBatchPage + 1)}
-                    disabled={completedBatchPage === totalCompletedBatchPages}
-                    aria-label="Next Page"
-                  >
-                    &#62;
-                  </button>
+        </TabsContent>
+
+        <TabsContent value="create-batch" className="space-y-6">
+          <div className="grid lg:grid-cols-2 gap-6">
+            {/* Batch Configuration */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Batch Configuration</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div>
+                  <Label htmlFor="product">Product</Label>
+                  <Select value={selectedProductId} onValueChange={setSelectedProductId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select a product" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {products.map(product => (
+                        <SelectItem key={product.id} value={product.id}>
+                          {product.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
-              )}
-            </div>
-          ) : (
-            <div className="text-center py-8 bg-white rounded-lg border">
-              <p className="text-factory-gray-500">No completed batches yet.</p>
-            </div>
-          )}
-        </div>
-      </div>
-      
-      {/* Create Manufacturing Batch Dialog */}
-      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="sm:max-w-[500px]">
-          <DialogHeader>
-            <DialogTitle>Create New Manufacturing Batch</DialogTitle>
-          </DialogHeader>
-          
-          <div className="grid gap-4 py-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="batchNumber">Batch Number</Label>
-                <Input 
-                  id="batchNumber" 
-                  value={newBatch.batchNumber} 
-                  onChange={(e) => setNewBatch({...newBatch, batchNumber: e.target.value})}
-                />
-              </div>
-              
-              <div className="space-y-2">
-                <Label htmlFor="quantity">Quantity</Label>
-                <Input 
-                  id="quantity" 
-                  type="number" 
-                  min="1"
-                  value={newBatch.quantity} 
-                  onChange={(e) => setNewBatch({...newBatch, quantity: parseInt(e.target.value) || 1})}
-                />
-              </div>
-            </div>
-            
-            <div className="space-y-2">
-              <Label htmlFor="product">Product</Label>
-              <Select 
-                value={newBatch.productId}
-                onValueChange={handleProductChange}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select product" />
-                </SelectTrigger>
-                <SelectContent>
-                  {backendProducts.map(product => (
-                    <SelectItem key={String(product.product_id)} value={String(product.product_id)}>
-                      {product.product_name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            
-            {/* Raw materials availability check */}
-            {newBatch.productId && (
-              <div className="border rounded-md p-3">
-                <h4 className="text-sm font-medium mb-2">Raw Materials Check</h4>
-                {(() => {
-                  const check = checkRawMaterialsAvailability();
-                  if (check.available) {
-                    return (
-                      <div className="flex items-center text-green-600 gap-2">
-                        <CheckCircle className="h-4 w-4" />
-                        All raw materials are available for manufacturing
-                      </div>
-                    );
-                  } else {
-                    return (
-                      <div className="flex flex-col gap-2 text-yellow-700">
-                        <div className="flex items-center gap-2">
-                          <AlertCircle className="h-4 w-4" />
-                          Not enough raw materials for the requested quantity.
-                        </div>
-                        <div>
-                          <span>Maximum possible quantity: </span>
-                          <span className="font-semibold">{check.maxPossible}</span>
-                        </div>
-                        <ul className="ml-4 list-disc text-xs">
-                          {check.missing.map(m => (
-                            <li key={m.materialId}>
-                              {m.materialName}: Need {m.needed}, Available {m.available} {m.unit}
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    );
-                  }
-                })()}
-              </div>
+
+                <div>
+                  <Label htmlFor="quantity">Quantity</Label>
+                  <Input
+                    id="quantity"
+                    type="number"
+                    min={1}
+                    value={quantity}
+                    onChange={(e) => setQuantity(parseInt(e.target.value) || 1)}
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="targetDate">Target Completion Date</Label>
+                  <Input
+                    id="targetDate"
+                    type="date"
+                    value={targetDate}
+                    onChange={(e) => setTargetDate(e.target.value)}
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor="priority">Priority</Label>
+                  <Select value={priority} onValueChange={(value: 'low' | 'medium' | 'high') => setPriority(value)}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="low">Low</SelectItem>
+                      <SelectItem value="medium">Medium</SelectItem>
+                      <SelectItem value="high">High</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Batch Preview */}
+            {selectedProduct && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Batch Preview</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium">Product:</span>
+                    <Badge variant="outline">{selectedProduct.name}</Badge>
+                  </div>
+                  
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium">Quantity:</span>
+                    <Badge>{quantity} units</Badge>
+                  </div>
+                  
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium">Sub-Components:</span>
+                    <Badge variant="secondary">{selectedProduct.subComponents?.length || 0}</Badge>
+                  </div>
+                  
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium">Est. Duration:</span>
+                    <Badge className="flex items-center">
+                      <Calendar className="h-3 w-3 mr-1" />
+                      {estimatedDuration}h
+                    </Badge>
+                  </div>
+                  
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium">Workflows:</span>
+                    <Badge variant="outline">{(selectedProduct.subComponents?.length || 0) + 1}</Badge>
+                  </div>
+                </CardContent>
+              </Card>
             )}
-            
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="startDate">Start Date</Label>
-                <Input 
-                  id="startDate" 
-                  type="date"
-                  value={newBatch.startDate} 
-                  onChange={(e) => setNewBatch({...newBatch, startDate: e.target.value})}
-                />
-              </div>
-              
-              <div className="space-y-2">
-                <Label htmlFor="estimatedCompletionDate">Est. Completion Date</Label>
-                <Input 
-                  id="estimatedCompletionDate" 
-                  type="date"
-                  value={newBatch.estimatedCompletionDate} 
-                  onChange={(e) => setNewBatch({...newBatch, estimatedCompletionDate: e.target.value})}
-                />
-              </div>
-            </div>
-            
-            <div className="space-y-2">
-              <Label htmlFor="stage">Initial Stage</Label>
-              <Select 
-                value={newBatch.currentStage}
-                onValueChange={(value: ProductionStage) => setNewBatch({...newBatch, currentStage: value})}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select initial stage" />
-                </SelectTrigger>
-                <SelectContent>
-                  {getStagesForBatch(newBatch as ManufacturingBatch).map((stage) => (
-                    <SelectItem key={stage.stage_name.toLowerCase()} value={stage.stage_name.toLowerCase()}>{stage.stage_name}</SelectItem>
+          </div>
+
+        
+          {/* Material Requirements */}
+          {materialRequirements.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center">
+                  Material Requirements
+                  {hasInsufficientStock && (
+                    <AlertTriangle className="h-5 w-5 ml-2 text-orange-500" />
+                  )}
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid gap-3">
+                  {materialRequirements.map((req, index) => (
+                    <div 
+                      key={index} 
+                      className={`flex items-center justify-between p-3 rounded-lg ${
+                        req.total > req.available ? 'bg-red-50 border border-red-200' : 'bg-gray-50'
+                      }`}
+                    >
+                      <div className="flex items-center space-x-3">
+                        <span className="font-medium">{req.name}</span>
+                        {req.isLowStock && (
+                          <Badge variant="destructive" className="text-xs">Low Stock</Badge>
+                        )}
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <span className="text-sm">
+                          Need: <strong>{req.total} {req.unit}</strong>
+                        </span>
+                        <span className="text-sm text-gray-500">
+                          Available: {req.available} {req.unit}
+                        </span>
+                        {req.total > req.available && (
+                          <Badge variant="destructive">Insufficient</Badge>
+                        )}
+                      </div>
+                    </div>
                   ))}
-                </SelectContent>
-              </Select>
-            </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Create Button */}
+          <div className="flex justify-end">
+            <Button 
+              onClick={handleCreateBatch}
+              disabled={!selectedProductId || hasInsufficientStock}
+              size="lg"
+            >
+              Create Batch
+            </Button>
           </div>
           
-          <DialogFooter>
-            <Button 
-              variant="outline" 
-              onClick={() => setIsDialogOpen(false)}
-            >
-              Cancel
-            </Button>
-            <Button 
-              onClick={handleSaveBatch}
-              className="bg-factory-primary hover:bg-factory-primary/90"
-              disabled={!newBatch.productId || !newBatch.batchNumber || !checkRawMaterialsAvailability().available}
-            >
-              {isEditMode ? 'Save Changes' : 'Create Batch'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          {hasInsufficientStock && (
+            <p className="text-sm text-red-600 text-center">
+              Cannot create batch: Insufficient raw materials in stock
+            </p>
+          )}
+        </TabsContent>
+      </Tabs>
     </div>
   );
 };
 
-export default Manufacturing;
+// Separate component for batch cards to keep the main component cleaner
+const BatchCard = ({ 
+  batch, 
+  onWorkflowStatusChange, 
+  getStatusColor, 
+  getWorkflowStatusColor 
+}: {
+  batch: ManufacturingBatch;
+  onWorkflowStatusChange: (batchId: string, workflowId: string, status: any) => void;
+  getStatusColor: (status: string) => string;
+  getWorkflowStatusColor: (status: string) => string;
+}) => {
+  const [progress, setProgress] = useState(0);
+
+  useEffect(() => {
+    const calculateProgress = async () => {
+      const batchProgress = await ManufacturingService.getBatchProgress(batch.id);
+      setProgress(batchProgress);
+    };
+    calculateProgress();
+  }, [batch.id]);
+
+  return (
+    <Card className="overflow-hidden">
+      <CardHeader className="bg-gray-50">
+        <div className="flex justify-between items-start">
+          <div>
+            <CardTitle className="text-xl">{batch.batchNumber}</CardTitle>
+            <p className="text-sm text-gray-600 mt-1">
+              {batch.product?.name} - Quantity: {batch.quantity}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Badge className={getStatusColor(batch.status)}>
+              {batch.status.replace('_', ' ').toUpperCase()}
+            </Badge>
+            <Badge variant="outline" className={`border-${batch.priority === 'high' ? 'red' : batch.priority === 'medium' ? 'yellow' : 'gray'}-300`}>
+              {batch.priority.toUpperCase()}
+            </Badge>
+          </div>
+        </div>
+        
+        <div className="mt-4">
+          <div className="flex justify-between text-sm text-gray-600 mb-2">
+            <span>Overall Progress</span>
+            <span>{progress}%</span>
+          </div>
+          <Progress value={progress} className="h-2" />
+        </div>
+      </CardHeader>
+
+      <CardContent className="p-6">
+        <h4 className="font-medium mb-4">Workflows</h4>
+        <div className="space-y-3">
+          {batch.workflows?.map((workflow) => (
+            <div key={workflow.id} className="flex items-center justify-between p-3 border rounded-lg">
+              <div className="flex-1">
+                <div className="flex items-center gap-3">
+                  <Badge className={getWorkflowStatusColor(workflow.status)}>
+                    {workflow.status.replace('_', ' ')}
+                  </Badge>
+                  <span className="font-medium">{workflow.componentName}</span>
+                  <span className="text-sm text-gray-500">
+                    ({workflow.componentType === 'sub-component' ? 'Sub-Component' : 'Final Assembly'})
+                  </span>
+                </div>
+                <div className="text-sm text-gray-600 mt-1">
+                  Quantity: {workflow.quantity} | Duration: {workflow.estimatedDuration} min
+                  {workflow.assignedTeam && ` | Team: ${workflow.assignedTeam}`}
+                </div>
+              </div>
+
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="sm">
+                    <MoreVertical className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem 
+                    onClick={() => onWorkflowStatusChange(batch.id, workflow.id, 'in_progress')}
+                    disabled={workflow.status === 'in_progress'}
+                  >
+                    <Play className="h-4 w-4 mr-2" />
+                    Start
+                  </DropdownMenuItem>
+                  <DropdownMenuItem 
+                    onClick={() => onWorkflowStatusChange(batch.id, workflow.id, 'on_hold')}
+                    disabled={workflow.status === 'on_hold'}
+                  >
+                    <Pause className="h-4 w-4 mr-2" />
+                    Hold
+                  </DropdownMenuItem>
+                  <DropdownMenuItem 
+                    onClick={() => onWorkflowStatusChange(batch.id, workflow.id, 'completed')}
+                    disabled={workflow.status === 'completed'}
+                  >
+                    <CheckCircle className="h-4 w-4 mr-2" />
+                    Complete
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
+};
+
+export default ManufacturingDashboard;

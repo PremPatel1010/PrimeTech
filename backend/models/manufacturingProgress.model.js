@@ -60,7 +60,7 @@ class ManufacturingProgress {
 
       // First verify if the product exists
       const productCheck = await client.query(`
-        SELECT product_id FROM products.product WHERE product_id = $1
+        SELECT product_id FROM product.products WHERE product_id = $1
       `, [productId]);
 
       if (productCheck.rows.length === 0) {
@@ -227,12 +227,10 @@ class ManufacturingProgress {
         soi.product_id, 
         soi.quantity as order_quantity, 
         so.order_number, 
-        so.customer_name, 
-        p.product_name
+        so.customer_name
       FROM manufacturing.product_manufacturing mp
       LEFT JOIN sales.sales_order_items soi ON mp.sales_order_item_id = soi.item_id
       LEFT JOIN sales.sales_order so ON mp.sales_order_id = so.sales_order_id
-      LEFT JOIN products.product p ON soi.product_id = p.product_id
       ORDER BY mp.updated_at DESC
     `);
     return result.rows;

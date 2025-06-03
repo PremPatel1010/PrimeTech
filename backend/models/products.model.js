@@ -434,6 +434,196 @@ class Product {
       client.release();
     }
   }
+
+  static async addManufacturingStep(productId, stepData) {
+    const client = await pool.connect();
+
+    try {
+      await client.query("BEGIN");
+
+      const query = `
+        INSERT INTO product.manufacturing_steps (product_id, name, description, estimated_time, sequence_number, step_type)
+        VALUES ($1, $2, $3, $4, $5, 'product')
+        RETURNING *
+      `;
+
+      await client.query(query, [
+        productId,
+        stepData.name,
+        stepData.description,
+        stepData.estimatedTime,
+        stepData.sequence
+      ]);
+
+      await client.query("COMMIT");
+      return await this.findById(productId);
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  static async updateManufacturingStep(productId, stepId, stepData) {
+    const client = await pool.connect();
+
+    try {
+      await client.query("BEGIN");
+
+      const query = `
+        UPDATE product.manufacturing_steps
+        SET name = $1, description = $2, estimated_time = $3, sequence_number = $4
+        WHERE product_id = $5 AND id = $6 AND step_type = 'product'
+        RETURNING *
+      `;
+
+      const result = await client.query(query, [
+        stepData.name,
+        stepData.description,
+        stepData.estimatedTime,
+        stepData.sequence,
+        productId,
+        stepId
+      ]);
+
+      if (result.rows.length === 0) {
+        throw new Error("Manufacturing step not found");
+      }
+
+      await client.query("COMMIT");
+      return await this.findById(productId);
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  static async deleteManufacturingStep(productId, stepId) {
+    const client = await pool.connect();
+
+    try {
+      await client.query("BEGIN");
+
+      const query = `
+        DELETE FROM product.manufacturing_steps
+        WHERE product_id = $1 AND id = $2 AND step_type = 'product'
+        RETURNING *
+      `;
+
+      const result = await client.query(query, [productId, stepId]);
+
+      if (result.rows.length === 0) {
+        throw new Error("Manufacturing step not found");
+      }
+
+      await client.query("COMMIT");
+      return await this.findById(productId);
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  static async addSubComponentManufacturingStep(productId, subComponentId, stepData) {
+    const client = await pool.connect();
+
+    try {
+      await client.query("BEGIN");
+
+      const query = `
+        INSERT INTO product.manufacturing_steps (product_id, sub_component_id, name, description, estimated_time, sequence_number, step_type)
+        VALUES ($1, $2, $3, $4, $5, $6, 'sub_component')
+        RETURNING *
+      `;
+
+      await client.query(query, [
+        productId,
+        subComponentId,
+        stepData.name,
+        stepData.description,
+        stepData.estimatedTime,
+        stepData.sequence
+      ]);
+
+      await client.query("COMMIT");
+      return await this.findById(productId);
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  static async updateSubComponentManufacturingStep(productId, subComponentId, stepId, stepData) {
+    const client = await pool.connect();
+
+    try {
+      await client.query("BEGIN");
+
+      const query = `
+        UPDATE product.manufacturing_steps
+        SET name = $1, description = $2, estimated_time = $3, sequence_number = $4
+        WHERE product_id = $5 AND sub_component_id = $6 AND id = $7 AND step_type = 'sub_component'
+        RETURNING *
+      `;
+
+      const result = await client.query(query, [
+        stepData.name,
+        stepData.description,
+        stepData.estimatedTime,
+        stepData.sequence,
+        productId,
+        subComponentId,
+        stepId
+      ]);
+
+      if (result.rows.length === 0) {
+        throw new Error("Manufacturing step not found");
+      }
+
+      await client.query("COMMIT");
+      return await this.findById(productId);
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  static async deleteSubComponentManufacturingStep(productId, subComponentId, stepId) {
+    const client = await pool.connect();
+
+    try {
+      await client.query("BEGIN");
+
+      const query = `
+        DELETE FROM product.manufacturing_steps
+        WHERE product_id = $1 AND sub_component_id = $2 AND id = $3 AND step_type = 'sub_component'
+        RETURNING *
+      `;
+
+      const result = await client.query(query, [productId, subComponentId, stepId]);
+
+      if (result.rows.length === 0) {
+        throw new Error("Manufacturing step not found");
+      }
+
+      await client.query("COMMIT");
+      return await this.findById(productId);
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
 }
 
 export default Product;

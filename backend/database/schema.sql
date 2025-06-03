@@ -38,21 +38,7 @@ CREATE TABLE auth.users (
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
--- ========================
--- PRODUCT & BOM
--- ========================
-CREATE TABLE products.product (
-    product_id SERIAL PRIMARY KEY,
-    product_name VARCHAR(100) NOT NULL,
-    product_code VARCHAR(50) UNIQUE NOT NULL,
-    discharge_range VARCHAR(50),
-    head_range VARCHAR(50),
-    rating_range VARCHAR(50),
-    price DECIMAL(10, 2),
-    cost_price DECIMAL(10, 2) DEFAULT 0,
-    manufacturing_steps JSONB,
-    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
-);
+
 
 CREATE TABLE inventory.raw_materials (
     material_id SERIAL PRIMARY KEY,
@@ -79,14 +65,6 @@ CREATE TABLE inventory.finished_products (
     storage_location VARCHAR(100), -- Optional: rack/bin info
     status VARCHAR(20) CHECK (status IN ('available', 'reserved', 'dispatched')) DEFAULT 'available',
     added_on TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE products.bom (
-    bom_id SERIAL PRIMARY KEY,
-    product_id INTEGER NOT NULL REFERENCES products.product(product_id) ON DELETE CASCADE,
-    material_id INTEGER NOT NULL REFERENCES inventory.raw_materials(material_id) ON DELETE CASCADE,
-    quantity_required DECIMAL(10, 2) NOT NULL
-    -- Removed total_weight generated column (can be calculated in application or via a view)
 );
 
 -- ========================
@@ -198,7 +176,7 @@ CREATE TABLE purchase.grn_materials (
 -- Products table
 
 CREATE TABLE product.products (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id SERIAL PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     product_code VARCHAR(100) UNIQUE NOT NULL,
     description TEXT,
@@ -214,9 +192,9 @@ CREATE TABLE product.products (
 
 -- Manufacturing Steps table
 CREATE TABLE product.manufacturing_steps (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    product_id UUID REFERENCES product.products(id) ON DELETE CASCADE,
-    sub_component_id UUID,
+    id SERIAL PRIMARY KEY,
+    product_id INTEGER REFERENCES product.products(id) ON DELETE CASCADE,
+    sub_component_id INTEGER,
     name VARCHAR(255) NOT NULL,
     description TEXT,
     estimated_time INTEGER NOT NULL, -- in minutes
@@ -227,8 +205,8 @@ CREATE TABLE product.manufacturing_steps (
 
 -- Sub Components table
 CREATE TABLE product.sub_components (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    product_id UUID REFERENCES product.products(id) ON DELETE CASCADE,
+    id SERIAL PRIMARY KEY,
+    product_id INTEGER REFERENCES product.products(id) ON DELETE CASCADE,
     name VARCHAR(255) NOT NULL,
     description TEXT,
     estimated_time INTEGER DEFAULT 30, -- in minutes
@@ -238,8 +216,8 @@ CREATE TABLE product.sub_components (
 
 -- Component Materials junction table
 CREATE TABLE product.component_materials (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    sub_component_id UUID REFERENCES product.sub_components(id) ON DELETE CASCADE,
+    id SERIAL PRIMARY KEY,
+    sub_component_id INTEGER REFERENCES product.sub_components(id) ON DELETE CASCADE,
     material_id INTEGER REFERENCES inventory.raw_materials(material_id) ON DELETE CASCADE,
     quantity_required DECIMAL(10,3) NOT NULL,
     unit VARCHAR(50) NOT NULL,
@@ -248,9 +226,9 @@ CREATE TABLE product.component_materials (
 
 -- Manufacturing Batches table
 CREATE TABLE product.manufacturing_batches (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id SERIAL PRIMARY KEY,
     batch_number VARCHAR(100) UNIQUE NOT NULL,
-    product_id UUID REFERENCES product.products(id) ON DELETE CASCADE,
+    product_id INTEGER REFERENCES product.products(id) ON DELETE CASCADE,
     quantity INTEGER NOT NULL,
     status VARCHAR(50) DEFAULT 'planning', -- planning, in_progress, completed, cancelled
     priority VARCHAR(20) DEFAULT 'medium', -- low, medium, high
@@ -263,9 +241,9 @@ CREATE TABLE product.manufacturing_batches (
 
 -- Batch Workflows table
 CREATE TABLE product.batch_workflows (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    batch_id UUID REFERENCES product.manufacturing_batches(id) ON DELETE CASCADE,
-    component_id UUID, -- can be sub_component_id or 'final-assembly'
+    id SERIAL PRIMARY KEY,
+    batch_id INTEGER REFERENCES product.manufacturing_batches(id) ON DELETE CASCADE,
+    component_id INTEGER, -- can be sub_component_id or 'final-assembly'
     component_name VARCHAR(255) NOT NULL,
     component_type VARCHAR(50) NOT NULL, -- 'sub-component' or 'final-assembly'
     quantity INTEGER NOT NULL,
@@ -275,15 +253,15 @@ CREATE TABLE product.batch_workflows (
     end_date TIMESTAMP,
     estimated_duration INTEGER, -- in minutes
     actual_duration INTEGER,
-    parent_batch_id UUID,
+    parent_batch_id INTEGER,
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW()
 );
 
 -- Workflow Material Consumption table
 CREATE TABLE product.workflow_material_consumption (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    workflow_id UUID REFERENCES product.batch_workflows(id) ON DELETE CASCADE,
+    id SERIAL PRIMARY KEY,
+    workflow_id INTEGER REFERENCES product.batch_workflows(id) ON DELETE CASCADE,
     material_id INTEGER REFERENCES inventory.raw_materials(material_id) ON DELETE CASCADE,
     material_name VARCHAR(255) NOT NULL,
     quantity_consumed DECIMAL(10,3) NOT NULL,

@@ -18,6 +18,17 @@ router.delete('/:id/sub-components/:subComponentId', productController.deleteSub
 router.put('/:id/sub-components/:subComponentId/materials/:materialId', productController.updateMaterial);
 router.delete('/:id/sub-components/:subComponentId/materials/:materialId', productController.deleteMaterial);
 
+// Manufacturing Steps routes
+router.get('/:id/manufacturing-steps', productController.getProductManufacturingSteps);
+router.post('/:id/manufacturing-steps', productController.addManufacturingStep);
+router.put('/:id/manufacturing-steps/:stepId', productController.updateManufacturingStep);
+router.delete('/:id/manufacturing-steps/:stepId', productController.deleteManufacturingStep);
+
+// Sub-component Manufacturing Steps routes
+router.get('/:id/sub-components/:subComponentId/manufacturing-steps', productController.getSubComponentManufacturingSteps);
+router.post('/:id/sub-components/:subComponentId/manufacturing-steps', productController.addSubComponentManufacturingStep);
+router.put('/:id/sub-components/:subComponentId/manufacturing-steps/:stepId', productController.updateSubComponentManufacturingStep);
+router.delete('/:id/sub-components/:subComponentId/manufacturing-steps/:stepId', productController.deleteSubComponentManufacturingStep);
 
 // Raw materials routes
 router.get('/raw-materials', productController.getAllRawMaterials);

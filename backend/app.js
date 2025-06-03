@@ -17,6 +17,7 @@ import revenueAnalysisRoutes from './routes/revenueAnalysis.routes.js';
 import notificationRoutes from './routes/notification.routes.js';
 import kpiRoutes from './routes/kpi.routes.js';
 import companySettingsRoutes from './routes/companySettings.routes.js';
+import manufacturingRoutes from './routes/manufacturing.routes.js';
 
 dotenv.config();
 
@@ -31,13 +32,14 @@ app.use(cookieParser())
 
 // Routes`
 app.use('/api/auth', authRoutes);
-app.use('/api/products', productRoutes);
+app.use('/api/products', productRoutes);  
 app.use('/api/raw-materials', rawMaterialRoutes);
 app.use('/api/purchase-orders', purchaseOrderRoutes);
 app.use('/api/suppliers', supplierRoutes);
 app.use('/api/sales-orders', salesOrderRoutes);
 app.use('/api/manufacturing-stages', manufacturingStageRoutes);
 app.use('/api/manufacturing-progress', manufacturingProgressRoutes);
+app.use('/api/manufacturing', manufacturingRoutes);
 app.use('/api/finished-products', finishedProductRoutes);
 app.use('/api/revenue-analysis', revenueAnalysisRoutes);
 app.use('/api/notifications', notificationRoutes);

@@ -407,6 +407,220 @@ const productController = {
         error: error.message
       });
     }
+  },
+
+  // Get product manufacturing steps
+  async getProductManufacturingSteps(req, res) {
+    try {
+      const { id } = req.params;
+      const product = await Product.findById(id);
+      
+      if (!product) {
+        return res.status(404).json({
+          success: false,
+          message: 'Product not found'
+        });
+      }
+      
+      res.json({
+        success: true,
+        data: product.manufacturingSteps,
+        message: 'Manufacturing steps retrieved successfully'
+      });
+    } catch (error) {
+      console.error('Error fetching manufacturing steps:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error fetching manufacturing steps',
+        error: error.message
+      });
+    }
+  },
+
+  // Add manufacturing step to product
+  async addManufacturingStep(req, res) {
+    try {
+      const { id } = req.params;
+      const stepData = req.body;
+      
+      if (!stepData.name || !stepData.sequence) {
+        return res.status(400).json({
+          success: false,
+          message: 'Step name and sequence are required'
+        });
+      }
+      
+      const product = await Product.addManufacturingStep(id, stepData);
+      
+      res.status(201).json({
+        success: true,
+        data: product,
+        message: 'Manufacturing step added successfully'
+      });
+    } catch (error) {
+      console.error('Error adding manufacturing step:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error adding manufacturing step',
+        error: error.message
+      });
+    }
+  },
+
+  // Update manufacturing step
+  async updateManufacturingStep(req, res) {
+    try {
+      const { id, stepId } = req.params;
+      const stepData = req.body;
+      
+      const product = await Product.updateManufacturingStep(id, stepId, stepData);
+      
+      res.json({
+        success: true,
+        data: product,
+        message: 'Manufacturing step updated successfully'
+      });
+    } catch (error) {
+      console.error('Error updating manufacturing step:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error updating manufacturing step',
+        error: error.message
+      });
+    }
+  },
+
+  // Delete manufacturing step
+  async deleteManufacturingStep(req, res) {
+    try {
+      const { id, stepId } = req.params;
+      
+      const product = await Product.deleteManufacturingStep(id, stepId);
+      
+      res.json({
+        success: true,
+        data: product,
+        message: 'Manufacturing step deleted successfully'
+      });
+    } catch (error) {
+      console.error('Error deleting manufacturing step:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error deleting manufacturing step',
+        error: error.message
+      });
+    }
+  },
+
+  // Get sub-component manufacturing steps
+  async getSubComponentManufacturingSteps(req, res) {
+    try {
+      const { id, subComponentId } = req.params;
+      const product = await Product.findById(id);
+      
+      if (!product) {
+        return res.status(404).json({
+          success: false,
+          message: 'Product not found'
+        });
+      }
+      
+      const subComponent = product.subComponents.find(sc => sc.id === subComponentId);
+      if (!subComponent) {
+        return res.status(404).json({
+          success: false,
+          message: 'Sub-component not found'
+        });
+      }
+      
+      res.json({
+        success: true,
+        data: subComponent.manufacturingSteps,
+        message: 'Sub-component manufacturing steps retrieved successfully'
+      });
+    } catch (error) {
+      console.error('Error fetching sub-component manufacturing steps:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error fetching sub-component manufacturing steps',
+        error: error.message
+      });
+    }
+  },
+
+  // Add manufacturing step to sub-component
+  async addSubComponentManufacturingStep(req, res) {
+    try {
+      const { id, subComponentId } = req.params;
+      const stepData = req.body;
+      
+      if (!stepData.name || !stepData.sequence) {
+        return res.status(400).json({
+          success: false,
+          message: 'Step name and sequence are required'
+        });
+      }
+      
+      const product = await Product.addSubComponentManufacturingStep(id, subComponentId, stepData);
+      
+      res.status(201).json({
+        success: true,
+        data: product,
+        message: 'Sub-component manufacturing step added successfully'
+      });
+    } catch (error) {
+      console.error('Error adding sub-component manufacturing step:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error adding sub-component manufacturing step',
+        error: error.message
+      });
+    }
+  },
+
+  // Update sub-component manufacturing step
+  async updateSubComponentManufacturingStep(req, res) {
+    try {
+      const { id, subComponentId, stepId } = req.params;
+      const stepData = req.body;
+      
+      const product = await Product.updateSubComponentManufacturingStep(id, subComponentId, stepId, stepData);
+      
+      res.json({
+        success: true,
+        data: product,
+        message: 'Sub-component manufacturing step updated successfully'
+      });
+    } catch (error) {
+      console.error('Error updating sub-component manufacturing step:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error updating sub-component manufacturing step',
+        error: error.message
+      });
+    }
+  },
+
+  // Delete sub-component manufacturing step
+  async deleteSubComponentManufacturingStep(req, res) {
+    try {
+      const { id, subComponentId, stepId } = req.params;
+      
+      const product = await Product.deleteSubComponentManufacturingStep(id, subComponentId, stepId);
+      
+      res.json({
+        success: true,
+        data: product,
+        message: 'Sub-component manufacturing step deleted successfully'
+      });
+    } catch (error) {
+      console.error('Error deleting sub-component manufacturing step:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error deleting sub-component manufacturing step',
+        error: error.message
+      });
+    }
   }
 };
 

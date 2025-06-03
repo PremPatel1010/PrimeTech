@@ -251,6 +251,47 @@ export class ProductService {
     toast.success('Stock updated successfully');
     return response.data;
   }
+
+  // Manufacturing Steps
+  static async addManufacturingStep(
+    productId: string,
+    stepData: Partial<ManufacturingStep>,
+    subComponentId?: string
+  ): Promise<ApiResponse<ManufacturingStep>> {
+    const url = subComponentId 
+      ? `/products/${productId}/sub-components/${subComponentId}/manufacturing-steps`
+      : `/products/${productId}/manufacturing-steps`;
+    const response = await axiosInstance.post(url, stepData);
+    toast.success('Manufacturing step added successfully');
+    return response.data;
+  }
+
+  static async updateManufacturingStep(
+    productId: string,
+    stepId: string,
+    stepData: Partial<ManufacturingStep>,
+    subComponentId?: string
+  ): Promise<ApiResponse<ManufacturingStep>> {
+    const url = subComponentId
+      ? `/products/${productId}/sub-components/${subComponentId}/manufacturing-steps/${stepId}`
+      : `/products/${productId}/manufacturing-steps/${stepId}`;
+    const response = await axiosInstance.put(url, stepData);
+    toast.success('Manufacturing step updated successfully');
+    return response.data;
+  }
+
+  static async deleteManufacturingStep(
+    productId: string,
+    stepId: string,
+    subComponentId?: string
+  ): Promise<ApiResponse<void>> {
+    const url = subComponentId
+      ? `/products/${productId}/sub-components/${subComponentId}/manufacturing-steps/${stepId}`
+      : `/products/${productId}/manufacturing-steps/${stepId}`;
+    const response = await axiosInstance.delete(url);
+    toast.success('Manufacturing step deleted successfully');
+    return response.data;
+  }
 }
 
 export default ProductService;

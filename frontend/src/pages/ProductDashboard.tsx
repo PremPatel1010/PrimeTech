@@ -80,9 +80,15 @@ const [lowStockMaterials, setLowStockMaterials] = useState<RawMaterial[]>([]);
   const [showProductForm, setShowProductForm] = useState(false);
   const [showSubComponentForm, setShowSubComponentForm] = useState(false);
   const [showMaterialForm, setShowMaterialForm] = useState(false);
+  const [showManufacturingStepForm, setShowManufacturingStepForm] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [editingSubComponent, setEditingSubComponent] = useState<{ productId: string; subComponent: SubComponent | null }>({ productId: '', subComponent: null });
   const [editingMaterial, setEditingMaterial] = useState<{ productId: string; subComponentId: string; material: ComponentMaterial | null }>({ productId: '', subComponentId: '', material: null });
+  const [editingManufacturingStep, setEditingManufacturingStep] = useState<{
+    productId: string;
+    subComponentId?: string;
+    step: ManufacturingStep | null;
+  }>({ productId: '', subComponentId: undefined, step: null });
 
   // Form data
   const [productForm, setProductForm] = useState({
@@ -107,6 +113,13 @@ const [lowStockMaterials, setLowStockMaterials] = useState<RawMaterial[]>([]);
     materialId: '',
     quantityRequired: 0,
     unit: ''
+  });
+
+  const [manufacturingStepForm, setManufacturingStepForm] = useState({
+    name: '',
+    description: '',
+    estimatedTime: 0,
+    sequence: 0
   });
 
   useEffect(() => {
@@ -185,6 +198,16 @@ const [lowStockMaterials, setLowStockMaterials] = useState<RawMaterial[]>([]);
       unit: ''
     });
     setEditingMaterial({ productId: '', subComponentId: '', material: null });
+  };
+
+  const resetManufacturingStepForm = () => {
+    setManufacturingStepForm({
+      name: '',
+      description: '',
+      estimatedTime: 0,
+      sequence: 0
+    });
+    setEditingManufacturingStep({ productId: '', subComponentId: undefined, step: null });
   };
 
   const handleCreateProduct = () => {
@@ -339,6 +362,58 @@ const [lowStockMaterials, setLowStockMaterials] = useState<RawMaterial[]>([]);
     }
   };
 
+  const handleCreateManufacturingStep = (productId: string, subComponentId?: string) => {
+    resetManufacturingStepForm();
+    setEditingManufacturingStep({ productId, subComponentId, step: null });
+    setShowManufacturingStepForm(true);
+  };
+
+  const handleEditManufacturingStep = (productId: string, step: ManufacturingStep, subComponentId?: string) => {
+    setManufacturingStepForm({
+      name: step.name,
+      description: step.description || '',
+      estimatedTime: step.estimatedTime,
+      sequence: step.sequence
+    });
+    setEditingManufacturingStep({ productId, subComponentId, step });
+    setShowManufacturingStepForm(true);
+  };
+
+  const handleSaveManufacturingStep = async () => {
+    try {
+      if (editingManufacturingStep.step) {
+        await ProductService.updateManufacturingStep(
+          editingManufacturingStep.productId,
+          editingManufacturingStep.step.id,
+          manufacturingStepForm,
+          editingManufacturingStep.subComponentId
+        );
+      } else {
+        await ProductService.addManufacturingStep(
+          editingManufacturingStep.productId,
+          manufacturingStepForm,
+          editingManufacturingStep.subComponentId
+        );
+      }
+      setShowManufacturingStepForm(false);
+      resetManufacturingStepForm();
+      loadProducts();
+    } catch (error) {
+      console.error('Error saving manufacturing step:', error);
+    }
+  };
+
+  const handleDeleteManufacturingStep = async (productId: string, stepId: string, subComponentId?: string) => {
+    if (window.confirm('Are you sure you want to delete this manufacturing step?')) {
+      try {
+        await ProductService.deleteManufacturingStep(productId, stepId, subComponentId);
+        loadProducts();
+      } catch (error) {
+        console.error('Error deleting manufacturing step:', error);
+      }
+    }
+  };
+
   const toggleProductExpansion = (productId: string) => {
     const newExpanded = new Set(expandedProducts);
     if (newExpanded.has(productId)) {
@@ -355,36 +430,103 @@ const [lowStockMaterials, setLowStockMaterials] = useState<RawMaterial[]>([]);
     );
   };
 
-  const ProductSpecifications = ({ product }: { product: Product }) => (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-100">
-      <div className="flex items-center space-x-3">
-        <div className="p-2 bg-blue-100 rounded-full">
-          <Zap className="h-4 w-4 text-blue-600" />
-        </div>
-        <div>
-          <span className="text-sm font-medium text-blue-800">Rating</span>
-          <p className="text-blue-700 font-semibold">{product.ratingRange || 'Not specified'}</p>
-        </div>
+  const ManufacturingStepsList = ({ steps, productId, subComponentId }: { 
+    steps: ManufacturingStep[]; 
+    productId: string;
+    subComponentId?: string;
+  }) => (
+    <div className="mt-4">
+      <div className="flex items-center justify-between mb-3">
+        <h5 className="font-medium text-sm flex items-center">
+          <Settings className="h-4 w-4 mr-2 text-gray-600" />
+          Manufacturing Steps
+        </h5>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => handleCreateManufacturingStep(productId, subComponentId)}
+        >
+          <Plus className="h-3 w-3 mr-1" />
+          Add Step
+        </Button>
       </div>
-      <div className="flex items-center space-x-3">
-        <div className="p-2 bg-blue-100 rounded-full">
-          <Package className="h-4 w-4 text-blue-600" />
+      
+      {steps.length === 0 ? (
+        <div className="text-center py-6 text-gray-500 bg-gray-50 rounded-lg border-2 border-dashed border-gray-200">
+          <Settings className="h-8 w-8 mx-auto mb-2 text-gray-400" />
+          <p className="text-sm">No manufacturing steps defined</p>
         </div>
-        <div>
-          <span className="text-sm font-medium text-blue-800">Discharge</span>
-          <p className="text-blue-700 font-semibold">{product.dischargeRange || 'Not specified'}</p>
+      ) : (
+        <div className="bg-white border rounded-lg overflow-hidden">
+          <div className="grid grid-cols-5 gap-4 p-3 bg-gray-50 text-xs font-medium text-gray-600 border-b">
+            <span>Sequence</span>
+            <span>Step Name</span>
+            <span>Description</span>
+            <span>Time (min)</span>
+            <span>Actions</span>
+          </div>
+          {steps.sort((a, b) => a.sequence - b.sequence).map((step) => (
+            <div key={step.id} className="grid grid-cols-5 gap-4 p-3 border-b last:border-b-0 hover:bg-gray-50">
+              <span className="text-sm font-medium">{step.sequence}</span>
+              <span className="text-sm">{step.name}</span>
+              <span className="text-sm text-gray-600">{step.description || '-'}</span>
+              <span className="text-sm font-medium">{step.estimatedTime}</span>
+              <div className="flex items-center space-x-1">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => handleEditManufacturingStep(productId, step, subComponentId)}
+                >
+                  <Edit className="h-3 w-3" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => handleDeleteManufacturingStep(productId, step.id, subComponentId)}
+                >
+                  <Trash2 className="h-3 w-3 text-red-500" />
+                </Button>
+              </div>
+            </div>
+          ))}
         </div>
-      </div>
-      <div className="flex items-center space-x-3">
-        <div className="p-2 bg-blue-100 rounded-full">
-          <Settings className="h-4 w-4 text-blue-600" />
-        </div>
-        <div>
-          <span className="text-sm font-medium text-blue-800">Head</span>
-          <p className="text-blue-700 font-semibold">{product.headRange || 'Not specified'}</p>
-        </div>
-      </div>
+      )}
     </div>
+  );
+
+  const ProductSpecifications = ({ product }: { product: Product }) => (
+    <>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-100">
+        <div className="flex items-center space-x-3">
+          <div className="p-2 bg-blue-100 rounded-full">
+            <Zap className="h-4 w-4 text-blue-600" />
+          </div>
+          <div>
+            <span className="text-sm font-medium text-blue-800">Rating</span>
+            <p className="text-blue-700 font-semibold">{product.ratingRange || 'Not specified'}</p>
+          </div>
+        </div>
+        <div className="flex items-center space-x-3">
+          <div className="p-2 bg-blue-100 rounded-full">
+            <Package className="h-4 w-4 text-blue-600" />
+          </div>
+          <div>
+            <span className="text-sm font-medium text-blue-800">Discharge</span>
+            <p className="text-blue-700 font-semibold">{product.dischargeRange || 'Not specified'}</p>
+          </div>
+        </div>
+        <div className="flex items-center space-x-3">
+          <div className="p-2 bg-blue-100 rounded-full">
+            <Settings className="h-4 w-4 text-blue-600" />
+          </div>
+          <div>
+            <span className="text-sm font-medium text-blue-800">Head</span>
+            <p className="text-blue-700 font-semibold">{product.headRange || 'Not specified'}</p>
+          </div>
+        </div>
+      </div>
+      <ManufacturingStepsList steps={product.manufacturingSteps} productId={product.id} />
+    </>
   );
 
   const BillOfMaterials = ({ subComponent, productId }: { subComponent: SubComponent; productId: string }) => (
@@ -404,7 +546,7 @@ const [lowStockMaterials, setLowStockMaterials] = useState<RawMaterial[]>([]);
           Add Material
         </Button>
       </div>
-      {console.log(subComponent)}
+      
       
       {(subComponent.materials || []).length === 0 ? (
         <div className="text-center py-6 text-gray-500 bg-gray-50 rounded-lg border-2 border-dashed border-gray-200">
@@ -584,6 +726,11 @@ const [lowStockMaterials, setLowStockMaterials] = useState<RawMaterial[]>([]);
                             </CardHeader>
                             <CardContent>
                               <BillOfMaterials subComponent={subComponent} productId={product.id} />
+                              <ManufacturingStepsList 
+                                steps={subComponent.manufacturingSteps} 
+                                productId={product.id} 
+                                subComponentId={subComponent.id} 
+                              />
                             </CardContent>
                           </Card>
                         ))
@@ -848,6 +995,70 @@ const [lowStockMaterials, setLowStockMaterials] = useState<RawMaterial[]>([]);
             >
               <Save className="h-4 w-4 mr-2" />
               {editingMaterial.material ? 'Update' : 'Add'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Manufacturing Step Form Dialog */}
+      <Dialog open={showManufacturingStepForm} onOpenChange={setShowManufacturingStepForm}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {editingManufacturingStep.step ? 'Edit Manufacturing Step' : 'Add Manufacturing Step'}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="stepName">Step Name *</Label>
+              <Input
+                id="stepName"
+                value={manufacturingStepForm.name}
+                onChange={(e) => setManufacturingStepForm(prev => ({ ...prev, name: e.target.value }))}
+                placeholder="Enter step name"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="stepSequence">Sequence Number *</Label>
+                <Input
+                  id="stepSequence"
+                  type="number"
+                  value={manufacturingStepForm.sequence}
+                  onChange={(e) => setManufacturingStepForm(prev => ({ ...prev, sequence: parseInt(e.target.value) || 0 }))}
+                  placeholder="1"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="stepTime">Estimated Time (minutes) *</Label>
+                <Input
+                  id="stepTime"
+                  type="number"
+                  value={manufacturingStepForm.estimatedTime}
+                  onChange={(e) => setManufacturingStepForm(prev => ({ ...prev, estimatedTime: parseInt(e.target.value) || 0 }))}
+                  placeholder="30"
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="stepDescription">Description</Label>
+              <Textarea
+                id="stepDescription"
+                value={manufacturingStepForm.description}
+                onChange={(e) => setManufacturingStepForm(prev => ({ ...prev, description: e.target.value }))}
+                placeholder="Enter step description"
+                rows={3}
+              />
+            </div>
+          </div>
+          <div className="flex justify-end space-x-2">
+            <Button variant="outline" onClick={() => setShowManufacturingStepForm(false)}>Cancel</Button>
+            <Button 
+              onClick={handleSaveManufacturingStep}
+              disabled={!manufacturingStepForm.name || manufacturingStepForm.sequence <= 0 || manufacturingStepForm.estimatedTime <= 0}
+            >
+              <Save className="h-4 w-4 mr-2" />
+              {editingManufacturingStep.step ? 'Update' : 'Add'}
             </Button>
           </div>
         </DialogContent>
