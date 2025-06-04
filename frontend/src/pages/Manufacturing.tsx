@@ -27,9 +27,34 @@ import {
   Pause, 
   CheckCircle, 
   MoreVertical,
-  Plus 
+  Plus,
+  Edit,
+  Trash2,
+  Factory,
+  Clock,
+  Users,
+  TrendingUp,
+  ChevronDown,
+  ChevronRight
 } from 'lucide-react';
-import { ManufacturingService, Product, ManufacturingBatch, RawMaterial } from '@/services/manufacturing.service';
+import { toast } from 'sonner';
+import { ManufacturingService, Product, ManufacturingBatch, BatchWorkflow, RawMaterial } from '@/services/manufacturing.service';
+import WorkflowSteps from '@/components/manufacturing/WorkflowsSteps';
+import BatchEditModal from '@/components/manufacturing/BatchEditModal';
+import BatchDeleteDialog from '@/components/manufacturing/BatchDeleteDialog';
+import StepUpdateModal from '@/components/manufacturing/StepUpdateModal';
+import BatchCreationWizard from '@/components/manufacturing/BatchCreationWizard';
+
+// Default workflow steps
+const DEFAULT_WORKFLOW_STEPS = [
+  'Inward',
+  'QC',
+  'Components Assembly', 
+  'Final Assembly',
+  'Testing',
+  'Packaging',
+  'Completed'
+];
 
 export const ManufacturingDashboard = () => {
   const [products, setProducts] = useState<Product[]>([]);
@@ -39,11 +64,15 @@ export const ManufacturingDashboard = () => {
   const [loading, setLoading] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string>('all');
   
-  // Batch creation form
-  const [selectedProductId, setSelectedProductId] = useState('');
-  const [quantity, setQuantity] = useState(1);
-  const [targetDate, setTargetDate] = useState('');
-  const [priority, setPriority] = useState<'low' | 'medium' | 'high'>('medium');
+  // Modal states
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [stepUpdateModalOpen, setStepUpdateModalOpen] = useState(false);
+  const [selectedBatch, setSelectedBatch] = useState<ManufacturingBatch | null>(null);
+  const [selectedWorkflow, setSelectedWorkflow] = useState<BatchWorkflow | null>(null);
+  
+  // Batch creation wizard
+  const [showBatchWizard, setShowBatchWizard] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -70,111 +99,85 @@ export const ManufacturingDashboard = () => {
     }
   };
 
-  const selectedProduct = products.find(p => p.id === selectedProductId);
-
-  const calculateMaterialRequirements = () => {
-    if (!selectedProduct) return [];
-    
-    const requirements: Record<string, { name: string; total: number; unit: string; available: number; isLowStock: boolean }> = {};
-    
-    selectedProduct.subComponents?.forEach(subComponent => {
-      subComponent.materials?.forEach(material => {
-        
-        const totalRequired = material.quantityRequired * quantity;
-        const rawMaterial = rawMaterials.find(rm => rm.material_id === material.materialId);
-        
-        
-        if (requirements[material.materialId]) {
-          requirements[material.materialId].total += totalRequired;
-        } else {
-          requirements[material.materialId] = {
-            name: material.materialName,
-            total: totalRequired,
-            unit: material.unit,
-            available: rawMaterial?.current_stock || 0,
-            isLowStock: lowStockMaterials.some(lsm => lsm.id === material.materialId)
-          };
-        }
-      });
-    });
-    
-    return Object.values(requirements);
-  };
-
-  const calculateEstimatedDuration = () => {
-    if (!selectedProduct) return 0;
-    
-    const subComponentTime = selectedProduct.subComponents?.reduce((total, sc) => 
-      total + (sc.estimatedTime * quantity), 0) || 0;
-    const finalAssemblyTime = selectedProduct.finalAssemblyTime * quantity;
-    
-    return Math.round((subComponentTime + finalAssemblyTime) / 60); // Convert to hours
-  };
-
-  const handleCreateBatch = async () => {
-    if (!selectedProduct) return;
-    
-    const batchNumber = `BATCH-${Date.now().toString().slice(-6)}`;
-    const newBatch = {
-      batchNumber: batchNumber,
-      productId: selectedProduct.id,
-      quantity,
-      status: 'planning' as const,
-      priority,
-      targetCompletionDate: targetDate || undefined
-    };
-    
-    const createdBatch = await ManufacturingService.createBatch(newBatch);
-    console.log(createdBatch);
-    if (createdBatch) {
-      // Create workflows for the batch
-      if (selectedProduct.subComponents) {
-        for (const subComponent of selectedProduct.subComponents) {
-          await ManufacturingService.createWorkflow(createdBatch.id, {
-            componentId: subComponent.id,
-            componentName: subComponent.name,
-            componentType: 'sub-component',
-            quantity,
-            estimatedDuration: subComponent.estimatedTime * quantity
-          });
-        }
+  const handleWorkflowStatusChange = async (batchId: string, workflowId: string, newStatus: BatchWorkflow['status']) => {
+    try {
+      const success = await ManufacturingService.updateWorkflowStatus(workflowId, newStatus);
+      if (success) {
+        toast.success('Workflow status updated');
+        loadData();
       }
-      
-      // Create final assembly workflow
-      await ManufacturingService.createWorkflow(createdBatch.id, {
-        componentId: null,
-        componentName: 'Final Assembly',
-        componentType: 'final-assembly',
-        quantity,
-        estimatedDuration: selectedProduct.finalAssemblyTime * quantity
-      });
-      
-      // Reset form and reload data
-      setSelectedProductId('');
-      setQuantity(1);
-      setTargetDate('');
-      setPriority('medium');
-      loadData();
+    } catch (error) {
+      console.error('Error updating workflow status:', error);
+      toast.error('Failed to update workflow status');
     }
   };
 
-  const handleWorkflowStatusChange = async (batchId: string, workflowId: string, newStatus: 'not_started' | 'in_progress' | 'completed' | 'on_hold') => {
-    await ManufacturingService.updateWorkflowStatus(workflowId, newStatus);
-    loadData();
+  const handleEditBatch = (batch: ManufacturingBatch) => {
+    setSelectedBatch(batch);
+    setEditModalOpen(true);
   };
 
-  const getBatchProgress = async (batchId: string) => {
-    return await ManufacturingService.getBatchProgress(batchId);
+  const handleDeleteBatch = (batch: ManufacturingBatch) => {
+    setSelectedBatch(batch);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleEditStep = async (workflow: BatchWorkflow, batch: ManufacturingBatch) => {
+    setSelectedWorkflow(workflow);
+    setSelectedBatch(batch);
+    setStepUpdateModalOpen(true);
+  };
+
+  const handleSaveBatch = async (id: string, data: Partial<ManufacturingBatch>) => {
+    try {
+      const success = await ManufacturingService.updateBatchStatus(id, data.status as ManufacturingBatch['status']);
+      if (success) {
+        toast.success('Batch updated successfully');
+        loadData();
+      }
+    } catch (error) {
+      console.error('Error updating batch:', error);
+      toast.error('Failed to update batch');
+    }
+  };
+
+  const handleConfirmDelete = async (id: string) => {
+    try {
+      const success = await ManufacturingService.updateBatchStatus(id, 'cancelled');
+      if (success) {
+        toast.success('Batch cancelled successfully');
+        loadData();
+      }
+    } catch (error) {
+      console.error('Error cancelling batch:', error);
+      toast.error('Failed to cancel batch');
+    }
+  };
+
+  const handleBatchCreated = async () => {
+    setShowBatchWizard(false);
+    await loadData();
+  };
+
+  const handleUpdateWorkflow = async (workflowId: string, data: Partial<BatchWorkflow>) => {
+    try {
+      if (data.status) {
+        const success = await ManufacturingService.updateWorkflowStatus(workflowId, data.status);
+        if (success) {
+          toast.success('Workflow updated successfully');
+          loadData();
+        }
+      }
+    } catch (error) {
+      console.error('Error updating workflow:', error);
+      toast.error('Failed to update workflow');
+    }
   };
 
   const filteredBatches = batches.filter(batch => {
     if (statusFilter === 'all') return true;
     return batch.status === statusFilter;
   });
-
-  const materialRequirements = calculateMaterialRequirements();
-  const estimatedDuration = calculateEstimatedDuration();
-  const hasInsufficientStock = materialRequirements.some(req => req.total > req.available);
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -188,56 +191,103 @@ export const ManufacturingDashboard = () => {
     }
   };
 
-  const getWorkflowStatusColor = (status: string) => {
-    switch (status) {
-      case 'not_started': return 'bg-gray-400';
-      case 'in_progress': return 'bg-blue-500';
-      case 'completed': return 'bg-green-500';
-      case 'on_hold': return 'bg-yellow-500';
-      default: return 'bg-gray-400';
+  const getProductSteps = (product: Product | undefined) => {
+    if (!product) return DEFAULT_WORKFLOW_STEPS;
+    
+    // If product has manufacturing steps defined, use those
+    if (product.manufacturingSteps && product.manufacturingSteps.length > 0) {
+      return product.manufacturingSteps.map(step => step.name);
     }
+    
+    // If sub-components have steps, combine them
+    if (product.subComponents && product.subComponents.length > 0) {
+      const subComponentSteps = product.subComponents.flatMap(sc => 
+        sc.manufacturingSteps?.map(step => step.name) || []
+      );
+      
+      if (subComponentSteps.length > 0) {
+        return [...new Set([...subComponentSteps, 'Final Assembly', 'Testing', 'Packaging', 'Completed'])];
+      }
+    }
+    
+    return DEFAULT_WORKFLOW_STEPS;
   };
 
   if (loading) {
-    return <div className="flex justify-center items-center h-64">Loading...</div>;
+    return (
+      <div className="flex justify-center items-center h-64">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+      </div>
+    );
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center space-x-2">
-        <Package className="h-6 w-6" />
-        <h2 className="text-3xl font-bold">Manufacturing Dashboard</h2>
-      </div>
-
-      {lowStockMaterials.length > 0 && (
-        <Card className="border-orange-200 bg-orange-50">
-          <CardHeader>
-            <CardTitle className="text-orange-800 flex items-center">
-              <AlertTriangle className="h-5 w-5 mr-2" />
-              Low Stock Alert
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-wrap gap-2">
-              {lowStockMaterials.map(material => (
-                <Badge key={material.id} variant="destructive">
-                  {material.name}: {material.stockQuantity} {material.unit}
-                </Badge>
-              ))}
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50">
+      <div className="max-w-7xl mx-auto p-6 space-y-8">
+        {/* Enhanced Header */}
+        <div className="bg-white rounded-xl shadow-lg border border-gray-100 p-6">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-4">
+              <div className="p-3 bg-gradient-to-r from-blue-500 to-indigo-600 rounded-xl shadow-md">
+                <Factory className="h-8 w-8 text-white" />
+              </div>
+              <div>
+                <h1 className="text-3xl font-bold bg-gradient-to-r from-gray-900 to-blue-800 bg-clip-text text-transparent">
+                  Manufacturing Dashboard
+                </h1>
+                <p className="text-gray-600 mt-1">Solar Pump Production Management System</p>
+              </div>
             </div>
-          </CardContent>
-        </Card>
-      )}
+            <div className="flex items-center space-x-6">
+              <div className="text-center">
+                <div className="text-2xl font-bold text-blue-600">{batches.filter(b => b.status === 'in_progress').length}</div>
+                <div className="text-sm text-gray-500">Active Batches</div>
+              </div>
+              <div className="text-center">
+                <div className="text-2xl font-bold text-green-600">{batches.filter(b => b.status === 'completed').length}</div>
+                <div className="text-sm text-gray-500">Completed</div>
+              </div>
+              <Button 
+                onClick={() => setShowBatchWizard(true)}
+                className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 shadow-lg"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                New Batch
+              </Button>
+            </div>
+          </div>
+        </div>
 
-      <Tabs defaultValue="dashboard" className="w-full">
-        <TabsList className="grid w-full grid-cols-2">
-          <TabsTrigger value="dashboard">Production Dashboard</TabsTrigger>
-          <TabsTrigger value="create-batch">Create New Batch</TabsTrigger>
-        </TabsList>
+        {/* Low Stock Alert */}
+        {lowStockMaterials.length > 0 && (
+          <Card className="border-orange-200 bg-gradient-to-r from-orange-50 to-red-50 shadow-md">
+            <CardHeader>
+              <CardTitle className="text-orange-800 flex items-center">
+                <AlertTriangle className="h-5 w-5 mr-2" />
+                Low Stock Alert ({lowStockMaterials.length} items)
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex flex-wrap gap-2">
+                {lowStockMaterials.slice(0, 5).map(material => (
+                  <Badge key={material.id} variant="destructive" className="bg-orange-100 text-orange-800 border-orange-300">
+                    {material.name}: {material.stockQuantity} {material.unit}
+                  </Badge>
+                ))}
+                {lowStockMaterials.length > 5 && (
+                  <Badge variant="outline" className="border-orange-300">
+                    +{lowStockMaterials.length - 5} more
+                  </Badge>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
-        <TabsContent value="dashboard" className="space-y-6">
+        {/* Manufacturing Batches Section */}
+        <div className="space-y-6">
           <div className="flex justify-between items-center">
-            <h3 className="text-xl font-semibold">Active Batches</h3>
+            <h3 className="text-xl font-semibold text-gray-800">Manufacturing Batches</h3>
             <Select value={statusFilter} onValueChange={setStatusFilter}>
               <SelectTrigger className="w-48">
                 <SelectValue placeholder="Filter by status" />
@@ -253,206 +303,94 @@ export const ManufacturingDashboard = () => {
           </div>
 
           {filteredBatches.length === 0 ? (
-            <Card>
-              <CardContent className="p-8 text-center">
-                <p className="text-gray-500">No manufacturing batches found. Create a batch to get started.</p>
+            <Card className="text-center py-12 bg-gradient-to-br from-gray-50 to-blue-50 border-dashed border-2 border-gray-200">
+              <CardContent>
+                <Package className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                <h3 className="text-lg font-medium text-gray-900 mb-2">No batches found</h3>
+                <p className="text-gray-500 mb-4">Create a new manufacturing batch to get started.</p>
+                <Button onClick={() => setShowBatchWizard(true)}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Create First Batch
+                </Button>
               </CardContent>
             </Card>
           ) : (
             <div className="grid gap-6">
               {filteredBatches.map((batch) => (
-                <BatchCard 
+                <EnhancedBatchCard 
                   key={batch.id} 
                   batch={batch} 
+                  products={products}
                   onWorkflowStatusChange={handleWorkflowStatusChange}
+                  onEdit={handleEditBatch}
+                  onDelete={handleDeleteBatch}
+                  onEditStep={handleEditStep}
                   getStatusColor={getStatusColor}
-                  getWorkflowStatusColor={getWorkflowStatusColor}
+                  getProductSteps={getProductSteps}
                 />
               ))}
             </div>
           )}
-        </TabsContent>
+        </div>
 
-        <TabsContent value="create-batch" className="space-y-6">
-          <div className="grid lg:grid-cols-2 gap-6">
-            {/* Batch Configuration */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Batch Configuration</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div>
-                  <Label htmlFor="product">Product</Label>
-                  <Select value={selectedProductId} onValueChange={setSelectedProductId}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select a product" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {products.map(product => (
-                        <SelectItem key={product.id} value={product.id}>
-                          {product.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+        {/* Modals */}
+        <BatchCreationWizard
+          isOpen={showBatchWizard}
+          onClose={() => setShowBatchWizard(false)}
+          onBatchCreated={handleBatchCreated}
+          products={products}
+          rawMaterials={rawMaterials}
+          lowStockMaterials={lowStockMaterials}
+        />
 
-                <div>
-                  <Label htmlFor="quantity">Quantity</Label>
-                  <Input
-                    id="quantity"
-                    type="number"
-                    min={1}
-                    value={quantity}
-                    onChange={(e) => setQuantity(parseInt(e.target.value) || 1)}
-                  />
-                </div>
+        <BatchEditModal
+          batch={selectedBatch}
+          isOpen={editModalOpen}
+          onClose={() => setEditModalOpen(false)}
+          onSave={handleSaveBatch}
+        />
 
-                <div>
-                  <Label htmlFor="targetDate">Target Completion Date</Label>
-                  <Input
-                    id="targetDate"
-                    type="date"
-                    value={targetDate}
-                    onChange={(e) => setTargetDate(e.target.value)}
-                  />
-                </div>
+        <BatchDeleteDialog
+          batch={selectedBatch}
+          isOpen={deleteDialogOpen}
+          onClose={() => setDeleteDialogOpen(false)}
+          onConfirm={handleConfirmDelete}
+        />
 
-                <div>
-                  <Label htmlFor="priority">Priority</Label>
-                  <Select value={priority} onValueChange={(value: 'low' | 'medium' | 'high') => setPriority(value)}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="low">Low</SelectItem>
-                      <SelectItem value="medium">Medium</SelectItem>
-                      <SelectItem value="high">High</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Batch Preview */}
-            {selectedProduct && (
-              <Card>
-                <CardHeader>
-                  <CardTitle>Batch Preview</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium">Product:</span>
-                    <Badge variant="outline">{selectedProduct.name}</Badge>
-                  </div>
-                  
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium">Quantity:</span>
-                    <Badge>{quantity} units</Badge>
-                  </div>
-                  
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium">Sub-Components:</span>
-                    <Badge variant="secondary">{selectedProduct.subComponents?.length || 0}</Badge>
-                  </div>
-                  
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium">Est. Duration:</span>
-                    <Badge className="flex items-center">
-                      <Calendar className="h-3 w-3 mr-1" />
-                      {estimatedDuration}h
-                    </Badge>
-                  </div>
-                  
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium">Workflows:</span>
-                    <Badge variant="outline">{(selectedProduct.subComponents?.length || 0) + 1}</Badge>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-          </div>
-
-        
-          {/* Material Requirements */}
-          {materialRequirements.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center">
-                  Material Requirements
-                  {hasInsufficientStock && (
-                    <AlertTriangle className="h-5 w-5 ml-2 text-orange-500" />
-                  )}
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid gap-3">
-                  {materialRequirements.map((req, index) => (
-                    <div 
-                      key={index} 
-                      className={`flex items-center justify-between p-3 rounded-lg ${
-                        req.total > req.available ? 'bg-red-50 border border-red-200' : 'bg-gray-50'
-                      }`}
-                    >
-                      <div className="flex items-center space-x-3">
-                        <span className="font-medium">{req.name}</span>
-                        {req.isLowStock && (
-                          <Badge variant="destructive" className="text-xs">Low Stock</Badge>
-                        )}
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <span className="text-sm">
-                          Need: <strong>{req.total} {req.unit}</strong>
-                        </span>
-                        <span className="text-sm text-gray-500">
-                          Available: {req.available} {req.unit}
-                        </span>
-                        {req.total > req.available && (
-                          <Badge variant="destructive">Insufficient</Badge>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Create Button */}
-          <div className="flex justify-end">
-            <Button 
-              onClick={handleCreateBatch}
-              disabled={!selectedProductId || hasInsufficientStock}
-              size="lg"
-            >
-              Create Batch
-            </Button>
-          </div>
-          
-          {hasInsufficientStock && (
-            <p className="text-sm text-red-600 text-center">
-              Cannot create batch: Insufficient raw materials in stock
-            </p>
-          )}
-        </TabsContent>
-      </Tabs>
+        <StepUpdateModal
+          workflow={selectedWorkflow}
+          batch={selectedBatch}
+          isOpen={stepUpdateModalOpen}
+          onClose={() => setStepUpdateModalOpen(false)}
+          onSave={handleUpdateWorkflow}
+        />
+      </div>
     </div>
   );
 };
 
-// Separate component for batch cards to keep the main component cleaner
-const BatchCard = ({ 
+// Enhanced Batch Card Component
+const EnhancedBatchCard = ({ 
   batch, 
+  products,
   onWorkflowStatusChange, 
-  getStatusColor, 
-  getWorkflowStatusColor 
+  onEdit,
+  onDelete,
+  onEditStep,
+  getStatusColor,
+  getProductSteps
 }: {
   batch: ManufacturingBatch;
-  onWorkflowStatusChange: (batchId: string, workflowId: string, status: any) => void;
+  products: Product[];
+  onWorkflowStatusChange: (batchId: string, workflowId: string, status: BatchWorkflow['status']) => void;
+  onEdit: (batch: ManufacturingBatch) => void;
+  onDelete: (batch: ManufacturingBatch) => void;
+  onEditStep: (workflow: BatchWorkflow, batch: ManufacturingBatch) => void;
   getStatusColor: (status: string) => string;
-  getWorkflowStatusColor: (status: string) => string;
+  getProductSteps: (product: Product | undefined) => string[];
 }) => {
   const [progress, setProgress] = useState(0);
+  const [isExpanded, setIsExpanded] = useState(false);
 
   useEffect(() => {
     const calculateProgress = async () => {
@@ -462,90 +400,188 @@ const BatchCard = ({
     calculateProgress();
   }, [batch.id]);
 
+  // Find the actual product object
+  const product = products.find(p => p.id === batch.product_id);
+  const productSteps = getProductSteps(product);
+  
+  const workflowSteps = productSteps.map((stepName, index) => {
+    const workflow = batch.workflows?.find(w => w.componentName === stepName);
+    return {
+      name: stepName,
+      status: workflow?.status || 'not_started' as const,
+      estimatedTime: workflow?.estimatedDuration,
+      actualTime: workflow?.actualDuration,
+      workflow: workflow
+    };
+  });
+
+  const getCurrentStep = () => {
+    const completedSteps = workflowSteps.filter(s => s.status === 'completed').length;
+    const inProgressSteps = workflowSteps.filter(s => s.status === 'in_progress').length;
+    return completedSteps + (inProgressSteps > 0 ? 1 : 0);
+  };
+
+  const currentStep = getCurrentStep();
+
   return (
-    <Card className="overflow-hidden">
-      <CardHeader className="bg-gray-50">
+    <Card className="overflow-hidden hover:shadow-xl transition-all duration-300 border-l-4 border-l-blue-500 bg-white">
+      <CardHeader className="bg-gradient-to-r from-gray-50 to-blue-50 pb-4">
         <div className="flex justify-between items-start">
-          <div>
-            <CardTitle className="text-xl">{batch.batchNumber}</CardTitle>
-            <p className="text-sm text-gray-600 mt-1">
-              {batch.product?.name} - Quantity: {batch.quantity}
-            </p>
+          <div className="flex-1">
+            <div className="flex items-center gap-3 mb-2">
+              <CardTitle className="text-xl text-gray-900">{batch.batchNumber}</CardTitle>
+              <Badge className={getStatusColor(batch.status)}>
+                {batch.status.replace('_', ' ').toUpperCase()}
+              </Badge>
+              <Badge variant="outline" className={`border-${batch.priority === 'high' ? 'red' : batch.priority === 'medium' ? 'yellow' : 'gray'}-300`}>
+                {batch.priority.toUpperCase()} PRIORITY
+              </Badge>
+            </div>
+            <div className="flex items-center gap-4 text-sm text-gray-600">
+              <span className="flex items-center gap-1">
+                <Package className="h-4 w-4" />
+                {product?.name || 'Unknown Product'}
+              </span>
+              <span className="flex items-center gap-1">
+                <Factory className="h-4 w-4" />
+                Qty: {batch.quantity}
+              </span>
+              {batch.targetCompletionDate && (
+                <span className="flex items-center gap-1">
+                  <Calendar className="h-4 w-4" />
+                  Due: {new Date(batch.targetCompletionDate).toLocaleDateString()}
+                </span>
+              )}
+            </div>
           </div>
+          
           <div className="flex items-center gap-2">
-            <Badge className={getStatusColor(batch.status)}>
-              {batch.status.replace('_', ' ').toUpperCase()}
-            </Badge>
-            <Badge variant="outline" className={`border-${batch.priority === 'high' ? 'red' : batch.priority === 'medium' ? 'yellow' : 'gray'}-300`}>
-              {batch.priority.toUpperCase()}
-            </Badge>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setIsExpanded(!isExpanded)}
+              className="h-8 w-8 p-0"
+            >
+              {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+            </Button>
+            
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm">
+                  <MoreVertical className="h-4 w-4" />
+                  <span className="sr-only">Workflow Actions</span>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuItem onClick={() => onEdit(batch)}>
+                  <Edit className="h-4 w-4 mr-2" />
+                  Edit Batch
+                </DropdownMenuItem>
+                <DropdownMenuItem 
+                  onClick={() => onDelete(batch)}
+                  className="text-red-600 focus:text-red-600"
+                >
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Delete Batch
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
         
         <div className="mt-4">
           <div className="flex justify-between text-sm text-gray-600 mb-2">
             <span>Overall Progress</span>
-            <span>{progress}%</span>
+            <span>{progress}% Complete</span>
           </div>
-          <Progress value={progress} className="h-2" />
+          <Progress value={progress} className="h-3 bg-gray-200" />
         </div>
       </CardHeader>
 
-      <CardContent className="p-6">
-        <h4 className="font-medium mb-4">Workflows</h4>
-        <div className="space-y-3">
-          {batch.workflows?.map((workflow) => (
-            <div key={workflow.id} className="flex items-center justify-between p-3 border rounded-lg">
-              <div className="flex-1">
-                <div className="flex items-center gap-3">
-                  <Badge className={getWorkflowStatusColor(workflow.status)}>
-                    {workflow.status.replace('_', ' ')}
-                  </Badge>
-                  <span className="font-medium">{workflow.componentName}</span>
-                  <span className="text-sm text-gray-500">
-                    ({workflow.componentType === 'sub-component' ? 'Sub-Component' : 'Final Assembly'})
-                  </span>
-                </div>
-                <div className="text-sm text-gray-600 mt-1">
-                  Quantity: {workflow.quantity} | Duration: {workflow.estimatedDuration} min
-                  {workflow.assignedTeam && ` | Team: ${workflow.assignedTeam}`}
-                </div>
-              </div>
-
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="sm">
-                    <MoreVertical className="h-4 w-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem 
-                    onClick={() => onWorkflowStatusChange(batch.id, workflow.id, 'in_progress')}
-                    disabled={workflow.status === 'in_progress'}
-                  >
-                    <Play className="h-4 w-4 mr-2" />
-                    Start
-                  </DropdownMenuItem>
-                  <DropdownMenuItem 
-                    onClick={() => onWorkflowStatusChange(batch.id, workflow.id, 'on_hold')}
-                    disabled={workflow.status === 'on_hold'}
-                  >
-                    <Pause className="h-4 w-4 mr-2" />
-                    Hold
-                  </DropdownMenuItem>
-                  <DropdownMenuItem 
-                    onClick={() => onWorkflowStatusChange(batch.id, workflow.id, 'completed')}
-                    disabled={workflow.status === 'completed'}
-                  >
-                    <CheckCircle className="h-4 w-4 mr-2" />
-                    Complete
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+      {isExpanded && (
+        <CardContent className="p-6 bg-gray-50">
+          <div className="grid lg:grid-cols-2 gap-6">
+            {/* Workflow Steps */}
+            <div>
+              <WorkflowSteps
+                currentStep={currentStep}
+                totalSteps={productSteps.length}
+                steps={workflowSteps}
+              />
             </div>
-          ))}
-        </div>
-      </CardContent>
+            
+            {/* Workflow Actions */}
+            <div className="space-y-4">
+              <h4 className="font-semibold text-gray-800 flex items-center gap-2">
+                <Users className="h-4 w-4" />
+                Workflow Management
+              </h4>
+              <div className="space-y-3 max-h-80 overflow-y-auto">
+                {batch.workflows?.map((workflow) => (
+                  <div key={workflow.id} className="flex items-center justify-between p-3 border rounded-lg bg-white hover:bg-gray-50 transition-colors shadow-sm">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-3">
+                        <Badge className={getStatusColor(workflow.status)}>
+                          {workflow.status.replace('_', ' ')}
+                        </Badge>
+                        <span className="font-medium">{workflow.componentName}</span>
+                      </div>
+                      <div className="text-sm text-gray-600 mt-1 flex items-center gap-4">
+                        <span className="flex items-center gap-1">
+                          <Clock className="h-3 w-3" />
+                          {workflow.estimatedDuration}min
+                        </span>
+                        {workflow.assignedTeam && (
+                          <span className="flex items-center gap-1">
+                            <Users className="h-3 w-3" />
+                            {workflow.assignedTeam}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="sm">
+                          <MoreVertical className="h-4 w-4" />
+                          <span className="sr-only">Workflow Actions</span>
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => onEditStep(workflow, batch)}>
+                          <Edit className="h-4 w-4 mr-2" />
+                          Edit Step
+                        </DropdownMenuItem>
+                        <DropdownMenuItem 
+                          onClick={() => onWorkflowStatusChange(batch.id, workflow.id, 'in_progress')}
+                          disabled={workflow.status === 'in_progress'}
+                        >
+                          <Play className="h-4 w-4 mr-2" />
+                          Start
+                        </DropdownMenuItem>
+                        <DropdownMenuItem 
+                          onClick={() => onWorkflowStatusChange(batch.id, workflow.id, 'on_hold')}
+                          disabled={workflow.status === 'on_hold'}
+                        >
+                          <Pause className="h-4 w-4 mr-2" />
+                          Hold
+                        </DropdownMenuItem>
+                        <DropdownMenuItem 
+                          onClick={() => onWorkflowStatusChange(batch.id, workflow.id, 'completed')}
+                          disabled={workflow.status === 'completed'}
+                        >
+                          <CheckCircle className="h-4 w-4 mr-2" />
+                          Complete
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      )}
     </Card>
   );
 };
