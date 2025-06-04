@@ -213,7 +213,7 @@ class ManufacturingController {
       const workflowData = { ...req.body, batch_id: batchId };
 
       // Validate required fields
-      if (!workflowData.component_name || !workflowData.component_type || !workflowData.quantity) {
+      if (!workflowData.componentName || !workflowData.componentType || !workflowData.quantity) {
         return res.status(400).json({
           success: false,
           message: 'Component name, type, and quantity are required'

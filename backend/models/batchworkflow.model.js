@@ -57,21 +57,20 @@ class BatchWorkflow {
       const query = `
         INSERT INTO product.batch_workflows (
           batch_id, component_id, component_name, component_type,
-          quantity, assigned_team, status, estimated_duration, parent_batch_id
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+          quantity, status, estimated_duration, parent_batch_id
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         RETURNING *
       `;
       
       const values = [
         workflowData.batch_id,
-        workflowData.component_id,
-        workflowData.component_name,
-        workflowData.component_type,
+        workflowData.componentId,
+        workflowData.componentName,
+        workflowData.componentType,
         workflowData.quantity,
-        workflowData.assigned_team,
         workflowData.status || 'not_started',
-        workflowData.estimated_duration,
-        workflowData.parent_batch_id
+        workflowData.estimatedDuration,
+        workflowData.parentBatchId
       ];
 
       const result = await db.query(query, values);

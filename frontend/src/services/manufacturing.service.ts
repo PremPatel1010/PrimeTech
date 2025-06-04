@@ -348,12 +348,10 @@ export class ManufacturingService {
   // Workflows
   static async createWorkflow(batchId: string, workflowData: Partial<BatchWorkflow>): Promise<BatchWorkflow | null> {
     try {
+      console.log(batchId, workflowData);
       const response = await axiosInstance.post(`/manufacturing/batches/${batchId}/workflows`, workflowData);
       const result: ApiResponse<BatchWorkflow> = response.data;
-
-      if (!result.success) {
-        throw new Error(result.message);
-      }
+      console.log(result);
 
       toast.success('Workflow created');
       return result.data || null;

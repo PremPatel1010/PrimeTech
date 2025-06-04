@@ -130,8 +130,7 @@ export const ManufacturingDashboard = () => {
       // Create workflows for the batch
       if (selectedProduct.subComponents) {
         for (const subComponent of selectedProduct.subComponents) {
-          await ManufacturingService.createWorkflow({
-            batchId: createdBatch.id,
+          await ManufacturingService.createWorkflow(createdBatch.id, {
             componentId: subComponent.id,
             componentName: subComponent.name,
             componentType: 'sub-component',
@@ -142,9 +141,8 @@ export const ManufacturingDashboard = () => {
       }
       
       // Create final assembly workflow
-      await ManufacturingService.createWorkflow({
-        batchId: createdBatch.id,
-        componentId: 'final-assembly',
+      await ManufacturingService.createWorkflow(createdBatch.id, {
+        componentId: null,
         componentName: 'Final Assembly',
         componentType: 'final-assembly',
         quantity,
