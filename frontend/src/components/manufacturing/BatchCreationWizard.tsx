@@ -46,6 +46,7 @@ const BatchCreationWizard: React.FC<BatchCreationWizardProps> = ({
   });
 
   const selectedProduct = products.find(p => p.id === formData.selectedProductId);
+  console.log(selectedProduct)
 
   const calculateMaterialRequirements = () => {
     if (!selectedProduct) return [];
@@ -120,25 +121,45 @@ const BatchCreationWizard: React.FC<BatchCreationWizardProps> = ({
     };
     
     const createdBatch = await ManufacturingService.createBatch(newBatch);
+    console.log(createdBatch)
     
     if (createdBatch) {
-      // Create workflows for each step
-      for (let i = 0; i < workflowSteps.length; i++) {
-        const stepName = workflowSteps[i];
-        const componentType = stepName === 'Final Assembly' ? 'final-assembly' : 'sub-component';
-        const estimatedTime = stepName === 'Final Assembly' 
-          ? selectedProduct.finalAssemblyTime * formData.quantity
-          : Math.round((selectedProduct.subComponents?.[0]?.estimatedTime || 30) * formData.quantity / workflowSteps.length);
+
+      for(let i=0; i<selectedProduct.subComponents.length; i++){
+        const component = selectedProduct.subComponents[i]
+        console.log(component)
         
-        await ManufacturingService.createWorkflow(createdBatch.id, {
-          componentId: null,
-          componentName: stepName,
-          componentType,
-          quantity: formData.quantity,
-          estimatedDuration: estimatedTime,
-          status: i === 0 ? 'in_progress' : 'not_started'
-        });
+        const workflowData = {
+          batch_id: createdBatch.id,
+          componentId: component.id,
+          componentName: component.name,
+          component_type: 'sub-component', // Indicate this is a sub-component workflow
+          quantity: formData.quantity, // Use the main batch quantity for sub-component workflows
+          // You might want to add assigned_team here if applicable
+          status: 'planning' // Initial status for sub-component workflows
+        }
+
+        // Assuming you have a service method to create workflow entries
+        await ManufacturingService.createWorkflow(createdBatch.id, workflowData)
+        // await ManufacturingService.createBatchWorkflow(workflowData);
+        console.log("Creating workflow for sub-component:", workflowData);
+
+
       }
+
+
+     // Add a workflow entry for the final assembly step
+      const finalAssemblyWorkflowData = {
+        batch_id: createdBatch.id,
+        componentId: null, // Or a specific ID for final assembly if available
+        componentName: 'Final Assembly',
+        component_type: 'final-assembly', // Indicate this is the final assembly workflow
+        quantity: formData.quantity,
+        // You might want to add assigned_team here if applicable
+        status: 'planning' // Initial status for final assembly workflow
+      };
+      // await ManufacturingService.createBatchWorkflow(finalAssemblyWorkflowData);
+      console.log("Creating workflow for final assembly:", finalAssemblyWorkflowData);
       
       onBatchCreated();
       handleClose();

@@ -3,6 +3,9 @@ import BatchWorkflow from '../models/batchworkflow.model.js';
 import WorkflowMaterialConsumption from '../models/workflowmaterial.model.js';
 import Product from '../models/products.model.js';
 import RawMaterial from '../models/rawmaterial.model.js';
+import ManufacturingProgress from '../models/manufacturingProgress.model.js';
+import ManufacturingStage from '../models/manufacturingStage.model.js';
+import pool from '../db/db.js';
 
 class ManufacturingController {
   // Get all manufacturing batches
@@ -54,6 +57,41 @@ class ManufacturingController {
       res.status(500).json({
         success: false,
         message: 'Failed to fetch manufacturing batch',
+        error: error.message
+      });
+    }
+  }
+
+  // Create workflow for a batch
+  static async createBatchWorkflow(req, res) {
+    try {
+      const { batchId } = req.params;
+      const workflowData = req.body;
+
+      // Check if batch exists
+      const batch = await ManufacturingBatch.findById(batchId);
+      if (!batch) {
+        return res.status(404).json({
+          success: false,
+          message: 'Manufacturing batch not found'
+        });
+      }
+
+      // Add batchId to workflow data
+      workflowData.batch_id = batchId;
+      
+      const workflow = await BatchWorkflow.create(workflowData);
+      
+      res.status(201).json({
+        success: true,
+        message: 'Batch workflow created successfully',
+        data: workflow
+      });
+    } catch (error) {
+      console.error('Error creating batch workflow:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to create batch workflow',
         error: error.message
       });
     }
@@ -185,6 +223,82 @@ class ManufacturingController {
     }
   }
 
+  // Get all workflows
+  static async getAllWorkflows(req, res) {
+    try {
+      const workflows = await BatchWorkflow.findAll();
+      res.json({
+        success: true,
+        data: workflows,
+        count: workflows.length
+      });
+    } catch (error) {
+      console.error('Error fetching all workflows:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to fetch workflows',
+        error: error.message
+      });
+    }
+  }
+
+  // Get workflow by ID
+  static async getWorkflowById(req, res) {
+    try {
+      const { id } = req.params;
+      const workflow = await BatchWorkflow.findById(id);
+      
+      if (!workflow) {
+        return res.status(404).json({
+          success: false,
+          message: 'Workflow not found'
+        });
+      }
+
+      res.json({
+        success: true,
+        data: workflow
+      });
+    } catch (error) {
+      console.error('Error fetching workflow:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to fetch workflow',
+        error: error.message
+      });
+    }
+  }
+
+  // Update workflow
+  static async updateWorkflow(req, res) {
+    try {
+      const { id } = req.params;
+      const updateData = req.body;
+
+      const workflow = await BatchWorkflow.update(id, updateData);
+      
+      if (!workflow) {
+        return res.status(404).json({
+          success: false,
+          message: 'Workflow not found'
+        });
+      }
+
+      res.json({
+        success: true,
+        message: 'Workflow updated successfully',
+        data: workflow
+      });
+    } catch (error) {
+      console.error('Error updating workflow:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to update workflow',
+        error: error.message
+      });
+    }
+  }
+
   // Get batch workflows
   static async getBatchWorkflows(req, res) {
     try {
@@ -213,7 +327,7 @@ class ManufacturingController {
       const workflowData = { ...req.body, batch_id: batchId };
 
       // Validate required fields
-      if (!workflowData.componentName || !workflowData.componentType || !workflowData.quantity) {
+      if (!workflowData.componentName || !workflowData.component_type || !workflowData.quantity) {
         return res.status(400).json({
           success: false,
           message: 'Component name, type, and quantity are required'
@@ -409,6 +523,203 @@ class ManufacturingController {
         success: false,
         message: 'Failed to fetch material consumption',
         error: error.message
+      });
+    }
+  }
+
+  // Get all material consumption
+  static async getAllConsumption(req, res) {
+    try {
+      const consumption = await WorkflowMaterialConsumption.findAll();
+      res.json({
+        success: true,
+        data: consumption,
+        count: consumption.length
+      });
+    } catch (error) {
+      console.error('Error fetching all consumption:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to fetch material consumption',
+        error: error.message
+      });
+    }
+  }
+
+  // Create material consumption
+  static async createConsumption(req, res) {
+    try {
+      const consumption = await WorkflowMaterialConsumption.create(req.body);
+      res.status(201).json({
+        success: true,
+        message: 'Material consumption created successfully',
+        data: consumption
+      });
+    } catch (error) {
+      console.error('Error creating consumption:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to create material consumption',
+        error: error.message
+      });
+    }
+  }
+
+  // Get consumption by ID
+  static async getConsumptionById(req, res) {
+    try {
+      const { id } = req.params;
+      const consumption = await WorkflowMaterialConsumption.findById(id);
+      
+      if (!consumption) {
+        return res.status(404).json({
+          success: false,
+          message: 'Material consumption not found'
+        });
+      }
+
+      res.json({
+        success: true,
+        data: consumption
+      });
+    } catch (error) {
+      console.error('Error fetching consumption:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to fetch material consumption',
+        error: error.message
+      });
+    }
+  }
+
+  // Update consumption
+  static async updateConsumption(req, res) {
+    try {
+      const { id } = req.params;
+      const consumption = await WorkflowMaterialConsumption.update(id, req.body);
+      
+      if (!consumption) {
+        return res.status(404).json({
+          success: false,
+          message: 'Material consumption not found'
+        });
+      }
+
+      res.json({
+        success: true,
+        message: 'Material consumption updated successfully',
+        data: consumption
+      });
+    } catch (error) {
+      console.error('Error updating consumption:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to update material consumption',
+        error: error.message
+      });
+    }
+  }
+
+  // Delete consumption
+  static async deleteConsumption(req, res) {
+    try {
+      const { id } = req.params;
+      const deleted = await WorkflowMaterialConsumption.delete(id);
+      
+      if (!deleted) {
+        return res.status(404).json({
+          success: false,
+          message: 'Material consumption not found'
+        });
+      }
+
+      res.json({
+        success: true,
+        message: 'Material consumption deleted successfully'
+      });
+    } catch (error) {
+      console.error('Error deleting consumption:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to delete material consumption',
+        error: error.message
+      });
+    }
+  }
+
+  // Get progress by order ID
+  static async getProgressByOrderId(req, res) {
+    try {
+      const { orderId } = req.params;
+      const progress = await ManufacturingProgress.getProgressByOrderId(orderId);
+      res.json(progress);
+    } catch (error) {
+      console.error('Error in getProgressByOrderId:', error);
+      res.status(500).json({ message: 'Error fetching manufacturing progress' });
+    }
+  }
+
+  // Get workflow steps
+  static async getWorkflowSteps(req, res) {
+    try {
+      const { workflowId } = req.params;
+      const steps = await BatchWorkflow.getWorkflowSteps(workflowId);
+      res.json({
+        success: true,
+        data: steps
+      });
+    } catch (error) {
+      console.error('Error getting workflow steps:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to get workflow steps'
+      });
+    }
+  }
+
+  // Update workflow step status
+  static async updateWorkflowStep(req, res) {
+    try {
+      const { workflowId } = req.params;
+      const { stepCode, status } = req.body;
+      
+      if (!['not_started', 'in_progress', 'completed', 'on_hold'].includes(status)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid status provided'
+        });
+      }
+
+      const updatedStep = await BatchWorkflow.updateWorkflowStep(workflowId, stepCode, status);
+      
+      res.json({
+        success: true,
+        data: updatedStep
+      });
+    } catch (error) {
+      console.error('Error updating workflow step:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to update workflow step'
+      });
+    }
+  }
+
+  // Get manufacturing steps
+  static async getManufacturingSteps(req, res) {
+    try {
+      const query = 'SELECT * FROM manufacturing.steps ORDER BY sequence ASC';
+      const result = await pool.query(query);
+      
+      res.json({
+        success: true,
+        data: result.rows
+      });
+    } catch (error) {
+      console.error('Error getting manufacturing steps:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to get manufacturing steps'
       });
     }
   }

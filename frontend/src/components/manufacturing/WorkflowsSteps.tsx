@@ -3,17 +3,29 @@ import React from 'react';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Check, Clock, Play, Pause, AlertTriangle, Users } from 'lucide-react';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Card } from '@/components/ui/card';
+
+interface SubComponent {
+  id: string;
+  name: string;
+  completed: boolean;
+  progress: number;
+}
+
+interface WorkflowStep {
+  name: string;
+  status: 'completed' | 'in_progress' | 'pending' | 'on_hold' | 'not_started';
+  estimatedTime?: number;
+  actualTime?: number;
+  subComponents?: SubComponent[];
+  workflow?: any;
+}
 
 interface WorkflowStepsProps {
   currentStep: number;
   totalSteps: number;
-  steps: {
-    name: string;
-    status: 'completed' | 'in_progress' | 'pending' | 'on_hold' | 'not_started';
-    estimatedTime?: number;
-    actualTime?: number;
-    workflow?: any;
-  }[];
+  steps: WorkflowStep[];
 }
 
 const WorkflowSteps: React.FC<WorkflowStepsProps> = ({ currentStep, totalSteps, steps }) => {
@@ -82,75 +94,76 @@ const WorkflowSteps: React.FC<WorkflowStepsProps> = ({ currentStep, totalSteps, 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between mb-4">
-        <h4 className="font-semibold text-gray-800">Production Workflow</h4>
+        <h4 className="font-semibold text-gray-800">Manufacturing Stage</h4>
         <Badge variant="outline" className="text-sm">
           Step {currentStep} of {totalSteps}
         </Badge>
       </div>
       
-      <Progress value={progressPercentage} className="h-3 mb-6 bg-gray-200" />
-      
-      <div className="relative">
+      <div className="grid grid-cols-2 gap-6">
         {steps.map((step, index) => (
-          <div key={index} className="flex items-center mb-6 last:mb-0">
-            {/* Connector Line */}
-            {index < steps.length - 1 && (
-              <div className="absolute left-6 mt-12 w-0.5 h-6 bg-gray-200 z-0" />
+          <Card key={index} className="p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h5 className={`font-medium text-lg ${getStepTextColor(step.status)}`}>
+                {step.name}
+              </h5>
+              <Badge className={`${getStatusBadgeColor(step.status)}`}>
+                {step.status.replace('_', ' ').toUpperCase()}
+              </Badge>
+            </div>
+
+            {step.subComponents && step.subComponents.length > 0 && (
+              <div className="space-y-3 mt-4">
+                {step.subComponents.map((subComponent) => (
+                  <div key={subComponent.id} className="flex items-center space-x-4">
+                    <Checkbox
+                      id={subComponent.id}
+                      checked={subComponent.completed}
+                      onCheckedChange={(checked) => {
+                        // Handle checkbox change
+                        console.log(`Sub-component ${subComponent.id} checked:`, checked);
+                      }}
+                    />
+                    <label
+                      htmlFor={subComponent.id}
+                      className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+                    >
+                      {subComponent.name}
+                    </label>
+                    <Progress
+                      value={subComponent.progress}
+                      className="h-2 flex-1"
+                    />
+                    <span className="text-sm text-gray-500">
+                      {subComponent.progress}%
+                    </span>
+                  </div>
+                ))}
+              </div>
             )}
-            
-            {/* Step Circle */}
-            <div className={`relative z-10 w-12 h-12 rounded-full border-2 flex items-center justify-center shadow-sm ${getStepColor(step.status)}`}>
-              {getStepIcon(step.status, index)}
-            </div>
-            
-            {/* Step Content */}
-            <div className="ml-4 flex-1">
-              <div className="flex items-center justify-between mb-2">
-                <h5 className={`font-medium text-base ${getStepTextColor(step.status)}`}>
-                  {step.name}
-                </h5>
-                <Badge className={`text-xs ${getStatusBadgeColor(step.status)}`}>
-                  {step.status.replace('_', ' ').toUpperCase()}
-                </Badge>
-              </div>
-              
-              <div className="flex items-center gap-4 text-sm text-gray-500">
-                {step.estimatedTime && (
-                  <span className="flex items-center gap-1">
-                    <Clock className="h-3 w-3" />
-                    Est: {step.estimatedTime}min
-                  </span>
-                )}
-                {step.actualTime && (
-                  <span className="flex items-center gap-1 text-green-600">
-                    <Check className="h-3 w-3" />
-                    Actual: {step.actualTime}min
-                  </span>
-                )}
-                {step.workflow?.assignedTeam && (
-                  <span className="flex items-center gap-1">
-                    <Users className="h-3 w-3" />
-                    {step.workflow.assignedTeam}
-                  </span>
-                )}
-              </div>
 
-              {/* Progress indicator for in-progress steps */}
-              {step.status === 'in_progress' && (
-                <div className="mt-2 w-full bg-gray-200 rounded-full h-1">
-                  <div className="bg-blue-500 h-1 rounded-full animate-pulse" style={{ width: '60%' }} />
-                </div>
+            <div className="flex items-center gap-4 mt-4 text-sm text-gray-500">
+              {step.estimatedTime && (
+                <span className="flex items-center gap-1">
+                  <Clock className="h-3 w-3" />
+                  Est: {step.estimatedTime}min
+                </span>
               )}
-
-              {/* Warning for on-hold steps */}
-              {step.status === 'on_hold' && (
-                <div className="mt-2 flex items-center gap-1 text-yellow-600 text-xs">
-                  <AlertTriangle className="h-3 w-3" />
-                  Step is on hold
-                </div>
+              {step.workflow?.assignedTeam && (
+                <span className="flex items-center gap-1">
+                  <Users className="h-3 w-3" />
+                  {step.workflow.assignedTeam}
+                </span>
               )}
             </div>
-          </div>
+
+            {step.status === 'on_hold' && (
+              <div className="mt-2 flex items-center gap-1 text-yellow-600 text-xs">
+                <AlertTriangle className="h-3 w-3" />
+                Step is on hold
+              </div>
+            )}
+          </Card>
         ))}
       </div>
     </div>

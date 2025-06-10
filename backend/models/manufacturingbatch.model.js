@@ -23,8 +23,8 @@ class ManufacturingBatch {
           mb.*,
           p.name as product_name,
           p.product_code,
-          COUNT(bw.id) as workflow_count,
-          COUNT(CASE WHEN bw.status = 'completed' THEN 1 END) as completed_workflows
+          -- Select and aggregate workflow data
+          COALESCE(json_agg(bw.* ORDER BY bw.created_at ASC) FILTER (WHERE bw.id IS NOT NULL), '[]') as workflows
         FROM product.manufacturing_batches mb
         LEFT JOIN product.products p ON mb.product_id = p.id
         LEFT JOIN product.batch_workflows bw ON mb.id = bw.batch_id
@@ -62,7 +62,11 @@ class ManufacturingBatch {
       `;
 
       const result = await db.query(query, values);
-      return result.rows.map(row => new ManufacturingBatch(row));
+      // Map the results, including the parsed workflows JSON
+      return result.rows.map(row => ({
+        ...row,
+        workflows: row.workflows // workflows are already an array due to json_agg
+      }));
     } catch (error) {
       throw error;
     }

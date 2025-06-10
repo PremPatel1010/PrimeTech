@@ -14,6 +14,8 @@ class BatchWorkflow {
     this.end_date = data.end_date;
     this.estimated_duration = data.estimated_duration;
     this.actual_duration = data.actual_duration;
+    this.current_step = data.current_step || 'INWARD';
+    this.steps_completed = data.steps_completed || [];
     this.parent_batch_id = data.parent_batch_id;
     this.created_at = data.created_at;
     this.updated_at = data.updated_at;
@@ -56,7 +58,7 @@ class BatchWorkflow {
     try {
       const query = `
         INSERT INTO product.batch_workflows (
-          batch_id, component_id, component_name, component_type,
+          batch_id, component_id, component_name,component_type, 
           quantity, status, estimated_duration, parent_batch_id
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         RETURNING *
@@ -66,7 +68,7 @@ class BatchWorkflow {
         workflowData.batch_id,
         workflowData.componentId,
         workflowData.componentName,
-        workflowData.componentType,
+        workflowData.component_type,
         workflowData.quantity,
         workflowData.status || 'not_started',
         workflowData.estimatedDuration,
@@ -128,6 +130,8 @@ class BatchWorkflow {
       
       if (status === 'in_progress') {
         updateData.start_date = new Date();
+        // Initialize workflow steps when starting
+        await this.initializeWorkflowSteps(id);
       } else if (status === 'completed') {
         updateData.end_date = new Date();
         
@@ -141,6 +145,93 @@ class BatchWorkflow {
       }
 
       return await this.update(id, updateData);
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  static async initializeWorkflowSteps(workflowId) {
+    try {
+      const steps = ['INWARD', 'QC', 'ASSEMBLY', 'TESTING', 'PACKAGING'];
+      const query = `
+        INSERT INTO manufacturing.workflow_steps 
+        (workflow_id, step_id, status)
+        SELECT $1, step_id, 'not_started'
+        FROM manufacturing.steps
+        WHERE step_code = ANY($2)
+        ORDER BY sequence ASC
+      `;
+      await pool.query(query, [workflowId, steps]);
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  static async updateWorkflowStep(workflowId, stepCode, status) {
+    try {
+      const query = `
+        UPDATE manufacturing.workflow_steps ws
+        SET 
+          status = $3,
+          start_date = CASE WHEN $3 = 'in_progress' THEN CURRENT_TIMESTAMP ELSE start_date END,
+          end_date = CASE WHEN $3 = 'completed' THEN CURRENT_TIMESTAMP ELSE end_date END,
+          updated_at = CURRENT_TIMESTAMP
+        FROM manufacturing.steps s
+        WHERE ws.workflow_id = $1
+        AND ws.step_id = s.step_id
+        AND s.step_code = $2
+        RETURNING *
+      `;
+      const result = await pool.query(query, [workflowId, stepCode, status]);
+      
+      if (status === 'completed') {
+        await this.progressToNextStep(workflowId, stepCode);
+      }
+      
+      return result.rows[0];
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  static async progressToNextStep(workflowId, currentStepCode) {
+    try {
+      const steps = ['INWARD', 'QC', 'ASSEMBLY', 'TESTING', 'PACKAGING'];
+      const currentIndex = steps.indexOf(currentStepCode);
+      
+      if (currentIndex < steps.length - 1) {
+        const nextStepCode = steps[currentIndex + 1];
+        await this.updateWorkflowStep(workflowId, nextStepCode, 'in_progress');
+        
+        // Update workflow's current step
+        await pool.query(
+          'UPDATE product.batch_workflows SET current_step = $1 WHERE id = $2',
+          [nextStepCode, workflowId]
+        );
+      } else {
+        // All steps completed, mark workflow as completed
+        await this.updateStatus(workflowId, 'completed');
+      }
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  static async getWorkflowSteps(workflowId) {
+    try {
+      const query = `
+        SELECT 
+          ws.*,
+          s.step_name,
+          s.step_code,
+          s.sequence
+        FROM manufacturing.workflow_steps ws
+        JOIN manufacturing.steps s ON ws.step_id = s.step_id
+        WHERE ws.workflow_id = $1
+        ORDER BY s.sequence ASC
+      `;
+      const result = await pool.query(query, [workflowId]);
+      return result.rows;
     } catch (error) {
       throw error;
     }

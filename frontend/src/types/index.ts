@@ -1,12 +1,16 @@
 // Raw Material Types
 export interface RawMaterial {
-  id: string;
-  name: string;
+  material_id: number;
+  material_code: string;
+  material_name: string;
+  moc?: string | null;
+  unit_weight?: number | null;
   unit: string;
-  quantity: number;
-  pricePerUnit: number;
-  lastUpdated: string;
-  minThreshold?: number;
+  current_stock: number;
+  minimum_stock: number;
+  unit_price: number;
+  created_at: string;
+  updated_at: string;
 }
 
 // Supplier Types
@@ -132,6 +136,20 @@ export interface ManufacturingBatch {
   linkedSalesOrderId?: string;
   custom_stage_name?: string;
   rawMaterialsUsed?: any[];
+  workflows?: BatchWorkflow[];
+}
+
+export interface BatchWorkflow {
+  id: string;
+  batch_id: string;
+  component_id?: number | null;
+  component_name: string;
+  component_type: 'sub-component' | 'final-assembly';
+  quantity: number;
+  assigned_team?: string | null;
+  status: 'planning' | 'in_progress' | 'completed' | 'cancelled' | 'not_started' | 'on_hold';
+  started_at?: string | null;
+  completed_at?: string | null;
 }
 
 export interface RawMaterialUsage {

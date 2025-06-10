@@ -380,6 +380,57 @@ export class ManufacturingService {
     }
   }
 
+  static async getManufacturingSteps(): Promise<ManufacturingStep[]> {
+    try {
+      const response = await axiosInstance.get('/manufacturing/steps');
+      const result: ApiResponse<ManufacturingStep[]> = response.data;
+
+      if (!result.success) {
+        throw new Error(result.message);
+      }
+
+      return result.data || [];
+    } catch (error) {
+      console.error('Error fetching manufacturing steps:', error);
+      toast.error('Failed to fetch manufacturing steps');
+      return [];
+    }
+  }
+
+  static async getWorkflowSteps(workflowId: string): Promise<WorkflowStep[]> {
+    try {
+      const response = await axiosInstance.get(`/manufacturing/workflows/${workflowId}/steps`);
+      const result: ApiResponse<WorkflowStep[]> = response.data;
+
+      if (!result.success) {
+        throw new Error(result.message);
+      }
+
+      return result.data || [];
+    } catch (error) {
+      console.error('Error fetching workflow steps:', error);
+      toast.error('Failed to fetch workflow steps');
+      return [];
+    }
+  }
+
+  static async updateWorkflowStep(workflowId: string, stepCode: string, status: WorkflowStep['status']): Promise<WorkflowStep | null> {
+    try {
+      const response = await axiosInstance.put(`/manufacturing/workflows/${workflowId}/steps`, { stepCode, status });
+      const result: ApiResponse<WorkflowStep> = response.data;
+
+      if (!result.success) {
+        throw new Error(result.message);
+      }
+
+      return result.data || null;
+    } catch (error) {
+      console.error('Error updating workflow step:', error);
+      toast.error('Failed to update workflow step');
+      return null;
+    }
+  }
+
   static async getBatchProgress(batchId: string): Promise<number> {
     try {
       const response = await axiosInstance.get(`/manufacturing/analytics/batch-progress/${batchId}`);

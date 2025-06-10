@@ -430,73 +430,9 @@ const [lowStockMaterials, setLowStockMaterials] = useState<RawMaterial[]>([]);
     );
   };
 
-  const ManufacturingStepsList = ({ steps, productId, subComponentId }: { 
-    steps: ManufacturingStep[]; 
-    productId: string;
-    subComponentId?: string;
-  }) => (
-    <div className="mt-4">
-      <div className="flex items-center justify-between mb-3">
-        <h5 className="font-medium text-sm flex items-center">
-          <Settings className="h-4 w-4 mr-2 text-gray-600" />
-          Manufacturing Steps
-        </h5>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => handleCreateManufacturingStep(productId, subComponentId)}
-        >
-          <Plus className="h-3 w-3 mr-1" />
-          Add Step
-        </Button>
-      </div>
-      
-      {steps.length === 0 ? (
-        <div className="text-center py-6 text-gray-500 bg-gray-50 rounded-lg border-2 border-dashed border-gray-200">
-          <Settings className="h-8 w-8 mx-auto mb-2 text-gray-400" />
-          <p className="text-sm">No manufacturing steps defined</p>
-        </div>
-      ) : (
-        <div className="bg-white border rounded-lg overflow-hidden">
-          <div className="grid grid-cols-5 gap-4 p-3 bg-gray-50 text-xs font-medium text-gray-600 border-b">
-            <span>Sequence</span>
-            <span>Step Name</span>
-            <span>Description</span>
-            <span>Time (min)</span>
-            <span>Actions</span>
-          </div>
-          {steps.sort((a, b) => a.sequence - b.sequence).map((step) => (
-            <div key={step.id} className="grid grid-cols-5 gap-4 p-3 border-b last:border-b-0 hover:bg-gray-50">
-              <span className="text-sm font-medium">{step.sequence}</span>
-              <span className="text-sm">{step.name}</span>
-              <span className="text-sm text-gray-600">{step.description || '-'}</span>
-              <span className="text-sm font-medium">{step.estimatedTime}</span>
-              <div className="flex items-center space-x-1">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => handleEditManufacturingStep(productId, step, subComponentId)}
-                >
-                  <Edit className="h-3 w-3" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => handleDeleteManufacturingStep(productId, step.id, subComponentId)}
-                >
-                  <Trash2 className="h-3 w-3 text-red-500" />
-                </Button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-
   const ProductSpecifications = ({ product }: { product: Product }) => (
     <>
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-100">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-100">
         <div className="flex items-center space-x-3">
           <div className="p-2 bg-blue-100 rounded-full">
             <Zap className="h-4 w-4 text-blue-600" />
@@ -532,7 +468,7 @@ const [lowStockMaterials, setLowStockMaterials] = useState<RawMaterial[]>([]);
   const BillOfMaterials = ({ subComponent, productId }: { subComponent: SubComponent; productId: string }) => (
     
     <div className="mt-4">
-      <div className="flex items-center justify-between mb-3">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-3 space-y-2 sm:space-y-0">
         <h5 className="font-medium text-sm flex items-center">
           <Package className="h-4 w-4 mr-2 text-gray-600" />
           Bill of Materials
@@ -554,15 +490,15 @@ const [lowStockMaterials, setLowStockMaterials] = useState<RawMaterial[]>([]);
           <p className="text-sm">No materials assigned</p>
         </div>
       ) : (
-        <div className="bg-white border rounded-lg overflow-hidden">
-          <div className="grid grid-cols-4 gap-4 p-3 bg-gray-50 text-xs font-medium text-gray-600 border-b">
+        <div className="bg-white border rounded-lg overflow-x-auto">
+          <div className="grid grid-cols-4 gap-4 p-3 bg-gray-50 text-xs font-medium text-gray-600 border-b min-w-[500px]">
             <span>Material</span>
             <span>Quantity</span>
             <span>Unit</span>
             <span>Actions</span>
           </div>
           {(subComponent.materials || []).map((material, idx) => (
-            <div key={idx} className="grid grid-cols-4 gap-4 p-3 border-b last:border-b-0 hover:bg-gray-50">
+            <div key={idx} className="grid grid-cols-4 gap-4 p-3 border-b last:border-b-0 hover:bg-gray-50 min-w-[500px]">
               <div className="flex items-center space-x-2">
                 <span className="text-sm">{material.materialName}</span>
                 {isLowStock(material.materialId) && (
@@ -594,14 +530,75 @@ const [lowStockMaterials, setLowStockMaterials] = useState<RawMaterial[]>([]);
     </div>
   );
 
+  const ManufacturingStepsList = ({ steps, productId, subComponentId }: { 
+    steps: ManufacturingStep[]; 
+    productId: string;
+    subComponentId?: string;
+  }) => (
+    <div className="mt-6">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-3 space-y-2 sm:space-y-0">
+        <h4 className="font-semibold text-lg flex items-center">
+          <Settings className="h-5 w-5 mr-2 text-gray-700" />
+          Manufacturing Steps
+        </h4>
+        <Button
+          variant="outline"
+          onClick={() => handleCreateManufacturingStep(productId, subComponentId)}
+        >
+          <Plus className="h-4 w-4 mr-2" />
+          Add Step
+        </Button>
+      </div>
+
+      {steps.length === 0 ? (
+        <div className="text-center py-8 bg-white border-2 border-dashed border-gray-200 rounded-lg">
+          <Settings className="h-12 w-12 mx-auto mb-4 text-gray-400" />
+          <p className="text-gray-500">No manufacturing steps defined</p>
+        </div>
+      ) : (
+        <div className="bg-white border rounded-lg overflow-x-auto">
+          <div className="grid grid-cols-[auto,1fr,auto,auto] gap-4 p-3 bg-gray-50 text-xs font-medium text-gray-600 border-b min-w-[600px]">
+            <span>Sequence</span>
+            <span>Step Name</span>
+            <span className="text-center">Time (min)</span>
+            <span className="text-right">Actions</span>
+          </div>
+          {steps.map((step, idx) => (
+            <div key={idx} className="grid grid-cols-[auto,1fr,auto,auto] gap-4 p-3 border-b last:border-b-0 hover:bg-gray-50 min-w-[600px]">
+              <span className="text-sm font-medium">{step.sequence}</span>
+              <span className="text-sm">{step.name}</span>
+              <span className="text-sm text-center text-gray-600">{step.estimatedTime}</span>
+              <div className="flex justify-end items-center space-x-1">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => handleEditManufacturingStep(productId, step, subComponentId)}
+                >
+                  <Edit className="h-3 w-3" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => handleDeleteManufacturingStep(productId, step.id, subComponentId)}
+                >
+                  <Trash2 className="h-3 w-3 text-red-500" />
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+
   return (
-    <div className="space-y-6 p-6 bg-gray-50 min-h-screen">
-      <div className="flex justify-between items-center">
+    <div className="space-y-6 p-4 sm:p-6 bg-gray-50 min-h-screen">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center space-y-4 sm:space-y-0">
         <div>
           <h2 className="text-3xl font-bold text-gray-900">Products</h2>
           <p className="text-gray-600 mt-1">Manage products, sub-components, and bill of materials</p>
         </div>
-        <Button onClick={handleCreateProduct} className="bg-blue-600 hover:bg-blue-700">
+        <Button onClick={handleCreateProduct} className="bg-blue-600 hover:bg-blue-700 w-full sm:w-auto">
           <Plus className="h-4 w-4 mr-2" />
           Add Product
         </Button>
@@ -621,9 +618,9 @@ const [lowStockMaterials, setLowStockMaterials] = useState<RawMaterial[]>([]);
                 onOpenChange={() => toggleProductExpansion(product.id)}
               >
                 <CollapsibleTrigger asChild>
-                  <CardHeader className="hover:bg-gray-50 cursor-pointer transition-colors">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-4">
+                  <CardHeader className="hover:bg-gray-50 cursor-pointer transition-colors p-4 sm:p-6">
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between space-y-4 sm:space-y-0">
+                      <div className="flex flex-col sm:flex-row items-start sm:items-center space-y-3 sm:space-y-0 sm:space-x-4">
                         <div className="p-2 bg-blue-100 rounded-full">
                           {expandedProducts.has(product.id) ? 
                             <ChevronDown className="h-5 w-5 text-blue-600" /> : 
@@ -631,17 +628,19 @@ const [lowStockMaterials, setLowStockMaterials] = useState<RawMaterial[]>([]);
                           }
                         </div>
                         <div>
-                          <CardTitle className="text-xl flex items-center space-x-3">
+                          <CardTitle className="text-xl flex flex-col sm:flex-row items-start sm:items-center space-y-2 sm:space-y-0 sm:space-x-3">
                             <span>{product.name}</span>
-                            <Badge variant="outline" className="text-xs">{product.productCode}</Badge>
-                            {product.category && <Badge variant="secondary" className="text-xs">{product.category}</Badge>}
+                            <div className="flex flex-wrap gap-2">
+                              <Badge variant="outline" className="text-xs">{product.productCode}</Badge>
+                              {product.category && <Badge variant="secondary" className="text-xs">{product.category}</Badge>}
+                            </div>
                           </CardTitle>
                           <p className="text-sm text-gray-600 mt-1">
                             {product.subComponents.length} sub-components • {product.finalAssemblyTime}min assembly
                           </p>
                         </div>
                       </div>
-                      <div className="flex space-x-2">
+                      <div className="flex space-x-2 mt-3 sm:mt-0">
                         <Button 
                           variant="outline" 
                           size="sm"
@@ -668,7 +667,7 @@ const [lowStockMaterials, setLowStockMaterials] = useState<RawMaterial[]>([]);
                 </CollapsibleTrigger>
                 
                 <CollapsibleContent>
-                  <CardContent className="space-y-6">
+                  <CardContent className="space-y-6 p-4 sm:p-6">
                     <ProductSpecifications product={product} />
                     
                     {product.description && (
@@ -678,7 +677,7 @@ const [lowStockMaterials, setLowStockMaterials] = useState<RawMaterial[]>([]);
                     )}
 
                     <div className="space-y-4">
-                      <div className="flex items-center justify-between">
+                      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between space-y-3 sm:space-y-0">
                         <h4 className="font-semibold text-lg">Sub-Components</h4>
                         <Button 
                           variant="outline"
@@ -696,16 +695,16 @@ const [lowStockMaterials, setLowStockMaterials] = useState<RawMaterial[]>([]);
                         </div>
                       ) : (
                         product.subComponents.map(subComponent => (
-                          <Card key={subComponent.id} className="ml-6 border-l-4 border-l-blue-200">
-                            <CardHeader className="pb-2">
-                              <div className="flex items-center justify-between">
+                          <Card key={subComponent.id} className="ml-0 sm:ml-6 border-l-0 sm:border-l-4 border-l-blue-200">
+                            <CardHeader className="pb-2 p-4 sm:p-6">
+                              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between space-y-3 sm:space-y-0">
                                 <div>
                                   <CardTitle className="text-lg">{subComponent.name}</CardTitle>
                                   {subComponent.description && (
                                     <p className="text-sm text-gray-600 mt-1">{subComponent.description}</p>
                                   )}
                                 </div>
-                                <div className="flex items-center space-x-2">
+                                <div className="flex space-x-2 mt-2 sm:mt-0">
                                   <Badge variant="outline">{subComponent.estimatedTime}min</Badge>
                                   <Button
                                     variant="ghost"
@@ -724,7 +723,7 @@ const [lowStockMaterials, setLowStockMaterials] = useState<RawMaterial[]>([]);
                                 </div>
                               </div>
                             </CardHeader>
-                            <CardContent>
+                            <CardContent className="p-4 sm:p-6">
                               <BillOfMaterials subComponent={subComponent} productId={product.id} />
                               <ManufacturingStepsList 
                                 steps={subComponent.manufacturingSteps} 
@@ -742,7 +741,7 @@ const [lowStockMaterials, setLowStockMaterials] = useState<RawMaterial[]>([]);
             </Card>
           ))
         ) : (
-          <div className="text-center py-16 bg-white rounded-lg shadow">
+          <div className="text-center py-16 bg-white rounded-lg shadow p-4 sm:p-6">
             <Package className="h-16 w-16 text-gray-400 mx-auto mb-4" />
             <h3 className="text-lg font-medium text-gray-900 mb-2">No products found</h3>
             <p className="text-gray-500 mb-4">Get started by creating your first product</p>
