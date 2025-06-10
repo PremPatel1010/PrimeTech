@@ -151,6 +151,20 @@ export const ManufacturingDashboard = () => {
     if (!selectedOrder) return;
 
     try {
+      if (status === 'in_progress') {
+        const insufficientMaterials = await manufacturingApi.checkRawMaterialAvailability(selectedOrder.batch_id);
+        if (insufficientMaterials.length > 0) {
+          const materialList = insufficientMaterials.map(m => `- ${m.name} (Required: ${m.required} ${m.unit}, Available: ${m.available} ${m.unit})`).join('\n');
+          toast({
+            title: 'Raw Material Shortage',
+            description: `Cannot start step: Insufficient materials detected:\n${materialList}`,
+            variant: 'destructive',
+            duration: 8000,
+          });
+          return; // Prevent status update if materials are insufficient
+        }
+      }
+
       await manufacturingApi.updateWorkflowStatus(selectedOrder.batch_id, parseInt(stepId), status);
       
       const updatedOrder: ManufacturingBatch = {
@@ -299,14 +313,17 @@ export const ManufacturingDashboard = () => {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2">
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 mb-6">
-            <WorkflowProgress workflows={selectedOrder.workflows} />
+            <WorkflowProgress 
+              workflows={selectedOrder.workflows}
+              activeStepId={activeStepId}
+              onStepClick={handleNavigateStep}
+            />
           </div>
           <ManufacturingSteps
-            activeStep={activeStepId || ''}
             selectedOrder={selectedOrder}
+            activeStepId={activeStepId}
             onStepChange={handleStepChange}
             onSubComponentStatusChange={handleSubComponentStatusChange}
-            onNavigateStep={handleNavigateStep}
           />
         </div>
         <div>

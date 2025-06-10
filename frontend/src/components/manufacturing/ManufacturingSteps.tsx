@@ -1,47 +1,38 @@
 import React from 'react';
 import { ManufacturingStep } from './steps/ManufacturingStep';
-import { CompletedStep } from './steps/CompletedStep';
 import { ManufacturingBatch } from '../../services/manufacturingApi';
+import { useToast } from '@/components/ui/use-toast';
 
 interface ManufacturingStepsProps {
-  activeStep: string;
+  activeStepId: string | null;
   selectedOrder: ManufacturingBatch;
   onStepChange: (stepId: string, status: string) => void;
   onSubComponentStatusChange: (subComponentId: number, status: string) => void;
-  onNavigateStep: (stepId: string) => void;
 }
 
 export const ManufacturingSteps = ({ 
-  activeStep, 
+  activeStepId,
   selectedOrder, 
   onStepChange,
-  onSubComponentStatusChange,
-  onNavigateStep
+  onSubComponentStatusChange
 }: ManufacturingStepsProps) => {
+  const { toast } = useToast();
+
   const renderStep = () => {
-    const currentStep = selectedOrder.workflows.find(w => w.step_id.toString() === activeStep);
+    const currentStep = selectedOrder.workflows.find(w => w.step_id.toString() === activeStepId);
     
     if (!currentStep) {
       return <div>No active step found</div>;
     }
 
-    // If the current step is manufacturing, show the manufacturing step with sub-components
-    if (currentStep.step_name.toLowerCase().includes('manufacturing')) {
+    // If the current step is sub-component assembly, show the manufacturing step with sub-components
+    if (currentStep.step_name.toLowerCase().includes('sub-component assembly')) {
       return (
         <ManufacturingStep 
           selectedOrder={selectedOrder}
           onStepChange={onStepChange}
           onSubComponentStatusChange={onSubComponentStatusChange}
-        />
-      );
-    }
-
-    // If the current step is completed, show the completed step
-    if (currentStep.step_name.toLowerCase().includes('completed')) {
-      return (
-        <CompletedStep 
-          selectedOrder={selectedOrder}
-          onStepChange={onStepChange}
+          activeStepId={activeStepId}
         />
       );
     }
@@ -57,16 +48,26 @@ export const ManufacturingSteps = ({
           <div className="flex space-x-3">
             <button
               onClick={() => {
-                if (currentStep.status === 'pending') {
-                  onStepChange(currentStep.step_id.toString(), 'in_progress');
-                } else if (currentStep.status === 'in_progress') {
-                  onStepChange(currentStep.step_id.toString(), 'completed');
+                const stepIdToUpdate = currentStep?.step_id?.toString();
+                if (stepIdToUpdate && !isNaN(parseInt(stepIdToUpdate))) {
+                  if (currentStep.status === 'pending') {
+                    onStepChange(stepIdToUpdate, 'in_progress');
+                  } else if (currentStep.status === 'in_progress') {
+                    onStepChange(stepIdToUpdate, 'completed');
+                  }
+                } else {
+                  console.error('Attempted to mark step as complete, but currentStep.step_id is invalid:', currentStep);
+                  toast({
+                    title: 'Error',
+                    description: 'Invalid step ID detected. Please refresh the page.',
+                    variant: 'destructive',
+                  });
                 }
               }}
               className={`px-4 py-2 rounded-md text-sm font-medium ${
                 currentStep.status === 'completed'
                   ? 'bg-green-100 text-green-800'
-                  : currentStep.status === 'in_progress'
+                  : (currentStep.status === 'in_progress' || currentStep.status === 'pending')
                     ? 'bg-blue-100 text-blue-800 hover:bg-blue-200'
                     : 'bg-gray-100 text-gray-800 cursor-not-allowed'
               }`}
@@ -111,42 +112,7 @@ export const ManufacturingSteps = ({
           </div>
         </div>
 
-        <div className="flex justify-between mt-6">
-          <button
-            onClick={() => {
-              const prevStep = selectedOrder.workflows
-                .sort((a, b) => a.sequence - b.sequence)
-                .find(w => w.sequence < currentStep.sequence);
-              if (prevStep) {
-                onNavigateStep(prevStep.step_id.toString());
-              }
-            }}
-            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
-            disabled={!selectedOrder.workflows.some(w => w.sequence < currentStep.sequence)}
-          >
-            Previous Step
-          </button>
-          <button
-            onClick={() => {
-              const sortedWorkflows = selectedOrder.workflows.sort((a, b) => a.sequence - b.sequence);
-              const currentStepIndex = sortedWorkflows.findIndex(w => w.step_id.toString() === activeStep);
-              const nextStep = sortedWorkflows[currentStepIndex + 1];
-
-              if (nextStep) {
-                if (nextStep.status === 'pending') {
-                  onStepChange(nextStep.step_id.toString(), 'in_progress');
-                }
-                onNavigateStep(nextStep.step_id.toString());
-              } else {
-                console.log('All steps completed for this batch!');
-              }
-            }}
-            className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700"
-            disabled={currentStep.status !== 'completed' || !selectedOrder.workflows.some(w => w.sequence > currentStep.sequence)}
-          >
-            Next Step
-          </button>
-        </div>
+        {/* Removed navigation buttons - handled by WorkflowProgress */}
       </div>
     );
   };

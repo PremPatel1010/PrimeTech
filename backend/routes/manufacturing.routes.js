@@ -28,4 +28,7 @@ router.patch('/batches/:batchId/sub-components/:subComponentId/status', Manufact
 // Delete a manufacturing batch
 router.delete('/batches/:batchId', ManufacturingController.deleteBatch);
 
+// Check raw material availability for a batch
+router.get('/batches/:batchId/raw-material-availability', ManufacturingController.checkRawMaterialAvailability);
+
 export default router; 

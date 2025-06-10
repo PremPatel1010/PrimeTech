@@ -3,9 +3,11 @@ import { WorkflowStep } from '../../services/manufacturingApi';
 
 interface WorkflowProgressProps {
   workflows: WorkflowStep[];
+  activeStepId: string | null;
+  onStepClick: (stepId: string) => void;
 }
 
-export const WorkflowProgress = ({ workflows }: WorkflowProgressProps) => {
+export const WorkflowProgress = ({ workflows, activeStepId, onStepClick }: WorkflowProgressProps) => {
   const sortedWorkflows = [...workflows].sort((a, b) => a.sequence - b.sequence);
   const currentStepIndex = sortedWorkflows.findIndex(w => w.status === 'in_progress');
 
@@ -43,10 +45,13 @@ export const WorkflowProgress = ({ workflows }: WorkflowProgressProps) => {
                         ? 'bg-blue-500 border-blue-500 text-white'
                         : isSkipped
                           ? 'bg-gray-200 border-gray-300 text-gray-400'
-                          : isPast
-                            ? 'bg-blue-100 border-blue-300 text-blue-500'
-                            : 'bg-white border-gray-300 text-gray-400'
+                          : activeStepId === step.step_id.toString()
+                            ? 'bg-blue-50 border-blue-200 text-blue-600'
+                            : isPast
+                              ? 'bg-blue-100 border-blue-300 text-blue-500'
+                              : 'bg-white border-gray-300 text-gray-400'
                   }`}
+                  onClick={() => onStepClick(step.step_id.toString())}
                 >
                   {isCompleted ? (
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

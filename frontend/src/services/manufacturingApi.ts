@@ -5,6 +5,13 @@ import axiosInstance from '@/utils/axios';
 export type WorkflowStatus = 'pending' | 'in_progress' | 'completed' | 'skipped';
 export type SubComponentStatus = 'pending' | 'in_progress' | 'completed' | 'skipped';
 
+export interface InsufficientMaterial {
+  name: string;
+  required: number;
+  available: number;
+  unit: string;
+}
+
 export interface WorkflowStep {
   workflow_id: number;
   step_id: number;
@@ -31,6 +38,12 @@ export interface SubComponent {
     description: string;
     sequence: number;
     status: WorkflowStatus;
+  }[];
+  bill_of_materials: {
+    material_id: number;
+    name: string;
+    quantity: number;
+    unit: string;
   }[];
 }
 
@@ -96,7 +109,7 @@ export const manufacturingApi = {
     status: SubComponentStatus
   ): Promise<ManufacturingBatch> => {
     const response = await axiosInstance.patch(
-      `/manufacturing/batches/${batchId}/sub-components/${subComponentId}`,
+      `/manufacturing/batches/${batchId}/sub-components/${subComponentId}/status`,
       { status }
     );
     return response.data;
@@ -105,5 +118,11 @@ export const manufacturingApi = {
   // Delete a manufacturing batch
   deleteBatch: async (batchId: number): Promise<void> => {
       await axiosInstance.delete(`/manufacturing/batches/${batchId}`);
-  }
+  },
+
+  // Check raw material availability for a batch
+  checkRawMaterialAvailability: async (batchId: number): Promise<InsufficientMaterial[]> => {
+    const response = await axiosInstance.get(`/manufacturing/batches/${batchId}/raw-material-availability`);
+    return response.data;
+  },
 }; 

@@ -182,6 +182,24 @@ class ManufacturingController {
       }
     }
   }
+
+  static async checkRawMaterialAvailability(req, res) {
+    try {
+      const { batchId } = req.params;
+      const insufficientMaterials = await ManufacturingService.checkRawMaterialAvailability(parseInt(batchId));
+      res.json(insufficientMaterials);
+    } catch (error) {
+      console.error('Error in ManufacturingController.checkRawMaterialAvailability:', error);
+      if (error.message === 'Manufacturing batch not found') {
+        res.status(404).json({ error: error.message });
+      } else {
+        res.status(500).json({
+          error: 'Internal server error',
+          message: error.message
+        });
+      }
+    }
+  }
 }
 
 export default ManufacturingController; 

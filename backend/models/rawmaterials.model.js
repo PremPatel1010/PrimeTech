@@ -4,7 +4,7 @@ class RawMaterial {
   static async findAll() {
     try {
       const query = `
-        SELECT id, name, unit, stock_quantity, min_stock_level, cost_per_unit, supplier_id, created_at, updated_at
+        SELECT material_id as id, material_name as name, unit, stock_quantity, min_stock_level, cost_per_unit, supplier_id, created_at, updated_at
         FROM inventory.raw_materials
         ORDER BY name ASC
       `;
@@ -29,9 +29,9 @@ class RawMaterial {
   static async findById(id) {
     try {
       const query = `
-        SELECT id, name, unit, stock_quantity, min_stock_level, cost_per_unit, supplier_id, created_at, updated_at
+        SELECT material_id as id, material_name as name, unit, stock_quantity, min_stock_level, cost_per_unit, supplier_id, created_at, updated_at
         FROM inventory.raw_materials
-        WHERE id = $1
+        WHERE material_id = $1
       `;
       
       const result = await pool.query(query, [id]);
@@ -43,7 +43,7 @@ class RawMaterial {
       const row = result.rows[0];
       return {
         id: row.id,
-        name: row.name,
+        name: row.material_name,
         unit: row.unit,
         stockQuantity: parseFloat(row.stock_quantity),
         minStockLevel: parseFloat(row.min_stock_level),
@@ -60,9 +60,9 @@ class RawMaterial {
   static async create(materialData) {
     try {
       const query = `
-        INSERT INTO inventory.raw_materials (name, unit, stock_quantity, min_stock_level, cost_per_unit, supplier_id)
+        INSERT INTO inventory.raw_materials (material_name, unit, stock_quantity, min_stock_level, cost_per_unit, supplier_id)
         VALUES ($1, $2, $3, $4, $5, $6)
-        RETURNING *
+        RETURNING material_id as id, name, unit, stock_quantity, min_stock_level, cost_per_unit, supplier_id, created_at, updated_at
       `;
       
       const result = await pool.query(query, [
@@ -77,7 +77,7 @@ class RawMaterial {
       const row = result.rows[0];
       return {
         id: row.id,
-        name: row.name,
+        name: row.material_name,
         unit: row.unit,
         stockQuantity: parseFloat(row.stock_quantity),
         minStockLevel: parseFloat(row.min_stock_level),
@@ -95,10 +95,10 @@ class RawMaterial {
     try {
       const query = `
         UPDATE inventory.raw_materials 
-        SET name = $1, unit = $2, stock_quantity = $3, min_stock_level = $4, 
+        SET material_name = $1, unit = $2, stock_quantity = $3, min_stock_level = $4, 
             cost_per_unit = $5, supplier_id = $6, updated_at = NOW()
-        WHERE id = $7
-        RETURNING *
+        WHERE material_id = $7
+        RETURNING material_id as id, name, unit, stock_quantity, min_stock_level, cost_per_unit, supplier_id, created_at, updated_at
       `;
       
       const result = await pool.query(query, [
@@ -118,7 +118,7 @@ class RawMaterial {
       const row = result.rows[0];
       return {
         id: row.id,
-        name: row.name,
+        name: row.material_name,
         unit: row.unit,
         stockQuantity: parseFloat(row.stock_quantity),
         minStockLevel: parseFloat(row.min_stock_level),
@@ -137,8 +137,8 @@ class RawMaterial {
       const query = `
         UPDATE inventory.raw_materials 
         SET stock_quantity = $1, updated_at = NOW()
-        WHERE id = $2
-        RETURNING *
+        WHERE material_id = $2
+        RETURNING material_id as id, name, unit, stock_quantity, min_stock_level, cost_per_unit, supplier_id, created_at, updated_at
       `;
       
       const result = await pool.query(query, [newStock, id]);
@@ -160,21 +160,21 @@ class RawMaterial {
           material_id as id,
           material_name as name,
           unit,
-          current_stock as stock_quantity,
-          minimum_stock as min_stock_level,
-          unit_price as cost_per_unit,
+          stock_quantity,
+          min_stock_level,
+          cost_per_unit,
           supplier_id,
           created_at,
           updated_at
         FROM inventory.raw_materials
-        WHERE current_stock <= minimum_stock
-        ORDER BY (current_stock::float / NULLIF(minimum_stock, 0)) ASC
+        WHERE stock_quantity <= min_stock_level
+        ORDER BY (stock_quantity::float / NULLIF(min_stock_level, 0)) ASC
       `;
       
       const result = await pool.query(query);
       return result.rows.map(row => ({
         id: row.id,
-        name: row.name,
+        name: row.material_name,
         unit: row.unit,
         stockQuantity: parseFloat(row.stock_quantity),
         minStockLevel: parseFloat(row.min_stock_level),
@@ -190,7 +190,7 @@ class RawMaterial {
 
   static async delete(id) {
     try {
-      const query = 'DELETE FROM inventory.raw_materials WHERE id = $1 RETURNING *';
+      const query = 'DELETE FROM inventory.raw_materials WHERE material_id = $1 RETURNING material_id as id';
       const result = await pool.query(query, [id]);
       
       if (result.rows.length === 0) {

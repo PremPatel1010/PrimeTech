@@ -1,5 +1,6 @@
 import ManufacturingBatch from '../models/manufacturing.model.js';
 import Product from '../models/products.model.js';
+import RawMaterial from '../models/rawMaterial.model.js';
 
 class ManufacturingService {
   static async getAllBatches() {
@@ -109,14 +110,15 @@ class ManufacturingService {
         throw new Error('Manufacturing batch not found');
       }
 
+      const parsedSubComponentId = parseInt(subComponentId);
       // Validate sub-component exists in batch
-      const subComponentExists = batch.sub_components.some(sc => sc.sub_component_id === subComponentId);
+      const subComponentExists = batch.sub_components.some(sc => sc.sub_component_id === parsedSubComponentId);
       if (!subComponentExists) {
         throw new Error('Sub-component not found in batch');
       }
 
       // Validate status transition
-      const currentSubComponent = batch.sub_components.find(sc => sc.sub_component_id === subComponentId);
+      const currentSubComponent = batch.sub_components.find(sc => sc.sub_component_id === parsedSubComponentId);
       if (!this.isValidStatusTransition(currentSubComponent.status, status)) {
         throw new Error(`Invalid status transition from ${currentSubComponent.status} to ${status}`);
       }
@@ -158,6 +160,50 @@ class ManufacturingService {
     }
   }
 
+  // New method to check raw material availability
+  static async checkRawMaterialAvailability(batchId) {
+    try {
+      const batch = await ManufacturingBatch.findById(batchId);
+      if (!batch) {
+        throw new Error('Manufacturing batch not found');
+      }
+
+      const requiredMaterials = {};
+
+      batch.sub_components.forEach(subComponent => {
+        if (subComponent.bill_of_materials) {
+          subComponent.bill_of_materials.forEach(material => {
+            if (requiredMaterials[material.name]) {
+              requiredMaterials[material.name].quantity += material.quantity;
+            } else {
+              requiredMaterials[material.name] = { ...material };
+            }
+          });
+        }
+      });
+
+      const insufficientMaterials = [];
+
+      for (const materialName in requiredMaterials) {
+        const required = requiredMaterials[materialName];
+        const rawMaterial = await RawMaterial.getRawMaterialById(required.material_id); // Assuming material_id is the ID for RawMaterial
+
+        if (!rawMaterial || rawMaterial.stockQuantity < required.quantity) {
+          insufficientMaterials.push({
+            name: required.name,
+            required: required.quantity,
+            available: rawMaterial ? rawMaterial.stockQuantity : 0,
+            unit: required.unit,
+          });
+        }
+      }
+      return insufficientMaterials;
+    } catch (error) {
+      console.error('Error in ManufacturingService.checkRawMaterialAvailability:', error);
+      throw error;
+    }
+  }
+
   // Helper method to validate status transitions
   static isValidStatusTransition(currentStatus, newStatus) {
     if (currentStatus === newStatus) {
@@ -165,10 +211,10 @@ class ManufacturingService {
     }
 
     const validTransitions = {
-      'pending': ['in_progress', 'skipped'],
-      'in_progress': ['completed'], // Removed 'pending'
-      'completed': [], // Once completed, no further transitions allowed from here typically
-      'skipped': ['pending'] // Allow retrying a skipped step
+      'pending': ['in_progress', 'completed', 'skipped'], // Allow pending to go directly to completed
+      'in_progress': ['completed'],
+      'completed': [],
+      'skipped': ['pending']
     };
 
     return validTransitions[currentStatus]?.includes(newStatus) || false;

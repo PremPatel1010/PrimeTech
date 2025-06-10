@@ -69,6 +69,22 @@ class ManufacturingBatch {
                       WHERE ms.sub_component_id = sc.id
                     ),
                     '[]'::json
+                  ),
+                  'bill_of_materials', COALESCE(
+                    (
+                      SELECT json_agg(
+                        jsonb_build_object(
+                          'material_id', pcm.material_id,
+                          'name', irm.material_name,
+                          'quantity', pcm.quantity_required,
+                          'unit', pcm.unit
+                        )
+                      )
+                      FROM product.component_materials pcm
+                      JOIN inventory.raw_materials irm ON pcm.material_id = irm.material_id
+                      WHERE pcm.sub_component_id = sc.id
+                    ),
+                    '[]'::json
                   )
                 )
               )
@@ -160,6 +176,22 @@ class ManufacturingBatch {
                       )
                       FROM product.manufacturing_steps ms
                       WHERE ms.sub_component_id = sc.id
+                    ),
+                    '[]'::json
+                  ),
+                  'bill_of_materials', COALESCE(
+                    (
+                      SELECT json_agg(
+                        jsonb_build_object(
+                          'material_id', pcm.material_id,
+                          'name', irm.material_name,
+                          'quantity', pcm.quantity_required,
+                          'unit', pcm.unit
+                        )
+                      )
+                      FROM product.component_materials pcm
+                      JOIN inventory.raw_materials irm ON pcm.material_id = irm.material_id
+                      WHERE pcm.sub_component_id = sc.id
                     ),
                     '[]'::json
                   )
@@ -420,7 +452,7 @@ class ManufacturingBatch {
       const updateQuery = `
         UPDATE manufacturing.batch_sub_components
         SET 
-          status = $1,
+          status = $1::VARCHAR,
           started_at = CASE 
             WHEN $1 = 'in_progress' AND started_at IS NULL THEN $2
             ELSE started_at
@@ -451,7 +483,7 @@ class ManufacturingBatch {
         await client.query(`
           UPDATE manufacturing.batch_workflows bw
           SET 
-            status = 'completed',
+            status = 'completed'::VARCHAR,
             completed_at = $1,
             updated_by = $2
           FROM product.manufacturing_steps ms
