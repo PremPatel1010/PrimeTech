@@ -15,7 +15,7 @@ import {
 } from '../types';
 import { toast } from '@/hooks/use-toast';
 import { createSalesOrder, fetchSalesOrders } from '../services/salesOrderService';
-import { fetchBatches, createBatch, updateBatchStage as apiUpdateBatchStage } from '../services/manufacturingService';
+
 import { productService, ManufacturingStage as BackendStage } from '../services/productService';
 import { rawMaterialService } from '../services/rawMaterial.service';
 import { useAuth } from '../contexts/AuthContext';
@@ -145,56 +145,7 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
 
     // Fetch manufacturing batches
-    fetchBatches()
-      .then(batches => setManufacturingBatches(batches.map(b => {
-        // Parse and normalize stageCompletionDates
-        let stageCompletionDates = b.stage_completion_dates;
-        if (typeof stageCompletionDates === 'string') {
-          try {
-            stageCompletionDates = JSON.parse(stageCompletionDates);
-          } catch {
-            stageCompletionDates = {};
-          }
-        }
-        // Ensure all required stage keys are present
-        const defaultStages = ['cutting', 'assembly', 'testing', 'packaging', 'completed'];
-        const safeStageCompletionDates = defaultStages.reduce((acc, key) => {
-          acc[key] = stageCompletionDates && key in stageCompletionDates ? stageCompletionDates[key] : null;
-          return acc;
-        }, {} as Record<string, string | null>);
-        // Parse and normalize dates
-        const parseDate = (d: any) => {
-          if (!d) return '';
-          const dateObj = typeof d === 'string' ? new Date(d) : d;
-          return isNaN(dateObj.getTime()) ? '' : dateObj.toISOString().split('T')[0];
-        };
-        // Lookup product name if not present
-        let productName = b.product_name || b.productName || '';
-        if (!productName && finishedProducts && b.product_id) {
-          const found = finishedProducts.find(p => p.id === String(b.product_id));
-          if (found) productName = found.name;
-        }
-        return {
-          id: String(b.tracking_id || b.id || ''),
-          tracking_id: b.tracking_id,
-          batchNumber: b.batch_number || b.batchNumber || b.tracking_id || b.id || '',
-          productId: String(b.product_id || b.productId || ''),
-          productName,
-          quantity: b.quantity_in_process ?? b.quantity ?? 1,
-          currentStage: b.current_stage || b.currentStage || 'cutting',
-          startDate: parseDate(b.start_date || b.startDate),
-          estimatedCompletionDate: parseDate(b.estimated_completion_date || b.estimatedCompletionDate),
-          stageCompletionDates: safeStageCompletionDates,
-          progress: b.progress ?? 0,
-          status: b.status || 'in_progress',
-          linkedSalesOrderId: b.linked_sales_order_id ? String(b.linked_sales_order_id) : (b.linkedSalesOrderId ? String(b.linkedSalesOrderId) : undefined),
-          custom_stage_name: b.custom_stage_name || undefined,
-          rawMaterialsUsed: b.rawMaterialsUsed || [],
-          rawMaterialsNeeded: b.rawMaterialsNeeded || [],
-          notes: b.notes || '',
-        };
-      })))
-      .catch(() => toast({ title: 'Error', description: 'Failed to load manufacturing batches', variant: 'destructive' }));
+    
     // Fetch products
     productService.getAllProducts()
       .then(products => setBackendProducts(products))
@@ -700,294 +651,7 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
     });
   };
   
-  // Manufacturing Batches functions
-  const addManufacturingBatch = async (batch: Omit<ManufacturingBatch, 'id'>) => {
-    try {
-      // Always fetch product's custom stages
-      let productStages = [];
-      if (batch.productId) {
-        try {
-          productStages = await productService.getProductStages(Number(batch.productId));
-        } catch {}
-      }
-      // Build stageCompletionDates with all custom stages (in correct order)
-      let stageCompletionDates: Record<string, string | null> = {};
-      if (productStages.length > 0) {
-        productStages.forEach((stage: any) => {
-          stageCompletionDates[stage.stage_name] = null;
-        });
-        // Always add 'Completed' as last stage if not present
-        if (!productStages.some((s: any) => s.stage_name.toLowerCase() === 'completed')) {
-          stageCompletionDates['Completed'] = null;
-        }
-      } else {
-        // Fallback to default
-        ['Cutting', 'Assembly', 'Testing', 'Packaging', 'Completed'].forEach(s => {
-          stageCompletionDates[s] = null;
-        });
-      }
-      // Use first custom stage as initial, or fallback
-      const initialStage = productStages.length > 0 ? productStages[0] : backendStages[0];
-      // Prepare backend batch object
-      const backendBatch = {
-        batch_number: batch.batchNumber,
-        product_id: batch.productId,
-        product_name: batch.productName,
-        quantity_in_process: batch.quantity,
-        start_date: batch.startDate ? new Date(batch.startDate).toISOString() : new Date().toISOString(),
-        estimated_completion_date: batch.estimatedCompletionDate ? new Date(batch.estimatedCompletionDate).toISOString() : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-        stage_completion_dates: stageCompletionDates,
-        progress: batch.progress ?? 0,
-        current_stage_id: initialStage?.stage_id,
-        status: batch.status || 'in_progress',
-        linked_sales_order_id: batch.linkedSalesOrderId || null,
-        custom_stage_name: batch.custom_stage_name || undefined,
-      };
-      await createBatch(backendBatch);
-      // Immediately fetch all batches and update state for real-time UI
-      const batches = await fetchBatches();
-      setManufacturingBatches(batches.map(b => {
-        // Parse and normalize stageCompletionDates
-        let stageCompletionDates = b.stage_completion_dates;
-        if (typeof stageCompletionDates === 'string') {
-          try {
-            stageCompletionDates = JSON.parse(stageCompletionDates);
-          } catch {
-            stageCompletionDates = {};
-          }
-        }
-        // Use the order from the stored stageCompletionDates
-        let safeStageCompletionDates = stageCompletionDates;
-        // Parse and normalize dates
-        const parseDate = (d: any) => {
-          if (!d) return '';
-          const dateObj = typeof d === 'string' ? new Date(d) : d;
-          return isNaN(dateObj.getTime()) ? '' : dateObj.toISOString().split('T')[0];
-        };
-        let productName = b.product_name || b.productName || '';
-        if (!productName && finishedProducts && b.product_id) {
-          const found = finishedProducts.find(p => p.id === String(b.product_id));
-          if (found) productName = found.name;
-        }
-        return {
-          id: String(b.tracking_id || b.id || ''),
-          tracking_id: b.tracking_id,
-          batchNumber: b.batch_number || b.batchNumber || b.tracking_id || b.id || '',
-          productId: String(b.product_id || b.productId || ''),
-          productName,
-          quantity: b.quantity_in_process ?? b.quantity ?? 1,
-          currentStage: b.current_stage || b.currentStage || (initialStage?.stage_name || 'cutting'),
-          startDate: parseDate(b.start_date || b.startDate),
-          estimatedCompletionDate: parseDate(b.estimated_completion_date || b.estimatedCompletionDate),
-          stageCompletionDates: safeStageCompletionDates,
-          progress: b.progress ?? 0,
-          status: b.status || 'in_progress',
-          linkedSalesOrderId: b.linked_sales_order_id ? String(b.linked_sales_order_id) : (b.linkedSalesOrderId ? String(b.linkedSalesOrderId) : undefined),
-          custom_stage_name: b.custom_stage_name || undefined,
-          rawMaterialsUsed: b.rawMaterialsUsed || [],
-          rawMaterialsNeeded: b.rawMaterialsNeeded || [],
-          notes: b.notes || '',
-        };
-      }));
-      // For each batch, fetch and cache its product stages for immediate UI display
-      const uniqueProductIds = Array.from(new Set(batches.map(b => String(b.product_id || b.productId || ''))));
-      for (const pid of uniqueProductIds) {
-        if (pid && !isNaN(Number(pid))) {
-          try {
-            await productService.getProductStages(Number(pid));
-          } catch {}
-        }
-      }
-      toast({ title: 'Manufacturing Batch Created', description: `Batch ${batch.batchNumber} has been created successfully.` });
-    } catch (err) {
-      toast({ title: 'Error', description: 'Failed to create manufacturing batch', variant: 'destructive' });
-    }
-  };
   
-  const getStagesForBatch = (batch: ManufacturingBatch) => {
-    // Try to get the product from backendProducts
-    const product = backendProducts.find((p: any) => String(p.product_id) === String(batch.productId));
-    if (product && Array.isArray(product.manufacturing_steps) && product.manufacturing_steps.length > 0) {
-      // Return as array of objects for UI compatibility
-      const steps = product.manufacturing_steps.map((step: string, idx: number) => ({
-        stage_id: idx + 1,
-        component_type: 'custom',
-        stage_name: step,
-        sequence: idx + 1
-      }));
-      // Always add 'Completed' as the last stage
-      steps.push({
-        stage_id: steps.length + 1,
-        component_type: 'custom',
-        stage_name: 'Completed',
-        sequence: steps.length + 1
-      });
-      return steps;
-    }
-    // Fallback to backend stages
-    const type = 'combined'; // Or use your getComponentType logic if needed
-    let stages = backendStages.filter(s => s.component_type === type);
-    if (stages.length > 0 && !stages.some(s => s.stage_name.toLowerCase() === 'completed')) {
-      stages = [...stages, { stage_id: 9999, component_type: type, stage_name: 'Completed', sequence: stages.length + 1 }];
-    }
-    return stages.length > 0 ? stages : backendStages;
-  };
-  
-  const updateManufacturingStage = async (id: string, stage: string) => {
-    try {
-      const batch = manufacturingBatches.find(b => b.id === id);
-      if (!batch) throw new Error('Batch not found');
-      // Use getStagesForBatch to get the correct stage object
-      const stages = getStagesForBatch(batch);
-      const stageObj = stages.find(s => s.stage_name.toLowerCase() === stage.toLowerCase());
-      let update: any = {};
-      if (stageObj && stageObj.stage_id && typeof stageObj.stage_id === 'number' && stageObj.stage_name.toLowerCase() !== 'completed') {
-        // Backend stage: send stage_id
-        update.current_stage_id = stageObj.stage_id;
-        update.custom_stage_name = null;
-      } else {
-        // Custom product-defined stage: send as custom_stage_name
-        update.current_stage_id = null;
-        update.custom_stage_name = stage;
-      }
-      // Calculate progress based on stage index
-      const stageIndex = stages.findIndex(s => s.stage_name.toLowerCase() === stage.toLowerCase());
-      const totalStages = stages.length - 1;
-      update.progress = stage.toLowerCase() === 'completed' ? 100 : Math.round((stageIndex / totalStages) * 100);
-      const now = new Date().toISOString();
-      update.stage_completion_dates = { ...batch.stageCompletionDates, [stage]: now };
-      update.status = stage.toLowerCase() === 'completed' ? 'completed' : 'in_progress';
-      const updated = await apiUpdateBatchStage(batch.id, update);
-      // Map backend batch to frontend ManufacturingBatch type
-      let stageCompletionDates = updated.stage_completion_dates;
-      if (typeof stageCompletionDates === 'string') {
-        try {
-          stageCompletionDates = JSON.parse(stageCompletionDates);
-        } catch {
-          stageCompletionDates = {};
-        }
-      }
-      const defaultStages = ['cutting', 'assembly', 'testing', 'packaging', 'completed'];
-      const safeStageCompletionDates = defaultStages.reduce((acc, key) => {
-        acc[key] = stageCompletionDates && key in stageCompletionDates ? stageCompletionDates[key] : null;
-        return acc;
-      }, {} as Record<string, string | null>);
-      const parseDate = (d: any) => {
-        if (!d) return '';
-        const dateObj = typeof d === 'string' ? new Date(d) : d;
-        return isNaN(dateObj.getTime()) ? '' : dateObj.toISOString().split('T')[0];
-      };
-      let productName = updated.product_name || updated.productName || '';
-      if (!productName && finishedProducts && updated.product_id) {
-        const found = finishedProducts.find(p => p.id === String(updated.product_id));
-        if (found) productName = found.name;
-      }
-      const mappedBatch = {
-        id: String(updated.tracking_id || updated.id || ''),
-        batchNumber: updated.batch_number || updated.batchNumber || updated.tracking_id || updated.id || '',
-        productId: String(updated.product_id || updated.productId || ''),
-        productName,
-        quantity: updated.quantity_in_process ?? updated.quantity ?? 1,
-        currentStage: updated.current_stage || updated.currentStage || (updated.status === 'completed' ? 'completed' : stage),
-        startDate: parseDate(updated.start_date || updated.startDate),
-        estimatedCompletionDate: parseDate(updated.estimated_completion_date || updated.estimatedCompletionDate),
-        stageCompletionDates: safeStageCompletionDates,
-        progress: updated.progress ?? 0,
-        status: updated.status || (stage === 'completed' ? 'completed' : 'in_progress'),
-        linkedSalesOrderId: updated.linked_sales_order_id ? String(updated.linked_sales_order_id) : (updated.linkedSalesOrderId ? String(updated.linkedSalesOrderId) : undefined),
-        custom_stage_name: updated.custom_stage_name || undefined,
-        rawMaterialsUsed: updated.rawMaterialsUsed || [],
-        rawMaterialsNeeded: updated.rawMaterialsNeeded || [],
-        notes: updated.notes || '',
-      };
-      setManufacturingBatches(prev => prev.map(b => (b.id === batch.id ? mappedBatch : b)));
-
-      // --- NEW LOGIC: Deduct raw materials when batch enters manufacturing (not completed) ---
-      if (stage !== 'completed') {
-        // Only deduct if not already deducted for this batch
-        if (!batch.rawMaterialsUsed || batch.rawMaterialsUsed.length === 0) {
-          const backendProduct = backendProducts.find(p => String(p.product_id) === batch.productId);
-          if (backendProduct && backendProduct.bom_items) {
-            const updatedMaterials = [...rawMaterials];
-            const usedMaterials: any[] = [];
-            for (const item of backendProduct.bom_items) {
-              const materialIndex = updatedMaterials.findIndex(m => m.id === String(item.material_id));
-              if (materialIndex !== -1) {
-                const requiredQuantity = item.quantity_required * batch.quantity;
-                updatedMaterials[materialIndex] = {
-                  ...updatedMaterials[materialIndex],
-                  quantity: Math.max(0, updatedMaterials[materialIndex].quantity - requiredQuantity),
-                  lastUpdated: new Date().toISOString()
-                };
-                usedMaterials.push({
-                  materialId: String(item.material_id),
-                  materialName: item.material_name || '',
-                  quantityUsed: requiredQuantity,
-                  unit: updatedMaterials[materialIndex].unit
-                });
-                // Persist to backend
-                rawMaterialService.updateRawMaterial(parseInt(updatedMaterials[materialIndex].id), { current_stock: updatedMaterials[materialIndex].quantity });
-              }
-            }
-            setRawMaterials(updatedMaterials);
-            // Save used materials in batch for tracking
-            setManufacturingBatches(prev => prev.map(b =>
-              (b.id === batch.id)
-                ? { ...b, rawMaterialsUsed: usedMaterials }
-                : b
-            ));
-          }
-        }
-      }
-
-      // --- NEW LOGIC: Add finished products to inventory when batch is completed ---
-      if (stage === 'completed') {
-        // Add or update finished product in backend
-        const backendProduct = backendProducts.find(p => String(p.product_id) === batch.productId);
-        if (backendProduct) {
-          // Try to find if finished product already exists in backend
-          const existing = finishedProducts.find(p => p.id === batch.productId);
-          if (existing) {
-            // Use PATCH route to add quantity to inventory
-            await addQuantityToFinishedProduct(existing.id, batch.quantity);
-          } else {
-            // Create new finished product in backend
-            await finishedProductService.create({
-              product_id: backendProduct.product_id,
-              quantity_available: batch.quantity,
-              status: 'available',
-              unit_price: backendProduct.price || 0,
-              category: backendProduct.category || '',
-            });
-          }
-          // Refetch finished products from backend
-          const products = await finishedProductService.getAll();
-          setFinishedProducts(products.map(fp => {
-            // Use unit_price from backend, fallback to backendProducts if needed
-            let price = Number(fp.unit_price ?? fp.price ?? 0);
-            if (!price && backendProducts && backendProducts.length > 0) {
-              const prod = backendProducts.find((p: any) => String(p.product_id) === String(fp.product_id));
-              if (prod && prod.price) price = Number(prod.price);
-            }
-            return {
-              id: String(fp.product_id),
-              name: fp.product_name || '',
-              category: fp.category || '',
-              quantity: Number(fp.quantity_available),
-              price,
-              lastUpdated: fp.added_on || new Date().toISOString(),
-              billOfMaterials: [],
-              manufacturingSteps: []
-            };
-          }));
-        }
-      }
-
-      toast({ title: 'Manufacturing Stage Updated', description: `Stage has been updated to ${stage}.` });
-    } catch (err) {
-      toast({ title: 'Error', description: 'Failed to update manufacturing stage', variant: 'destructive' });
-    }
-  };
 
   // Purchase Orders functions
   const addPurchaseOrder = (order: Omit<PurchaseOrder, 'id'>) => {
@@ -1094,30 +758,28 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const value: FactoryContextType = {
-    rawMaterials,
+   
     addRawMaterial,
     updateRawMaterial,
-    finishedProducts,
+   
     addFinishedProduct,
     updateFinishedProduct,
     setFinishedProducts,
     deleteFinishedProduct,
-    salesOrders,
+    
     addSalesOrder,
     updateSalesOrderStatus,
-    manufacturingBatches,
+   
     setManufacturingBatches,
-    addManufacturingBatch,
-    updateManufacturingStage,
-    purchaseOrders,
+   
     addPurchaseOrder,
     updatePurchaseOrderStatus,
     checkProductAvailability,
     getActiveBatches,
     getCompletedBatches,
-    backendProducts,
+
     setBackendProducts,
-    notifications,
+ 
     markNotificationAsRead,
     deleteNotification,
     addQuantityToFinishedProduct,

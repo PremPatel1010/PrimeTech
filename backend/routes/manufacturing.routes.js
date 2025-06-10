@@ -1,41 +1,31 @@
 import express from 'express';
 import ManufacturingController from '../controllers/manufacturing.controller.js';
-import  {authenticate}  from '../middleware/auth.middleware.js';
+import { authenticate } from '../middleware/auth.middleware.js';
 
 const router = express.Router();
 
 // Apply authentication middleware to all routes
 router.use(authenticate);
 
-// Manufacturing batch routes
+// Get all manufacturing batches
 router.get('/batches', ManufacturingController.getAllBatches);
+
+// Get a specific batch by ID
+router.get('/batches/:batchId', ManufacturingController.getBatchById);
+
+// Create a new manufacturing batch
 router.post('/batches', ManufacturingController.createBatch);
-router.get('/batches/:id', ManufacturingController.getBatchById);
-router.put('/batches/:id', ManufacturingController.updateBatch);
-router.delete('/batches/:id', ManufacturingController.deleteBatch);
 
-// Manufacturing workflow routes
-router.get('/workflows', ManufacturingController.getAllWorkflows);
-router.post('/workflows', ManufacturingController.createWorkflow);
-router.post('/batches/:batchId/workflows', ManufacturingController.createBatchWorkflow);
-router.get('/workflows/:id', ManufacturingController.getWorkflowById);
-router.put('/workflows/:id', ManufacturingController.updateWorkflow);
-router.delete('/workflows/:id', ManufacturingController.deleteWorkflow);
+// Update a manufacturing batch
+router.put('/batches/:batchId', ManufacturingController.updateBatch);
 
-// Manufacturing steps routes
-router.get('/steps', ManufacturingController.getManufacturingSteps);
-router.get('/workflows/:workflowId/steps', ManufacturingController.getWorkflowSteps);
-router.put('/workflows/:workflowId/steps', ManufacturingController.updateWorkflowStep);
+// Update workflow status for a batch step
+router.patch('/batches/:batchId/steps/:stepId/status', ManufacturingController.updateWorkflowStatus);
 
-// Material consumption routes
-router.get('/consumption', ManufacturingController.getAllConsumption);
-router.post('/consumption', ManufacturingController.createConsumption);
-router.get('/consumption/:id', ManufacturingController.getConsumptionById);
-router.put('/consumption/:id', ManufacturingController.updateConsumption);
-router.delete('/consumption/:id', ManufacturingController.deleteConsumption);
+// Update sub-component status for a batch
+router.patch('/batches/:batchId/sub-components/:subComponentId/status', ManufacturingController.updateSubComponentStatus);
 
-// Manufacturing progress routes
-router.get('/progress/:orderId', ManufacturingController.getProgressByOrderId);
-router.get('/analytics/batch-progress/:batchId', ManufacturingController.getBatchProgress);
+// Delete a manufacturing batch
+router.delete('/batches/:batchId', ManufacturingController.deleteBatch);
 
-export default router;
+export default router; 

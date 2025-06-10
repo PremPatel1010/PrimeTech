@@ -1,6 +1,6 @@
 import SalesOrder from '../models/salesOrder.model.js';
 
-import ManufacturingProgress from '../models/manufacturingProgress.model.js';
+import ManufacturingProgress from '../models/manufacturing.model.js';
 import FinishedProduct from '../models/finishedProduct.model.js';
 
 // Get all sales orders
