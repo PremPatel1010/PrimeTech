@@ -304,6 +304,81 @@ const productController = {
     }
   },
 
+  // Add material to product
+  async addMaterialToProduct(req, res) {
+    try {
+      const { id } = req.params;
+      const materialData = req.body;
+
+      if (!materialData.materialId || !materialData.quantityRequired) {
+        return res.status(400).json({
+          success: false,
+          message: 'Material ID and quantity are required'
+        });
+      }
+
+      const product = await Product.addMaterialToProduct(id, materialData);
+
+      res.json({
+        success: true,
+        data: product,
+        message: 'Material added to product successfully'
+      });
+    } catch (error) {
+      console.error('Error adding material to product:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error adding material to product',
+        error: error.message
+      });
+    }
+  },
+
+  // Update material in product
+  async updateProductMaterial(req, res) {
+    try {
+      const { id, materialId } = req.params;
+      const materialData = req.body;
+
+      const product = await Product.updateProductMaterial(id, materialId, materialData);
+
+      res.json({
+        success: true,
+        data: product,
+        message: 'Product material updated successfully'
+      });
+    } catch (error) {
+      console.error('Error updating product material:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error updating product material',
+        error: error.message
+      });
+    }
+  },
+
+  // Delete material from product
+  async deleteProductMaterial(req, res) {
+    try {
+      const { id, materialId } = req.params;
+
+      const product = await Product.deleteProductMaterial(id, materialId);
+
+      res.json({
+        success: true,
+        data: product,
+        message: 'Product material deleted successfully'
+      });
+    } catch (error) {
+      console.error('Error deleting product material:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error deleting product material',
+        error: error.message
+      });
+    }
+  },
+
   // Get all raw materials
   async getAllRawMaterials(req, res) {
     try {

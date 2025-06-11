@@ -2,7 +2,7 @@ import pool from '../db/db.js';
 import ManufacturingProgress from './manufacturing.model.js';
 import ManufacturingStage from './manufacturing.model.js';
 import FinishedProduct from './finishedProduct.model.js';
-import Product from './product.model.js';
+import Product from './products.model.js';
 import RawMaterial from './rawMaterial.model.js';
 
 class SalesOrder {
@@ -16,10 +16,10 @@ class SalesOrder {
             'quantity', items.quantity,
             'unit_price', items.unit_price,
             'fulfilled_from_inventory', items.fulfilled_from_inventory,
-            'product_name', p.product_name
+            'product_name', p.name
         ))
          FROM sales.sales_order_items items
-         LEFT JOIN products.product p ON items.product_id = p.product_id
+         LEFT JOIN product.products p ON items.product_id = p.id  
          WHERE items.sales_order_id = so.sales_order_id) as order_items
       FROM sales.sales_order so
       ORDER BY so.created_at DESC
@@ -42,10 +42,10 @@ class SalesOrder {
                 'quantity', soi.quantity,
                 'unit_price', soi.unit_price,
                 'fulfilled_from_inventory', soi.fulfilled_from_inventory,
-                'product_name', p.product_name
+                'product_name', p.name
               ))
               FROM sales.sales_order_items soi
-              LEFT JOIN products.product p ON soi.product_id = p.product_id
+              LEFT JOIN product.products p ON soi.product_id = p.id
               WHERE soi.sales_order_id = so.sales_order_id
             ),
             '[]'::json
@@ -88,7 +88,7 @@ class SalesOrder {
       for (const item of orderData.items) {
         // Verify product exists before proceeding
         const productCheck = await client.query(`
-          SELECT product_id FROM products.product WHERE product_id = $1
+          SELECT id FROM product.products WHERE id = $1
         `, [item.product_id]);
 
         if (productCheck.rows.length === 0) {
@@ -399,35 +399,75 @@ class SalesOrder {
     // Get finished product stock
     const finishedProducts = await FinishedProduct.getProductInventory(productId);
     const finishedStock = finishedProducts && finishedProducts.length > 0 ? finishedProducts.reduce((sum, row) => sum + Number(row.quantity_available), 0) : 0;
-    // Get BOM for the product
-    const product = await Product.getProductById(productId);
-    const bom = product && product.bom_items ? product.bom_items : [];
-    // For each BOM item, get current stock
-    let maxPossibleWithCurrentRawMaterial = null;
-    if (bom.length > 0) {
-      for (const item of bom) {
-        const material = await RawMaterial.getRawMaterialById(item.material_id);
-        if (!material || !item.quantity_required || item.quantity_required <= 0) {
-          maxPossibleWithCurrentRawMaterial = 0;
-          break;
-        }
-        const possible = Math.floor(Number(material.current_stock) / Number(item.quantity_required));
-        if (maxPossibleWithCurrentRawMaterial === null) {
-          maxPossibleWithCurrentRawMaterial = possible;
+    
+    // Get all materials required for the product (direct and from sub-components)
+    const productDetails = await Product.findById(productId);
+    if (!productDetails) {
+      throw new Error(`Product with ID ${productId} not found`);
+    }
+
+    const allProductMaterials = {}; // Use an object to sum quantities for the same material
+
+    // Add direct product materials
+    if (productDetails.materials) {
+      for (const mat of productDetails.materials) {
+        const materialId = mat.materialId;
+        if (allProductMaterials[materialId]) {
+          allProductMaterials[materialId].quantity_required += mat.quantityRequired;
         } else {
-          maxPossibleWithCurrentRawMaterial = Math.min(maxPossibleWithCurrentRawMaterial, possible);
+          allProductMaterials[materialId] = { material_id: materialId, quantity_required: mat.quantityRequired };
         }
       }
-    } else {
-      // No BOM, so can manufacture unlimited (or 0 if no BOM means not manufacturable)
-      maxPossibleWithCurrentRawMaterial = 0;
     }
+
+    // Add sub-component materials
+    if (productDetails.subComponents) {
+      for (const subComp of productDetails.subComponents) {
+        if (subComp.materials) {
+          for (const mat of subComp.materials) {
+            const materialId = mat.materialId;
+            if (allProductMaterials[materialId]) {
+              allProductMaterials[materialId].quantity_required += mat.quantityRequired;
+            } else {
+              allProductMaterials[materialId] = { material_id: materialId, quantity_required: mat.quantityRequired };
+            }
+          }
+        }
+      }
+    }
+
+    let maxPossibleWithCurrentRawMaterial = Infinity;
+
+    // If there are no materials required, it can be manufactured without raw materials (or not at all depending on business logic)
+    if (Object.keys(allProductMaterials).length === 0) {
+        maxPossibleWithCurrentRawMaterial = Infinity; // Assuming unlimited if no materials defined for manufacturing
+    } else {
+        for (const materialId in allProductMaterials) {
+            const bomItem = allProductMaterials[materialId];
+            const material = await RawMaterial.getRawMaterialById(bomItem.material_id);
+
+            if (!material || bomItem.quantity_required <= 0) {
+                maxPossibleWithCurrentRawMaterial = 0; // Cannot manufacture if material not found or quantity required is zero/negative
+                break;
+            }
+
+            const possible = Math.floor(Number(material.current_stock) / Number(bomItem.quantity_required));
+            maxPossibleWithCurrentRawMaterial = Math.min(maxPossibleWithCurrentRawMaterial, possible);
+        }
+    }
+
     const readyQuantity = Math.min(quantity, finishedStock);
     const toBeManufactured = Math.max(0, quantity - finishedStock);
+
+    // If maxPossibleWithCurrentRawMaterial is Infinity, it means no materials are required, so it's only limited by order quantity.
+    // If it's 0, it means no items can be manufactured due to raw material shortage.
+    // Otherwise, it's the calculated limit.
+    const actualMaxManufacturable = maxPossibleWithCurrentRawMaterial === Infinity ? toBeManufactured : maxPossibleWithCurrentRawMaterial;
+
     return {
       readyQuantity,
       toBeManufactured,
-      maxPossibleWithCurrentRawMaterial
+      maxPossibleWithCurrentRawMaterial: actualMaxManufacturable
     };
   }
 
@@ -445,42 +485,78 @@ class SalesOrder {
         }
         const requestedQty = item.quantity;
         const toBeManufactured = Math.max(0, requestedQty - availableQty);
-        // Get BOM for the product
-        const bomResult = await client.query(`
-          SELECT b.*, rm.material_name, rm.current_stock, rm.unit
-          FROM products.bom b
-          JOIN inventory.raw_materials rm ON b.material_id = rm.material_id
-          WHERE b.product_id = $1
-        `, [item.product_id]);
+
+        // Get BOM for the product (including direct materials and sub-component materials)
+        const productDetails = await Product.findById(item.product_id);
+        if (!productDetails) {
+          throw new Error(`Product with ID ${item.product_id} not found`);
+        }
+
+        const allProductMaterials = [];
+
+        // Add direct product materials
+        if (productDetails.materials) {
+          for (const mat of productDetails.materials) {
+            allProductMaterials.push({
+              material_id: mat.materialId,
+              quantity_required: mat.quantityRequired,
+            });
+          }
+        }
+
+        // Add sub-component materials
+        if (productDetails.subComponents) {
+          for (const subComp of productDetails.subComponents) {
+            if (subComp.materials) {
+              for (const mat of subComp.materials) {
+                allProductMaterials.push({
+                  material_id: mat.materialId,
+                  quantity_required: mat.quantityRequired,
+                });
+              }
+            }
+          }
+        }
+
         const materialsNeeded = [];
         let maxManufacturableQty = Infinity;
-        for (const bomItem of bomResult.rows) {
+
+        for (const bomItem of allProductMaterials) {
+          const material = await RawMaterial.getRawMaterialById(bomItem.material_id);
+          if (!material || !bomItem.quantity_required || bomItem.quantity_required <= 0) {
+            maxManufacturableQty = 0;
+            break;
+          }
+
           const requiredQty = bomItem.quantity_required * toBeManufactured;
-          const availableQtyMaterial = bomItem.current_stock;
+          const availableQtyMaterial = Number(material.current_stock);
           const missingQty = Math.max(0, requiredQty - availableQtyMaterial);
+
           materialsNeeded.push({
             material_id: bomItem.material_id,
-            material_name: bomItem.material_name,
+            material_name: material.material_name,
             required_quantity: requiredQty,
             available_quantity: availableQtyMaterial,
             missing_quantity: missingQty,
-            unit: bomItem.unit
+            unit: material.unit,
           });
+
           // Calculate maximum possible quantity based on this material
-          if (bomItem.quantity_required > 0) {
-            const maxQty = Math.floor(availableQtyMaterial / bomItem.quantity_required);
-            maxManufacturableQty = Math.min(maxManufacturableQty, maxQty);
-          }
+          const maxQty = Math.floor(availableQtyMaterial / bomItem.quantity_required);
+          maxManufacturableQty = Math.min(maxManufacturableQty, maxQty);
         }
-        // If there is no BOM, or all materials are unlimited, allow manufacturing up to the requested quantity
-        if (bomResult.rows.length === 0 || maxManufacturableQty === Infinity) {
-          maxManufacturableQty = toBeManufactured;
+
+        // If there are no materials required for manufacturing this product, assume it can be manufactured up to the requested quantity
+        if (allProductMaterials.length === 0) {
+          maxManufacturableQty = toBeManufactured; // Or some other logic if products without BOM are not manufacturable
         }
+
         // If nothing needs to be manufactured, canManufacture should be true
         let canManufacture = true;
         if (toBeManufactured > 0) {
           canManufacture = maxManufacturableQty >= toBeManufactured;
         }
+
         availabilityResults.push({
           product_id: item.product_id,
           requested_quantity: requestedQty,
@@ -488,7 +564,7 @@ class SalesOrder {
           to_be_manufactured: toBeManufactured,
           can_manufacture: canManufacture,
           max_manufacturable_quantity: maxManufacturableQty,
-          materials_needed: materialsNeeded
+          materials_needed: materialsNeeded,
         });
       }
       await client.query('COMMIT');

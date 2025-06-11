@@ -1,18 +1,17 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useFactory } from '../context/FactoryContext';
 import { formatCurrency, formatDate } from '../utils/calculations';
 import { Check, Hammer, Truck, AlertCircle, History } from 'lucide-react';
-import { 
-  Table, 
-  TableBody, 
-  TableCell, 
-  TableHead, 
-  TableHeader, 
-  TableRow 
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow
 } from '@/components/ui/table';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { SalesOrder, OrderStatus, FinishedProduct, PartialFulfillment, OrderProduct } from '../types';
+import { SalesOrder, OrderStatus, PartialFulfillment, OrderProduct } from '../types';
 import {
   Drawer,
   DrawerClose,
@@ -25,12 +24,12 @@ import {
 } from "@/components/ui/drawer";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
-import { 
-  Select, 
-  SelectContent, 
-  SelectItem, 
-  SelectTrigger, 
-  SelectValue 
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
 } from "@/components/ui/select";
 import { toast } from "@/hooks/use-toast";
 import {
@@ -43,15 +42,18 @@ import {
 } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
-import { fetchSalesOrders, updateSalesOrder, fetchNextOrderNumber, deleteSalesOrder, checkOrderAvailability } from '../services/salesOrderService';
+import { fetchSalesOrders, updateSalesOrder, fetchNextOrderNumber, deleteSalesOrder, checkOrderAvailability, createSalesOrder } from '../services/salesOrderService';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { productService, Product } from '../services/productService';
+import { productService, Product, ProductApiResponse } from '../services/productService';
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from '@/components/ui/accordion';
 import axiosInstance from '@/utils/axios';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { finishedProductService, FinishedProductAPI } from '../services/finishedProduct.service';
+import { manufacturingApi, ManufacturingBatch } from '../services/manufacturingApi';
 
 const ViewOrderStatus: React.FC = () => {
-  const { finishedProducts, updateSalesOrderStatus, manufacturingBatches, checkProductAvailability, addSalesOrder } = useFactory();
+  const queryClient = useQueryClient();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<OrderStatus | 'all'>('all');
   const [selectedOrder, setSelectedOrder] = useState<SalesOrder | null>(null);
@@ -88,6 +90,18 @@ const ViewOrderStatus: React.FC = () => {
   const addButtonRef = useRef<HTMLButtonElement>(null);
   const [availabilityInfo, setAvailabilityInfo] = useState<any[]>([]);
   
+  // Fetch finished products
+  const { data: finishedProducts = [], isLoading: isLoadingFinishedProducts } = useQuery<FinishedProductAPI[]>({
+    queryKey: ['finishedProducts'],
+    queryFn: finishedProductService.getAll,
+  });
+
+  // Fetch manufacturing batches
+  const { data: manufacturingBatches = [], isLoading: isLoadingManufacturingBatches } = useQuery<ManufacturingBatch[]>({
+    queryKey: ['manufacturingBatches'],
+    queryFn: manufacturingApi.getAllBatches,
+  });
+
   // Initialize real-time updates
   useEffect(() => {
     fetchSalesOrders().then((data) => {
@@ -114,7 +128,8 @@ const ViewOrderStatus: React.FC = () => {
   }, []);
   
   useEffect(() => {
-    productService.getAllProducts().then(setProducts);
+    productService.getAllProducts().then(response => setProducts(response.data));
+    console.log(products);
   }, []);
   
   // Separate active and completed orders
@@ -241,10 +256,9 @@ const ViewOrderStatus: React.FC = () => {
   };
 
   const checkProductAvailabilityForOrder = (order: SalesOrder): boolean => {
-    // Check if all products in the order are available in stock
     return order.products.every(orderProduct => {
-      const product = finishedProducts.find(p => p.id === orderProduct.productId);
-      return product && product.quantity >= orderProduct.quantity;
+      const product = finishedProducts.find(p => String(p.product_id) === String(orderProduct.productId));
+      return product && product.quantity_available >= orderProduct.quantity;
     });
   };
 
@@ -253,17 +267,11 @@ const ViewOrderStatus: React.FC = () => {
 
     setIsUpdating(true);
     try {
-      const response = await axiosInstance.put(`/sales/orders/${selectedOrder.id}/status`, {
-        status: newStatus
-      });
+      const response = await updateSalesOrder(selectedOrder.id, { status: newStatus });
 
-      // Update the order in the local state
-      const updatedOrders = orders?.map(order => 
-        order.id === selectedOrder.id 
-          ? { ...order, status: newStatus }
-          : order
-      ) || [];
-
+      // Instead of updating the order in local state, invalidate the query to refetch
+      queryClient.invalidateQueries({ queryKey: ['salesOrders'] });
+      
       // Close the dialog
       setIsUpdateDialogOpen(false);
       setSelectedOrder(null);
@@ -281,16 +289,7 @@ const ViewOrderStatus: React.FC = () => {
           description: 'Inventory has been updated accordingly',
         });
         // Refetch finished products to update inventory in UI
-        if (typeof window !== 'undefined') {
-          // Use context or service to refetch finished products
-          // This will trigger the UI to update the inventory table
-          const { finishedProductService } = require('../services/finishedProduct.service');
-          finishedProductService.getAll().then((products) => {
-            if (window && window.dispatchEvent) {
-              window.dispatchEvent(new CustomEvent('refreshFinishedProducts', { detail: products }));
-            }
-          });
-        }
+        queryClient.invalidateQueries({ queryKey: ['finishedProducts'] });
       }
     } catch (error: any) {
       console.error('Error updating order status:', error);
@@ -349,8 +348,9 @@ const ViewOrderStatus: React.FC = () => {
   };
   
   const handleAddProduct = async () => {
+   
     if (selectedProduct && productQuantity > 0) {
-      const product = products.find(p => String(p.product_id) === selectedProduct);
+      const product = products.find(p => String(p.id) === selectedProduct);
       if (product) {
         // Check availability first
         const orderData = {
@@ -365,6 +365,7 @@ const ViewOrderStatus: React.FC = () => {
           const result = availabilityResult.availability_results[0];
 
           // Block only if neither stock nor manufacturing is possible, or not enough raw material for requested quantity
+          console.log(result)
           if (!result.can_fulfill_from_stock && (!result.can_manufacture || result.max_manufacturable_quantity < productQuantity)) {
             toast({
               title: "Error",
@@ -519,7 +520,7 @@ const ViewOrderStatus: React.FC = () => {
           // Update quantities based on suggestions
           const updatedProducts = newOrder.products.map(p => {
             const suggestion = availabilityResult.overall_status.suggested_quantities.find(
-              s => s.product_id === p.productId
+              s => String(s.product_id) === p.productId
             );
             return {
               ...p,
@@ -541,36 +542,19 @@ const ViewOrderStatus: React.FC = () => {
         }
 
         // Create the order
-        await addSalesOrder(newOrder as Omit<SalesOrder, 'id'>);
+        await createSalesOrder(newOrder as Omit<SalesOrder, 'id'>);
         setIsDialogOpen(false);
         resetNewOrder();
         
-        // Refetch orders
-        fetchSalesOrders().then((data) => {
-          const mapped = data.map((order: any) => ({
-            id: order.sales_order_id || order.id,
-            orderNumber: order.order_number,
-            date: order.order_date,
-            customerName: order.customer_name,
-            products: (order.order_items || order.products || []).map((p: any) => ({
-              ...p,
-              price: p.price || p.unit_price || 0,
-              quantity: typeof p.quantity === 'number' ? p.quantity : 0
-            })),
-            status: order.status,
-            totalValue: order.total_amount,
-            discount: order.discount,
-            gst: order.gst,
-            partialFulfillment: order.partialFulfillment || [],
-          }));
-          setOrders(mapped);
-        });
+        // Refetch orders by invalidating query
+        queryClient.invalidateQueries({ queryKey: ['salesOrders'] });
 
         toast({
           title: "Success",
           description: "Sales order created successfully"
         });
       } catch (error) {
+        console.error("Error creating sales order:", error);
         toast({
           title: "Error",
           description: "Failed to create sales order",
@@ -636,7 +620,6 @@ const ViewOrderStatus: React.FC = () => {
     if (!editOrder) return;
     setIsUpdating(true);
     try {
-      // Map products to backend expected fields
       const mappedOrder = {
         ...editOrder,
         products: editOrder.products.map((p) => {
@@ -651,26 +634,17 @@ const ViewOrderStatus: React.FC = () => {
       await updateSalesOrder(editOrder.id, mappedOrder);
       setIsEditDialogOpen(false);
       setEditOrder(null);
-      fetchSalesOrders().then((data) => {
-        const mapped = data.map((order: any) => ({
-          id: order.sales_order_id || order.id,
-          orderNumber: order.order_number,
-          date: order.order_date,
-          customerName: order.customer_name,
-          products: (order.order_items || order.products || []).map((p: any) => {
-            return {
-              ...p,
-              price: p.price || p.unit_price || 0,
-              quantity: typeof p.quantity === 'number' ? p.quantity : 0
-            };
-          }),
-          status: order.status,
-          totalValue: order.total_amount,
-          discount: order.discount,
-          gst: order.gst,
-          partialFulfillment: order.partialFulfillment || [],
-        }));
-        setOrders(mapped);
+      queryClient.invalidateQueries({ queryKey: ['salesOrders'] });
+      toast({
+        title: "Success",
+        description: "Sales order updated successfully"
+      });
+    } catch (error) {
+      console.error("Error updating sales order:", error);
+      toast({
+        title: "Error",
+        description: "Failed to update sales order",
+        variant: "destructive"
       });
     } finally {
       setIsUpdating(false);
@@ -681,26 +655,17 @@ const ViewOrderStatus: React.FC = () => {
     setIsUpdating(true);
     try {
       await updateSalesOrder(order.id, { status: newStatus });
-      fetchSalesOrders().then((data) => {
-        const mapped = data.map((order: any) => ({
-          id: order.sales_order_id || order.id,
-          orderNumber: order.order_number,
-          date: order.order_date,
-          customerName: order.customer_name,
-          products: (order.order_items || order.products || []).map((p: any) => {
-            return {
-              ...p,
-              price: p.price || p.unit_price || 0,
-              quantity: typeof p.quantity === 'number' ? p.quantity : 0
-            };
-          }),
-          status: order.status,
-          totalValue: order.total_amount,
-          discount: order.discount,
-          gst: order.gst,
-          partialFulfillment: order.partialFulfillment || [],
-        }));
-        setOrders(mapped);
+      queryClient.invalidateQueries({ queryKey: ['salesOrders'] });
+      toast({
+        title: "Success",
+        description: "Order status updated successfully"
+      });
+    } catch (error) {
+      console.error("Error updating order status:", error);
+      toast({
+        title: "Error",
+        description: "Failed to update order status",
+        variant: "destructive"
       });
     } finally {
       setIsUpdating(false);
@@ -717,30 +682,23 @@ const ViewOrderStatus: React.FC = () => {
       await deleteSalesOrder(orderToDelete.id);
       setIsDeleteDialogOpen(false);
       setOrderToDelete(null);
-      fetchSalesOrders().then((data) => {
-        const mapped = data.map((order: any) => ({
-          id: order.sales_order_id || order.id,
-          orderNumber: order.order_number,
-          date: order.order_date,
-          customerName: order.customer_name,
-          products: (order.order_items || order.products || []).map((p: any) => ({
-            ...p,
-            price: p.price || p.unit_price || 0,
-            quantity: typeof p.quantity === 'number' ? p.quantity : 0
-          })),
-          status: order.status,
-          totalValue: order.total_amount,
-          discount: order.discount,
-          gst: order.gst,
-          partialFulfillment: order.partialFulfillment || [],
-        }));
-        setOrders(mapped);
+      queryClient.invalidateQueries({ queryKey: ['salesOrders'] });
+      toast({
+        title: "Success",
+        description: "Sales order deleted successfully"
+      });
+    } else {
+      toast({
+        title: "Error",
+        description: "No order selected for deletion",
+        variant: "destructive"
       });
     }
   };
   
-  const ProductAvailabilityInfo = ({ productId, quantity, finishedProducts }) => {
-    const productInventory = finishedProducts.find(p => String(p.product_id) === String(productId));
+  const ProductAvailabilityInfo = ({ productId, quantity }) => {
+    console.log(finishedProducts);
+    const productInventory = finishedProducts.find(p => String(p.id) === String(productId));
     const available = productInventory ? productInventory.quantity_available : 0;
     const ready = Math.min(quantity, available);
     const toManufacture = Math.max(0, quantity - available);
@@ -782,12 +740,13 @@ const ViewOrderStatus: React.FC = () => {
         };
         const result = await checkOrderAvailability(orderData);
         setAvailabilityInfo(result.availability_results || result);
-      } catch {
+      } catch (error) {
+        console.error("Error fetching availability info:", error);
         setAvailabilityInfo([]);
       }
     };
     fetchAvailability();
-  }, [newOrder.products]);
+  }, [newOrder.products, finishedProducts]);
   
   return (
     <div className="space-y-6 order-status-main-container">
@@ -1133,7 +1092,7 @@ const ViewOrderStatus: React.FC = () => {
                   </SelectTrigger>
                   <SelectContent>
                     {products.map((product) => (
-                      <SelectItem key={product.product_id} value={String(product.product_id)}>{product.product_name}</SelectItem>
+                      <SelectItem key={product.id} value={String(product.id)}>{product.name}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -1152,12 +1111,11 @@ const ViewOrderStatus: React.FC = () => {
                 <ProductAvailabilityInfo
                   productId={selectedProduct}
                   quantity={productQuantity}
-                  finishedProducts={finishedProducts}
                 />
               )}
               <div className="flex items-end">
                 <Button 
-                  ref={addButtonRef}
+                  
                   onClick={handleAddProduct}
                   className="bg-factory-primary hover:bg-factory-primary/90 w-full"
                 >

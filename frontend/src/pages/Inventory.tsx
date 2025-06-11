@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { useFactory } from '../context/FactoryContext';
 import { formatCurrency, formatDate } from '../utils/calculations';
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -15,10 +14,10 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { rawMaterialService, CreateRawMaterialDTO } from '../services/rawMaterial.service';
 import { useToast } from '@/components/ui/use-toast';
 import { useQuery as useProductsQuery } from '@tanstack/react-query';
-import { productService } from '../services/productService';
+import { productService, ProductApiResponse } from '../services/productService';
+import { finishedProductService, FinishedProductAPI } from '../services/finishedProduct.service';
 
 const Inventory: React.FC = () => {
-  const { finishedProducts, addFinishedProduct, updateFinishedProduct, setFinishedProducts, deleteFinishedProduct,  } = useFactory();
   const { toast } = useToast();
   const queryClient = useQueryClient();
   
@@ -53,11 +52,11 @@ const Inventory: React.FC = () => {
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
 
   // Add state for edit, delete, and dispatch dialogs
-  const [editProduct, setEditProduct] = useState<null | typeof finishedProducts[0]>(null);
+  const [editProduct, setEditProduct] = useState<null | FinishedProductAPI>(null);
   const [isEditProductDialogOpen, setIsEditProductDialogOpen] = useState(false);
-  const [deleteProductId, setDeleteProductId] = useState<string | null>(null);
+  const [deleteProductId, setDeleteProductId] = useState<number | null>(null);
   const [isDeleteProductDialogOpen, setIsDeleteProductDialogOpen] = useState(false);
-  const [dispatchProduct, setDispatchProduct] = useState<null | typeof finishedProducts[0]>(null);
+  const [dispatchProduct, setDispatchProduct] = useState<null | FinishedProductAPI>(null);
   const [isDispatchDialogOpen, setIsDispatchDialogOpen] = useState(false);
   const [dispatchQuantity, setDispatchQuantity] = useState(1);
 
@@ -76,11 +75,19 @@ const Inventory: React.FC = () => {
   });
   
   // Fetch backend products
-  const { data: backendProducts = [] } = useProductsQuery({
+  const { data: backendProductsResponse } = useProductsQuery<ProductApiResponse>({
     queryKey: ['backendProducts'],
     queryFn: productService.getAllProducts
   });
-  
+
+  const backendProducts = backendProductsResponse?.data || [];
+
+  // Fetch finished products
+  const { data: finishedProducts = [], isLoading: isLoadingFinishedProducts } = useQuery({
+    queryKey: ['finishedProducts'],
+    queryFn: finishedProductService.getAll
+  });
+
   // Create raw material mutation
   const createRawMaterialMutation = useMutation({
     mutationFn: rawMaterialService.createRawMaterial,
@@ -146,8 +153,8 @@ const Inventory: React.FC = () => {
   );
   
   const filteredFinishedProducts = finishedProducts.filter(product => 
-    product.name.toLowerCase().includes(searchFinishedProduct.toLowerCase()) ||
-    product.category.toLowerCase().includes(searchFinishedProduct.toLowerCase())
+    (product.product_name?.toLowerCase() || '').includes(searchFinishedProduct.toLowerCase()) ||
+    (product.category?.toLowerCase() || '').includes(searchFinishedProduct.toLowerCase())
   );
   
   // Paginated data
@@ -162,7 +169,7 @@ const Inventory: React.FC = () => {
   );
   
   const totalFinishedProductValue = finishedProducts.reduce(
-    (total, product) => total + (product.quantity * product.price), 0
+    (total, product) => total + ((product.quantity_available || 0) * (product.unit_price || 0)), 0
   );
   
   // Form handlers
@@ -172,20 +179,90 @@ const Inventory: React.FC = () => {
   
   const handleAddFinishedProduct = async () => {
     if (!selectedBackendProductId) return;
-    await addFinishedProduct({
-      ...newProduct,
-      productId: selectedBackendProductId
+    
+    const selectedProduct = backendProducts.find(p => p.product_id === selectedBackendProductId);
+    if (!selectedProduct) return;
+
+    await createFinishedProductMutation.mutate({
+      product_id: selectedBackendProductId,
+      quantity_available: newProduct.quantity,
+      unit_price: newProduct.price,
+      product_name: selectedProduct.product_name,
+      product_code: selectedProduct.product_code,
+      category: selectedProduct.category
     });
-    setIsProductDialogOpen(false);
-    setNewProduct({
-      name: '',
-      category: '',
-      quantity: 0,
-      price: 0
-    });
-    setSelectedBackendProductId(null);
   };
   
+  // Create finished product mutation
+  const createFinishedProductMutation = useMutation({
+    mutationFn: (data: Partial<FinishedProductAPI>) => finishedProductService.create(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['finishedProducts'] });
+      setIsProductDialogOpen(false);
+      setNewProduct({
+        name: '',
+        category: '',
+        quantity: 0,
+        price: 0
+      });
+      setSelectedBackendProductId(null);
+      toast({
+        title: 'Success',
+        description: 'Finished product added successfully'
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: 'Error',
+        description: error.response?.data?.message || 'Failed to add finished product',
+        variant: 'destructive'
+      });
+    }
+  });
+
+  // Update finished product mutation
+  const updateFinishedProductMutation = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: Partial<FinishedProductAPI> }) => 
+      finishedProductService.update(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['finishedProducts'] });
+      setIsEditProductDialogOpen(false);
+      setEditProduct(null);
+      toast({
+        title: 'Success',
+        description: 'Finished product updated successfully'
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: 'Error',
+        description: error.response?.data?.message || 'Failed to update finished product',
+        variant: 'destructive'
+      });
+    }
+  });
+
+  // Delete finished product mutation
+  const deleteFinishedProductMutation = useMutation({
+    mutationFn: (id: number) => finishedProductService.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['finishedProducts'] });
+      setIsDeleteProductDialogOpen(false);
+      setDeleteProductId(null);
+      toast({
+        title: 'Success',
+        description: 'Finished product deleted successfully'
+      });
+    },
+    onError: (error: any) => {
+      toast({
+        title: 'Error',
+        description: error.response?.data?.message || 'Failed to delete finished product',
+        variant: 'destructive'
+      });
+    }
+  });
+
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-bold text-factory-gray-900">Inventory Management</h1>
@@ -352,32 +429,25 @@ const Inventory: React.FC = () => {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
+                      
                       {paginatedFinishedProducts.map((product) => (
-                        <TableRow key={product.id}>
+                        <TableRow key={product.finished_product_id}>
                           <TableCell className="font-medium">{product.name}</TableCell>
                           <TableCell>{product.category}</TableCell>
-                          <TableCell>{product.quantity.toLocaleString()}</TableCell>
-                          <TableCell>{formatCurrency(product.price)}</TableCell>
+                          <TableCell>{product.quantity_available.toLocaleString()}</TableCell>
+                          <TableCell>{formatCurrency(product.unit_price || 0)}</TableCell>
                           <TableCell className="text-right">
-                            {formatCurrency(product.quantity * product.price)}
+                            {formatCurrency((product.quantity_available || 0) * (product.unit_price || 0))}
                           </TableCell>
-                          <TableCell className="text-right">{formatDate(product.lastUpdated)}</TableCell>
+                          <TableCell className="text-right">{formatDate(product.added_on || '')}</TableCell>
                           <TableCell className="text-right">
-                            <Button size="sm" variant="outline" onClick={async () => {
-                              if (product.id && !isNaN(Number(product.id))) {
-                                setEditProduct(product);
-                                setIsEditProductDialogOpen(true);
-                              } else {
-                                toast({ title: 'Error', description: 'Invalid product ID for editing', variant: 'destructive' });
-                              }
+                            <Button size="sm" variant="outline" onClick={() => {
+                              setEditProduct(product);
+                              setIsEditProductDialogOpen(true);
                             }}>Edit</Button>
-                            <Button size="sm" variant="destructive" className="ml-2" onClick={async () => {
-                              if (product.id && !isNaN(Number(product.id))) {
-                                setDeleteProductId(product.id);
-                                setIsDeleteProductDialogOpen(true);
-                              } else {
-                                toast({ title: 'Error', description: 'Invalid product ID for deletion', variant: 'destructive' });
-                              }
+                            <Button size="sm" variant="destructive" className="ml-2" onClick={() => {
+                              setDeleteProductId(product.finished_product_id);
+                              setIsDeleteProductDialogOpen(true);
                             }}>Delete</Button>
                           </TableCell>
                         </TableRow>
@@ -668,33 +738,46 @@ const Inventory: React.FC = () => {
           {editProduct && (
             <div className="grid gap-4 py-4">
               <div className="space-y-2">
-                <Label htmlFor="edit-product-name">Product Name</Label>
-                <Input id="edit-product-name" value={editProduct.name} onChange={e => setEditProduct({ ...editProduct, name: e.target.value })} />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="edit-product-category">Category</Label>
-                <Input id="edit-product-category" value={editProduct.category} onChange={e => setEditProduct({ ...editProduct, category: e.target.value })} />
-              </div>
-              <div className="space-y-2">
                 <Label htmlFor="edit-product-quantity">Quantity</Label>
-                <Input id="edit-product-quantity" type="number" min="0" value={editProduct.quantity} onChange={e => setEditProduct({ ...editProduct, quantity: parseInt(e.target.value) || 0 })} />
+                <Input
+                  id="edit-product-quantity"
+                  type="number"
+                  min="0"
+                  value={editProduct.quantity_available}
+                  onChange={e => setEditProduct({ ...editProduct, quantity_available: parseInt(e.target.value) || 0 })}
+                />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="edit-product-price">Unit Price</Label>
-                <Input id="edit-product-price" type="number" min="0" step="0.01" value={editProduct.price} onChange={e => setEditProduct({ ...editProduct, price: parseFloat(e.target.value) || 0 })} />
+                <Input
+                  id="edit-product-price"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={editProduct.unit_price || 0}
+                  onChange={e => setEditProduct({ ...editProduct, unit_price: parseFloat(e.target.value) || 0 })}
+                />
               </div>
             </div>
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsEditProductDialogOpen(false)}>Cancel</Button>
-            <Button onClick={async () => {
-              if (editProduct && editProduct.id && !isNaN(Number(editProduct.id))) {
-                await updateFinishedProduct(editProduct.id, editProduct);
-                setIsEditProductDialogOpen(false);
-              } else {
-                toast({ title: 'Error', description: 'Invalid product ID for editing', variant: 'destructive' });
-              }
-            }} className="bg-factory-primary hover:bg-factory-primary/90">Save Changes</Button>
+            <Button
+              className="bg-factory-primary hover:bg-factory-primary/90"
+              onClick={() => {
+                if (editProduct) {
+                  updateFinishedProductMutation.mutate({
+                    id: editProduct.finished_product_id,
+                    data: {
+                      quantity_available: editProduct.quantity_available,
+                      unit_price: editProduct.unit_price
+                    }
+                  });
+                }
+              }}
+            >
+              Save Changes
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -708,14 +791,16 @@ const Inventory: React.FC = () => {
           <div>Are you sure you want to delete this finished product?</div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsDeleteProductDialogOpen(false)}>Cancel</Button>
-            <Button variant="destructive" onClick={async () => {
-              if (deleteProductId && !isNaN(Number(deleteProductId))) {
-                await deleteFinishedProduct(deleteProductId);
-                setIsDeleteProductDialogOpen(false);
-              } else {
-                toast({ title: 'Error', description: 'Invalid product ID for deletion', variant: 'destructive' });
-              }
-            }}>Delete</Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                if (deleteProductId) {
+                  deleteFinishedProductMutation.mutate(deleteProductId);
+                }
+              }}
+            >
+              Delete
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

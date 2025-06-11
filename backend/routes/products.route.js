@@ -36,4 +36,9 @@ router.get('/raw-materials/low-stock', productController.getLowStockMaterials);
 router.post('/raw-materials', productController.createRawMaterial);
 router.patch('/raw-materials/:materialId/stock', productController.updateMaterialStock);
 
+// Product Materials routes
+router.post('/:id/materials', productController.addMaterialToProduct);
+router.put('/:id/materials/:materialId', productController.updateProductMaterial);
+router.delete('/:id/materials/:materialId', productController.deleteProductMaterial);
+
 export default router;

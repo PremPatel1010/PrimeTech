@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useToast } from '@/components/ui/use-toast';
 import { ManufacturingBatch, WorkflowStatus, SubComponentStatus } from '../services/manufacturingApi';
 import { manufacturingApi } from '../services/manufacturingApi';
+import { finishedProductService } from '../services/finishedProduct.service';
 import { WorkflowProgress } from '../components/manufacturing/WorkflowProgress';
 import { ManufacturingSteps } from '../components/manufacturing/ManufacturingSteps';
 import { MaterialRequirements } from '../components/manufacturing/MaterialRequirements';
@@ -180,6 +181,59 @@ export const ManufacturingDashboard = () => {
             : w
         ),
       };
+
+      // Check if this was the last step and it's being completed
+      if (status === 'completed') {
+        const isLastStep = updatedOrder.workflows.every(w => 
+          w.step_id.toString() === stepId || w.status === 'completed'
+        );
+
+        if (isLastStep) {
+          try {
+            // Get all products to find the one with matching product code
+            const productResponse = await ProductService.getAllProducts();
+            if (!productResponse.success || !productResponse.data) {
+              throw new Error('Failed to get product details');
+            }
+            const product = productResponse.data.find(p => p.productCode === selectedOrder.product_code);
+            if (!product) {
+              throw new Error('Product not found');
+            }
+
+            // Get all finished products to find the matching one
+            const allFinishedProducts = await finishedProductService.getAll();
+            const existingProduct = allFinishedProducts.find(p => p.product_id === parseInt(product.id));
+
+            if (existingProduct) {
+              // Update existing product quantity
+              await finishedProductService.dispatch(existingProduct.finished_product_id, selectedOrder.quantity);
+              toast({
+                title: 'Success',
+                description: `Added ${selectedOrder.quantity} units to finished product inventory`,
+              });
+            } else {
+              // Create new finished product entry
+              await finishedProductService.create({
+                product_id: parseInt(product.id),
+                quantity_available: selectedOrder.quantity,
+                status: 'available'
+              });
+              toast({
+                title: 'Success',
+                description: 'Created new finished product inventory entry',
+              });
+            }
+          } catch (err) {
+            console.error('Error updating finished product inventory:', err);
+            toast({
+              title: 'Error',
+              description: 'Failed to update finished product inventory',
+              variant: 'destructive',
+            });
+          }
+        }
+      }
+
       setSelectedOrder(updatedOrder);
       setBatches(prev => prev.map(b => b.batch_id === selectedOrder.batch_id ? updatedOrder : b));
 
@@ -188,6 +242,7 @@ export const ManufacturingDashboard = () => {
         description: 'Workflow status updated successfully',
       });
     } catch (err) {
+      console.error('Error updating workflow:', err);
       toast({
         title: 'Error',
         description: 'Failed to update workflow status',

@@ -17,6 +17,7 @@ export interface Product {
   updatedAt: string;
   subComponents: SubComponent[];
   manufacturingSteps: ManufacturingStep[];
+  materials: ComponentMaterial[];
 }
 
 export interface SubComponent {
@@ -208,6 +209,43 @@ export class ProductService {
     return response.data;
   }
   
+  // Product Materials
+  static async addMaterialToProduct(
+    productId: string,
+    materialData: Partial<ComponentMaterial>
+  ): Promise<ApiResponse<ComponentMaterial>> {
+    const response = await axiosInstance.post(
+      `/products/${productId}/materials`,
+      materialData
+    );
+    toast.success('Material added to product successfully');
+    return response.data;
+  }
+
+  static async updateProductMaterial(
+    productId: string,
+    materialId: string,
+    materialData: Partial<ComponentMaterial>
+  ): Promise<ApiResponse<ComponentMaterial>> {
+    const response = await axiosInstance.put(
+      `/products/${productId}/materials/${materialId}`,
+      materialData
+    );
+    toast.success('Product material updated successfully');
+    return response.data;
+  }
+
+  static async deleteProductMaterial(
+    productId: string,
+    materialId: string
+  ): Promise<ApiResponse<void>> {
+    const response = await axiosInstance.delete(
+      `/products/${productId}/materials/${materialId}`
+    );
+    toast.success('Product material deleted successfully');
+    return response.data;
+  }
+
   // BOM and Analysis
   static async getProductBOM(productId: string, quantity: number = 1): Promise<ApiResponse<BOMItem[]>> {
     const response = await axiosInstance.get(`/products/${productId}/bom?quantity=${quantity}`);

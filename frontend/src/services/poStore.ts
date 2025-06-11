@@ -80,10 +80,12 @@ interface POStore {
   addGRN: (poId: string, grn: Omit<GRN, 'id' | 'materials'>, materials: Omit<GRNMaterial, 'id' | 'materialName' | 'unit'>[]) => Promise<void>;
   addReplacementGRN: (poId: string, grnData: any) => Promise<void>;
   updateGRNMaterialQC: (poId: string, grnId: string, materialId: string, qcData: { acceptedQty: number; defectiveQty: number; qcRemarks?: string }) => Promise<void>;
-  getPendingQuantities: (poId: string) => Promise<Record<string, number>>;
+  getPendingQuantities: (poId: string) => Promise<Record<string, any>>;
   getPurchaseOrder: (poId: string) => Promise<PurchaseOrder>;
   updatePurchaseOrder: (id: string, data: Partial<PurchaseOrder>) => Promise<PurchaseOrder>;
   deletePurchaseOrder: (id: string) => Promise<void>;
+  checkAndCompletePOAndAddInventory: (poId: string) => Promise<void>;
+  addAcceptedMaterialsToInventory: (poId: string) => Promise<void>;
 }
 
 export const usePOStore = create<POStore>((set, get) => ({
@@ -215,14 +217,13 @@ export const usePOStore = create<POStore>((set, get) => ({
 
   getPendingQuantities: async (poId) => {
     try {
-      return await poApi.getPendingQuantities(poId);
-      
+      const pendingQuantities = await poApi.getPendingQuantities(poId);
+      return pendingQuantities; // Ensure this returns the correct structure
     } catch (error) {
       console.error('Error getting pending quantities:', error);
       throw error;
     }
   },
-
 
   getPurchaseOrder: async (poId) => {
     try {
@@ -248,25 +249,95 @@ export const usePOStore = create<POStore>((set, get) => ({
         purchaseOrders: state.purchaseOrders.map((po) =>
           po.id === id ? { ...po, ...updatedPO } : po
         ),
+        isLoading: false,
       }));
-      
+
       return updatedPO;
+
     } catch (error) {
+      set({ error: 'Failed to update purchase order', isLoading: false });
       console.error('Error updating purchase order:', error);
       throw error;
     }
   },
 
   deletePurchaseOrder: async (id: string) => {
+    set({ isLoading: true, error: null });
     try {
-      await axiosInstance.delete(`/purchase-orders/${id}`);
-      
+      await poApi.deletePurchaseOrder(id);
       set((state) => ({
         purchaseOrders: state.purchaseOrders.filter((po) => po.id !== id),
+        isLoading: false,
       }));
     } catch (error) {
+      set({ error: 'Failed to delete purchase order', isLoading: false });
       console.error('Error deleting purchase order:', error);
       throw error;
     }
-  }
+  },
+
+  checkAndCompletePOAndAddInventory: async (poId: string) => {
+    set({ isLoading: true, error: null });
+    try {
+      const po = await get().getPurchaseOrder(poId);
+      if (!po) {
+        console.warn(`PO with ID ${poId} not found.`);
+        set({ isLoading: false });
+        return;
+      }
+
+      // 1. Check if all GRNs have completed QC for all their materials
+      const allGRNsQCCompleted = po.grns.every(grn =>
+        grn.materials.every(material => material.qcStatus === 'completed')
+      );
+
+      // 2. Check if there are no pending replacements
+      const pendingQuantities = await get().getPendingQuantities(poId);
+      const hasPendingReplacements = Object.values(pendingQuantities).some((item: any) => item.status === "needs_replacement" && item.qtyToReplace > 0);
+
+      if (allGRNsQCCompleted && !hasPendingReplacements) {
+        // 3. Update PO status to 'completed'
+        await get().updatePOStatus(poId, 'completed');
+        console.log(`PO ${po.poNumber} status updated to completed.`);
+
+        // 4. Add accepted quantities to raw material inventory
+        await get().addAcceptedMaterialsToInventory(poId);
+      } else {
+        console.log(`PO ${po.poNumber} not yet complete: All GRNs QC completed: ${allGRNsQCCompleted}, Has pending replacements: ${hasPendingReplacements}`);
+      }
+      set({ isLoading: false });
+    } catch (error) {
+      set({ error: 'Failed to check and complete PO', isLoading: false });
+      console.error('Error in checkAndCompletePOAndAddInventory:', error);
+    }
+  },
+
+  addAcceptedMaterialsToInventory: async (poId: string) => {
+    set({ isLoading: true, error: null });
+    try {
+      const po = await get().getPurchaseOrder(poId);
+      if (!po) {
+        console.warn(`PO with ID ${poId} not found for inventory update.`);
+        set({ isLoading: false });
+        return;
+      }
+
+      let totalMaterialsAdded = 0;
+      po.grns.forEach(grn => {
+        grn.materials.forEach(material => {
+          if (material.qcStatus === 'completed' && material.acceptedQty && material.acceptedQty > 0) {
+            // Simulate adding to inventory
+            console.log(`Adding ${material.acceptedQty} ${material.unit} of ${material.materialName} (Material ID: ${material.materialId}) to raw material inventory for PO ${po.poNumber}`);
+            // Here you would typically call an inventory API
+            totalMaterialsAdded += material.acceptedQty;
+          }
+        });
+      });
+      console.log(`Total accepted materials simulated to be added to inventory for PO ${po.poNumber}: ${totalMaterialsAdded}`);
+      set({ isLoading: false });
+    } catch (error) {
+      set({ error: 'Failed to add materials to inventory', isLoading: false });
+      console.error('Error in addAcceptedMaterialsToInventory:', error);
+    }
+  },
 }));

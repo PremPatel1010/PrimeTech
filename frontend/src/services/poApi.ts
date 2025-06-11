@@ -9,6 +9,7 @@ const transformPurchaseOrder = (data: any): PurchaseOrder => ({
     poNumber: data.po_number ?? '',
     date: data.date ?? '',
     supplier: data.supplier_name ?? '',
+    supplierId: data.supplier_id ? parseInt(data.supplier_id) : 0,
     status: data.status ?? '',
     gstPercent: data.gst_percent !== undefined ? parseFloat(data.gst_percent) : 0,
     discountPercent: data.discount_percent !== undefined ? parseFloat(data.discount_percent) : 0,
@@ -149,5 +150,9 @@ export const poApi = {
         const response = await axiosInstance.get(`${API_BASE_URL}/${poId}/pending-quantities`);
         console.log("pending quantities", response.data);
         return response.data;
+    },
+
+    async deletePurchaseOrder(id: string) {
+        await axiosInstance.delete(`${API_BASE_URL}/${id}`);
     }
 }; 

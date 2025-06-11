@@ -26,7 +26,7 @@ interface QCItemData extends Omit<GRNMaterial, 'id' | 'qcStatus'> {
 }
 
 export const QCModal = ({ po, grn, isOpen, onClose, onSuccess }: QCModalProps) => {
-  const { updateGRNMaterialQC } = usePOStore();
+  const { updateGRNMaterialQC, checkAndCompletePOAndAddInventory } = usePOStore();
   const [qcData, setQcData] = useState<QCItemData[]>(
     grn.materials.map((material: GRNMaterial) => ({
       materialId: material.materialId,
@@ -86,6 +86,10 @@ export const QCModal = ({ po, grn, isOpen, onClose, onSuccess }: QCModalProps) =
         title: 'Success',
         description: 'QC status updated successfully'
       });
+      
+      // After updating QC, check if the entire PO can be marked as complete and update inventory
+      await checkAndCompletePOAndAddInventory(po.id);
+
       onClose();
       onSuccess();
     } catch (error: any) {

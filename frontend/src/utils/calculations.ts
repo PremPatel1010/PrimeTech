@@ -33,7 +33,7 @@ export const calculateTotalSales = (orders: SalesOrder[] | undefined | null, sta
 export const formatCurrency = (amount: number): string => {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
-    currency: 'USD',
+    currency: 'INR',
     minimumFractionDigits: 2,
   }).format(amount);
 };

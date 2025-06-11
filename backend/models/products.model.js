@@ -83,7 +83,27 @@ class Product {
                 AND ms.step_type = 'product'
             ),
             '[]'::json
-          ) AS manufacturing_steps
+          ) AS manufacturing_steps,
+          COALESCE(
+            (
+              SELECT 
+                json_agg(
+                  jsonb_build_object(
+                    'materialId', pm.material_id,
+                    'materialName', rm.material_name,
+                    'quantityRequired', pm.quantity_required,
+                    'unit', rm.unit
+                  ) ORDER BY pm.material_id ASC
+                )
+              FROM 
+                product.product_materials pm
+              LEFT JOIN 
+                inventory.raw_materials rm ON pm.material_id = rm.material_id
+              WHERE 
+                pm.product_id = p.id
+            ),
+            '[]'::json
+          ) AS materials
         FROM
           product.products p
         GROUP BY
@@ -106,6 +126,7 @@ class Product {
         finalAssemblyTime: row.final_assembly_time,
         subComponents: row.sub_components,
         manufacturingSteps: row.manufacturing_steps,
+        materials: row.materials,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
       }));
@@ -117,7 +138,7 @@ class Product {
   static async findById(id) {
     try {
       const products = await this.findAll();
-      return products.find((p) => p.id === id);
+      return products.find((p) => p.id === parseInt(id));
     } catch (error) {
       throw error;
     }
@@ -164,6 +185,22 @@ class Product {
               step.description,
               step.estimatedTime,
               step.sequence,
+            ]
+          );
+        }
+      }
+
+      // Insert direct product materials if provided
+      if (productData.materials && productData.materials.length > 0) {
+        for (const material of productData.materials) {
+          await client.query(
+            `INSERT INTO product.product_materials (product_id, material_id, quantity_required, unit)
+             VALUES ($1, $2, $3, $4)`,
+            [
+              product.id,
+              parseInt(material.materialId),
+              material.quantityRequired,
+              material.unit,
             ]
           );
         }
@@ -306,7 +343,7 @@ class Product {
         subComponentData.description,
         subComponentData.estimatedTime,
         productId,
-        subComponentId,
+        parseInt(subComponentId),
       ]);
 
       if (result.rows.length === 0) {
@@ -323,7 +360,6 @@ class Product {
     }
   }
 
-
   static async deleteSubComponent(productId, subComponentId) {
     const client = await pool.connect();
 
@@ -336,7 +372,7 @@ class Product {
         RETURNING *
       `;
 
-      const result = await client.query(deleteQuery, [productId, subComponentId]);
+      const result = await client.query(deleteQuery, [productId, parseInt(subComponentId)]);
 
       if (result.rows.length === 0) {
         throw new Error("Sub-component not found");
@@ -367,8 +403,8 @@ class Product {
       `;
 
       await client.query(query, [
-        subComponentId,
-        materialData.materialId,
+        parseInt(subComponentId),
+        parseInt(materialData.materialId),
         materialData.quantityRequired,
         materialData.unit,
       ]);
@@ -398,8 +434,8 @@ class Product {
       await client.query(updateQuery, [
         materialData.quantityRequired,
         materialData.unit,
-        subComponentId,
-        materialId,
+        parseInt(subComponentId),
+        parseInt(materialId),
       ]);
 
       await client.query("COMMIT");
@@ -423,7 +459,7 @@ class Product {
         WHERE sub_component_id = $1 AND material_id = $2
       `;
 
-      await client.query(deleteQuery, [subComponentId, materialId]);
+      await client.query(deleteQuery, [parseInt(subComponentId), parseInt(materialId)]);
 
       await client.query("COMMIT");
       return await this.findById(productId);
@@ -484,7 +520,7 @@ class Product {
         stepData.estimatedTime,
         stepData.sequence,
         productId,
-        stepId
+        parseInt(stepId)
       ]);
 
       if (result.rows.length === 0) {
@@ -513,7 +549,7 @@ class Product {
         RETURNING *
       `;
 
-      const result = await client.query(query, [productId, stepId]);
+      const result = await pool.query(query, [productId, parseInt(stepId)]);
 
       if (result.rows.length === 0) {
         throw new Error("Manufacturing step not found");
@@ -543,7 +579,7 @@ class Product {
 
       await client.query(query, [
         productId,
-        subComponentId,
+        parseInt(subComponentId),
         stepData.name,
         stepData.description,
         stepData.estimatedTime,
@@ -579,8 +615,8 @@ class Product {
         stepData.estimatedTime,
         stepData.sequence,
         productId,
-        subComponentId,
-        stepId
+        parseInt(subComponentId),
+        parseInt(stepId)
       ]);
 
       if (result.rows.length === 0) {
@@ -609,11 +645,92 @@ class Product {
         RETURNING *
       `;
 
-      const result = await client.query(query, [productId, subComponentId, stepId]);
+      const result = await pool.query(query, [productId, parseInt(subComponentId), parseInt(stepId)]);
 
       if (result.rows.length === 0) {
         throw new Error("Manufacturing step not found");
       }
+
+      await client.query("COMMIT");
+      return await this.findById(productId);
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  static async addMaterialToProduct(productId, materialData) {
+    const client = await pool.connect();
+
+    try {
+      await client.query("BEGIN");
+
+      const query = `
+        INSERT INTO product.product_materials (product_id, material_id, quantity_required, unit)
+        VALUES ($1, $2, $3, $4)
+        RETURNING *
+      `;
+
+      await client.query(query, [
+        productId,
+        parseInt(materialData.materialId),
+        materialData.quantityRequired,
+        materialData.unit,
+      ]);
+
+      await client.query("COMMIT");
+      return await this.findById(productId);
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  static async updateProductMaterial(productId, materialId, materialData) {
+    const client = await pool.connect();
+
+    try {
+      await client.query("BEGIN");
+
+      const updateQuery = `
+        UPDATE product.product_materials
+        SET quantity_required = $1, unit = $2
+        WHERE product_id = $3 AND material_id = $4
+      `;
+
+      await client.query(updateQuery, [
+        materialData.quantityRequired,
+        materialData.unit,
+        productId,
+        parseInt(materialId),
+      ]);
+
+      await client.query("COMMIT");
+      return await this.findById(productId);
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  static async deleteProductMaterial(productId, materialId) {
+    const client = await pool.connect();
+
+    try {
+      await client.query("BEGIN");
+
+      const deleteQuery = `
+        DELETE FROM product.product_materials
+        WHERE product_id = $1 AND material_id = $2
+      `;
+
+      await client.query(deleteQuery, [productId, parseInt(materialId)]);
 
       await client.query("COMMIT");
       return await this.findById(productId);

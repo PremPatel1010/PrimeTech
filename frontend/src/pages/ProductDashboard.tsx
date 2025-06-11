@@ -26,6 +26,7 @@ interface Product {
   manufacturingSteps: ManufacturingStep[];
   createdAt: string;
   updatedAt: string;
+  materials: ComponentMaterial[];
 }
 
 interface SubComponent {
@@ -83,7 +84,7 @@ const [lowStockMaterials, setLowStockMaterials] = useState<RawMaterial[]>([]);
   const [showManufacturingStepForm, setShowManufacturingStepForm] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [editingSubComponent, setEditingSubComponent] = useState<{ productId: string; subComponent: SubComponent | null }>({ productId: '', subComponent: null });
-  const [editingMaterial, setEditingMaterial] = useState<{ productId: string; subComponentId: string; material: ComponentMaterial | null }>({ productId: '', subComponentId: '', material: null });
+  const [editingMaterial, setEditingMaterial] = useState<{ productId: string; subComponentId?: string; material: ComponentMaterial | null }>({ productId: '', subComponentId: undefined, material: null });
   const [editingManufacturingStep, setEditingManufacturingStep] = useState<{
     productId: string;
     subComponentId?: string;
@@ -197,7 +198,7 @@ const [lowStockMaterials, setLowStockMaterials] = useState<RawMaterial[]>([]);
       quantityRequired: 0,
       unit: ''
     });
-    setEditingMaterial({ productId: '', subComponentId: '', material: null });
+    setEditingMaterial({ productId: '', subComponentId: undefined, material: null });
   };
 
   const resetManufacturingStepForm = () => {
@@ -304,17 +305,21 @@ const [lowStockMaterials, setLowStockMaterials] = useState<RawMaterial[]>([]);
     }
   };
 
-  const handleCreateMaterial = (productId: string, subComponentId: string) => {
+  const handleCreateMaterial = (productId: string, subComponentId?: string) => {
     resetMaterialForm();
     setEditingMaterial({ productId, subComponentId, material: null });
     setShowMaterialForm(true);
   };
 
-  const handleEditMaterial = (productId: string, subComponentId: string, material: ComponentMaterial) => {
+  const handleEditMaterial = (
+    productId: string,
+    subComponentId: string | undefined,
+    material: ComponentMaterial
+  ) => {
     setMaterialForm({
       materialId: material.materialId,
       quantityRequired: material.quantityRequired,
-      unit: material.unit
+      unit: material.unit,
     });
     setEditingMaterial({ productId, subComponentId, material });
     setShowMaterialForm(true);
@@ -329,19 +334,36 @@ const [lowStockMaterials, setLowStockMaterials] = useState<RawMaterial[]>([]);
         unit: selectedMaterial?.unit || materialForm.unit
       };
 
-      if (editingMaterial.material) {
-        await ProductService.updateMaterial(
-          editingMaterial.productId,
-          editingMaterial.subComponentId,
-          editingMaterial.material.materialId,
-          materialData
-        );
+      if (editingMaterial.subComponentId) {
+        // Sub-component material
+        if (editingMaterial.material) {
+          await ProductService.updateMaterial(
+            editingMaterial.productId,
+            editingMaterial.subComponentId,
+            editingMaterial.material.materialId,
+            materialData
+          );
+        } else {
+          await ProductService.addMaterialToSubComponent(
+            editingMaterial.productId,
+            editingMaterial.subComponentId as string,
+            materialData
+          );
+        }
       } else {
-        await ProductService.addMaterialToSubComponent(
-          editingMaterial.productId,
-          editingMaterial.subComponentId,
-          materialData
-        );
+        // Direct product material
+        if (editingMaterial.material) {
+          await ProductService.updateProductMaterial(
+            editingMaterial.productId,
+            editingMaterial.material.materialId,
+            materialData
+          );
+        } else {
+          await ProductService.addMaterialToProduct(
+            editingMaterial.productId,
+            materialData
+          );
+        }
       }
       setShowMaterialForm(false);
       resetMaterialForm();
@@ -351,10 +373,20 @@ const [lowStockMaterials, setLowStockMaterials] = useState<RawMaterial[]>([]);
     }
   };
 
-  const handleDeleteMaterial = async (productId: string, subComponentId: string, materialId: string) => {
+  const handleDeleteMaterial = async (
+    productId: string,
+    subComponentId: string | undefined,
+    materialId: string
+  ) => {
     if (window.confirm('Are you sure you want to remove this material?')) {
       try {
-        await ProductService.deleteMaterial(productId, subComponentId, materialId);
+        if (subComponentId) {
+          // Delete sub-component material
+          await ProductService.deleteMaterial(productId, subComponentId as string, materialId);
+        } else {
+          // Delete direct product material
+          await ProductService.deleteProductMaterial(productId, materialId);
+        }
         loadProducts();
       } catch (error) {
         console.error('Error deleting material:', error);
@@ -530,6 +562,68 @@ const [lowStockMaterials, setLowStockMaterials] = useState<RawMaterial[]>([]);
     </div>
   );
 
+  const ProductDirectMaterials = ({ product }: { product: Product }) => (
+    <div className="mt-6">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-3 space-y-2 sm:space-y-0">
+        <h4 className="font-semibold text-lg flex items-center">
+          <Package className="h-5 w-5 mr-2 text-gray-700" />
+          Raw Materials
+        </h4>
+        <Button
+          variant="outline"
+          onClick={() => handleCreateMaterial(product.id)}
+        >
+          <Plus className="h-4 w-4 mr-2" />
+          Add Material
+        </Button>
+      </div>
+
+      {product.materials.length === 0 ? (
+        <div className="text-center py-8 bg-white border-2 border-dashed border-gray-200 rounded-lg">
+          <Package className="h-12 w-12 mx-auto mb-4 text-gray-400" />
+          <p className="text-gray-500">No raw materials defined</p>
+        </div>
+      ) : (
+        <div className="bg-white border rounded-lg overflow-x-auto">
+          <div className="grid grid-cols-4 gap-4 p-3 bg-gray-50 text-xs font-medium text-gray-600 border-b min-w-[500px]">
+            <span>Material</span>
+            <span>Quantity</span>
+            <span>Unit</span>
+            <span>Actions</span>
+          </div>
+          {product.materials.map((material, idx) => (
+            <div key={idx} className="grid grid-cols-4 gap-4 p-3 border-b last:border-b-0 hover:bg-gray-50 min-w-[500px]">
+              <div className="flex items-center space-x-2">
+                <span className="text-sm">{material.materialName}</span>
+                {isLowStock(material.materialId) && (
+                  <AlertTriangle className="h-3 w-3 text-orange-500" aria-label="Low stock" />
+                )}
+              </div>
+              <span className="text-sm font-medium">{material.quantityRequired}</span>
+              <span className="text-sm text-gray-600">{material.unit}</span>
+              <div className="flex justify-end items-center space-x-1">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => handleEditMaterial(product.id, undefined, material)}
+                >
+                  <Edit className="h-3 w-3" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => handleDeleteMaterial(product.id, undefined, material.materialId)}
+                >
+                  <Trash2 className="h-3 w-3 text-red-500" />
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+
   const ManufacturingStepsList = ({ steps, productId, subComponentId }: { 
     steps: ManufacturingStep[]; 
     productId: string;
@@ -676,6 +770,8 @@ const [lowStockMaterials, setLowStockMaterials] = useState<RawMaterial[]>([]);
                       </div>
                     )}
 
+                    <ProductDirectMaterials product={product} />
+
                     <div className="space-y-4">
                       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between space-y-3 sm:space-y-0">
                         <h4 className="font-semibold text-lg">Sub-Components</h4>
@@ -725,11 +821,6 @@ const [lowStockMaterials, setLowStockMaterials] = useState<RawMaterial[]>([]);
                             </CardHeader>
                             <CardContent className="p-4 sm:p-6">
                               <BillOfMaterials subComponent={subComponent} productId={product.id} />
-                              <ManufacturingStepsList 
-                                steps={subComponent.manufacturingSteps} 
-                                productId={product.id} 
-                                subComponentId={subComponent.id} 
-                              />
                             </CardContent>
                           </Card>
                         ))

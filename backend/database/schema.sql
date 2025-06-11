@@ -56,7 +56,7 @@ CREATE TABLE inventory.raw_materials (
 
 CREATE TABLE inventory.finished_products (
     finished_product_id SERIAL PRIMARY KEY,
-    product_id INTEGER NOT NULL REFERENCES products.product(product_id) ON DELETE CASCADE,
+    product_id INTEGER NOT NULL REFERENCES product.products(id) ON DELETE CASCADE,
     quantity_available INTEGER NOT NULL DEFAULT 0,
     unit_price DECIMAL(10,2) DEFAULT 0,
     -- total_price DECIMAL(12,2) GENERATED ALWAYS AS (quantity_available * unit_price) STORED,
@@ -224,6 +224,16 @@ CREATE TABLE product.component_materials (
     created_at TIMESTAMP DEFAULT NOW()
 );
 
+-- Product Materials junction table (for direct materials on products)
+CREATE TABLE product.product_materials (
+    id SERIAL PRIMARY KEY,
+    product_id INTEGER REFERENCES product.products(id) ON DELETE CASCADE,
+    material_id INTEGER REFERENCES inventory.raw_materials(material_id) ON DELETE CASCADE,
+    quantity_required DECIMAL(10,3) NOT NULL,
+    unit VARCHAR(50) NOT NULL,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
 -- Manufacturing Batches table
 CREATE TABLE product.manufacturing_batches (
     id SERIAL PRIMARY KEY,
@@ -275,6 +285,8 @@ CREATE INDEX idx_products_category ON product.products(category);
 CREATE INDEX idx_sub_components_product ON product.sub_components(product_id);
 CREATE INDEX idx_component_materials_sub_component ON product.component_materials(sub_component_id);
 CREATE INDEX idx_component_materials_material ON product.component_materials(material_id);
+CREATE INDEX idx_product_materials_product ON product.product_materials(product_id);
+CREATE INDEX idx_product_materials_material ON product.product_materials(material_id);
 CREATE INDEX idx_manufacturing_steps_product ON product.manufacturing_steps(product_id);
 CREATE INDEX idx_manufacturing_steps_sub_component ON product.manufacturing_steps(sub_component_id);
 CREATE INDEX idx_batches_product ON product.manufacturing_batches(product_id);

@@ -14,6 +14,7 @@ export interface Product {
   created_at?: string;
   bom_items?: BOMItem[];
   manufacturing_steps?: string[];
+  category?: string;
 }
 
 export interface BOMItem {
@@ -34,11 +35,17 @@ export interface ManufacturingStage {
   sequence: number;
 }
 
+export interface ProductApiResponse {
+  success: boolean;
+  message: string;
+  data: Product[];
+}
+
 const PRODUCT_URL = '/products';
 const STAGE_URL = '/manufacturing-stages';
 
 export const productService = {
-  getAllProducts: async (): Promise<Product[]> => {
+  getAllProducts: async (): Promise<ProductApiResponse> => {
     const res = await axiosInstance.get(PRODUCT_URL);
     return res.data;
   },
