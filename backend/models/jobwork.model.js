@@ -1,4 +1,5 @@
 import pool from '../db/db.js';
+import SubComponent from './subComponent.model.js';
 
 class JobworkVendor {
   static async getAllVendors() {
@@ -255,6 +256,19 @@ class JobworkReceipt {
     try {
       await client.query('BEGIN');
 
+      // Get the jobwork order details
+      const orderResult = await client.query(`
+        SELECT * FROM jobwork.jobwork_orders
+        WHERE order_id = $1
+      `, [orderId]);
+
+      if (orderResult.rows.length === 0) {
+        throw new Error('Jobwork order not found');
+      }
+
+      const order = orderResult.rows[0];
+      console.log(`Jobwork order details for receipt creation: ${JSON.stringify(order)}`);
+
       // Create receipt
       const receiptResult = await client.query(`
         INSERT INTO jobwork.jobwork_receipts 
@@ -265,6 +279,8 @@ class JobworkReceipt {
       `, [orderId, receiptDate, finalItemName, quantityReceived, 
           quantityLoss, remarks, documentUrl, createdBy]);
 
+      console.log(`Receipt created: ${JSON.stringify(receiptResult.rows[0])}`);
+
       // Update order quantities and status
       await client.query(`
         UPDATE jobwork.jobwork_orders
@@ -274,6 +290,45 @@ class JobworkReceipt {
             updated_by = $3
         WHERE order_id = $4
       `, [quantityReceived, quantityLoss, createdBy, orderId]);
+
+      console.log(`Jobwork order status updated to completed for order ID: ${orderId}`);
+
+      // Add completed items to inventory
+      // First check if the component exists in inventory
+      console.log(`Attempting to find sub-component with code: ${order.component}`);
+      let subComponent = await SubComponent.getByCode(order.component);
+      
+      if (!subComponent) {
+        console.log(`Sub-component with code ${order.component} not found. Creating a new one.`);
+        // Create new sub-component if it doesn't exist
+        subComponent = await SubComponent.create({
+          component_code: order.component,
+          component_name: order.expected_return_item,
+          description: `Component created from jobwork order ${order.jobwork_number}`,
+          category: 'jobwork',
+          unit: 'pcs',
+          current_stock: 0,
+          minimum_stock: 0,
+          unit_price: 0, // You might want to calculate this based on jobwork costs
+          created_by: createdBy
+        });
+        console.log(`New sub-component created: ${JSON.stringify(subComponent)}`);
+      } else {
+        console.log(`Sub-component found: ${JSON.stringify(subComponent)}`);
+      }
+
+      // Add the received quantity to inventory
+      console.log(`Attempting to update stock for sub-component ID ${subComponent.sub_component_id} by quantity: ${quantityReceived}`);
+      const updatedSubComponent = await SubComponent.updateStock(
+        subComponent.sub_component_id,
+        quantityReceived,
+        'in',
+        'jobwork',
+        orderId,
+        `Added from jobwork order ${order.jobwork_number}`,
+        createdBy
+      );
+      console.log(`Sub-component stock updated: ${JSON.stringify(updatedSubComponent)}`);
 
       await client.query('COMMIT');
       return receiptResult.rows[0];

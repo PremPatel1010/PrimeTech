@@ -4,6 +4,7 @@ import ManufacturingStage from './manufacturing.model.js';
 import FinishedProduct from './finishedProduct.model.js';
 import Product from './products.model.js';
 import RawMaterial from './rawMaterial.model.js';
+import ManufacturingBatch from './manufacturing.model.js';
 
 class SalesOrder {
   static async getAllSalesOrders() {
@@ -84,6 +85,12 @@ class SalesOrder {
 
       const salesOrderId = orderResult.rows[0].sales_order_id;
 
+      // Commit the sales order first
+      await client.query('COMMIT');
+
+      // Start a new transaction for items and manufacturing
+      await client.query('BEGIN');
+
       // Create order items and handle inventory/manufacturing
       for (const item of orderData.items) {
         // Verify product exists before proceeding
@@ -125,7 +132,7 @@ class SalesOrder {
             if (qtyToDeduct <= 0) break;
             const deductQty = Math.min(inv.quantity_available, qtyToDeduct);
             if (deductQty > 0) {
-              await FinishedProduct.updateQuantity(inv.finished_product_id, -deductQty);
+              await FinishedProduct.updateQuantity(inv.finished_product_id, -deductQty, client);
               qtyToDeduct -= deductQty;
             }
           }
@@ -157,24 +164,14 @@ class SalesOrder {
           `, [salesOrderId, item.product_category, item.product_id, toManufacture, item.unit_price, false]);
           const orderItemId = orderItemResult.rows[0].item_id;
 
-          // Get stages for this product (from product_stages)
-          const stagesResult = await client.query(`
-            SELECT product_stage_id as stage_id, stage_name, sequence
-            FROM manufacturing.product_stages
-            WHERE product_id = $1
-            ORDER BY sequence
-          `, [item.product_id]);
-
-          if (stagesResult.rows.length === 0) {
-            throw new Error(`No manufacturing stages found for product ID: ${item.product_id}`);
-          }
-
-          // Create manufacturing progress with first stage
-          await client.query(`
-            INSERT INTO manufacturing.product_manufacturing 
-            (sales_order_id, sales_order_item_id, product_id, current_stage_id, quantity_in_process, status)
-            VALUES ($1, $2, $3, $4, $5, 'in_progress')
-          `, [salesOrderId, orderItemId, item.product_id, stagesResult.rows[0].stage_id, toManufacture]);
+          // Create manufacturing batch for the quantity to be manufactured
+          await ManufacturingBatch.create({
+            product_id: item.product_id,
+            sales_order_id: salesOrderId,
+            quantity: toManufacture,
+            notes: `Auto-created for Sales Order ${orderData.order_number || salesOrderId} - Product ${item.product_id}`,
+            created_by: orderData.createdBy,
+          });
         }
       }
 
@@ -331,16 +328,18 @@ class SalesOrder {
 
       // If status is being changed to completed, handle inventory deduction
       if (status === 'completed' && currentOrder.status !== 'completed') {
-        // Get all order items for this order
+        // Get all order items for this order that were not fulfilled from inventory
         const orderItems = await client.query(`
           SELECT 
             soi.product_id,
-            soi.quantity
+            soi.quantity,
+            soi.fulfilled_from_inventory
           FROM sales.sales_order_items soi
           WHERE soi.sales_order_id = $1
+          AND soi.fulfilled_from_inventory = false
         `, [id]);
 
-        // Deduct inventory for each item
+        // Deduct inventory for each item that was manufactured
         for (const item of orderItems.rows) {
           // Find all inventory rows for this product
           const inventoryRows = await FinishedProduct.getProductInventory(item.product_id);
@@ -349,7 +348,7 @@ class SalesOrder {
             if (qtyToDeduct <= 0) break;
             const deductQty = Math.min(inv.quantity_available, qtyToDeduct);
             if (deductQty > 0) {
-              await FinishedProduct.updateQuantity(inv.finished_product_id, -deductQty);
+              await FinishedProduct.updateQuantity(inv.finished_product_id, -deductQty, client);
               qtyToDeduct -= deductQty;
             }
           }

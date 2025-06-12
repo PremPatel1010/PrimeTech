@@ -93,6 +93,7 @@ export const createSalesOrder = async (req, res) => {
 
     // Always generate a unique order number
     const order_number = await SalesOrder.getNextOrderNumber();
+    const createdBy = req.user.userId;
 
     const salesOrderData = {
       order_number,
@@ -101,7 +102,8 @@ export const createSalesOrder = async (req, res) => {
       discount,
       gst,
       total_amount,
-      items
+      items,
+      createdBy
     };
 
     const salesOrder = await SalesOrder.createSalesOrder(salesOrderData);

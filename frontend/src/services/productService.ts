@@ -2,8 +2,8 @@ import axiosInstance from '../utils/axios';
 
 
 export interface Product {
-  product_id: number;
-  product_name: string;
+  id: number;
+  name: string;
   product_code: string;
   discharge_range?: string;
   head_range?: string;

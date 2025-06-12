@@ -5,7 +5,7 @@ CREATE SCHEMA IF NOT EXISTS manufacturing;
 CREATE TABLE IF NOT EXISTS manufacturing.manufacturing_batches (
     batch_id SERIAL PRIMARY KEY,
     product_id INTEGER NOT NULL REFERENCES product.products(id),
-    sales_order_id INTEGER REFERENCES sales.sales_orders(sales_order_id),
+    sales_order_id INTEGER REFERENCES sales.sales_order(sales_order_id),
     batch_number VARCHAR(20) NOT NULL UNIQUE,
     quantity INTEGER NOT NULL CHECK (quantity > 0),
     status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'in_progress', 'completed', 'cancelled')),

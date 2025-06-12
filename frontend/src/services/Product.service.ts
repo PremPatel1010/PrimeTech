@@ -18,6 +18,7 @@ export interface Product {
   subComponents: SubComponent[];
   manufacturingSteps: ManufacturingStep[];
   materials: ComponentMaterial[];
+  price?: number;
 }
 
 export interface SubComponent {

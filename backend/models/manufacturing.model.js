@@ -1,4 +1,7 @@
 import pool from "../db/db.js";
+import Product from './products.model.js';
+import RawMaterial from './rawMaterial.model.js';
+import FinishedProduct from './finishedProduct.model.js';
 
 class ManufacturingBatch {
   static async findAll() {
@@ -240,8 +243,8 @@ class ManufacturingBatch {
         batchData.sales_order_id,
         batchNumber,
         batchData.quantity,
-        batchData.notes,
-        batchData.created_by
+        batchData.notes || 'Automatically created from sales order',
+        batchData.created_by , // Default to admin user ID for now
       ]);
 
       const batchId = batchResult.rows[0].batch_id;
@@ -424,11 +427,100 @@ class ManufacturingBatch {
         const allCompleted = allStepsResult.rows.every(step => step.status === 'completed');
 
         if (allCompleted) {
+          // Get batch details including quantity
+          const batchQuery = `
+            SELECT mb.quantity, mb.product_id
+            FROM manufacturing.manufacturing_batches mb
+            WHERE mb.batch_id = $1;
+          `;
+          const batchResult = await client.query(batchQuery, [batchId]);
+          const batch = batchResult.rows[0];
+
+          // Get product details to access BOM
+          const productDetails = await Product.findById(batch.product_id);
+          if (!productDetails) {
+            throw new Error(`Product with ID ${batch.product_id} not found`);
+          }
+
+          const allProductMaterials = {}; // Use an object to sum quantities for the same material
+
+          // Add direct product materials
+          if (productDetails.materials) {
+            for (const mat of productDetails.materials) {
+              const materialId = mat.materialId;
+              if (allProductMaterials[materialId]) {
+                allProductMaterials[materialId].quantity_required += mat.quantityRequired;
+              } else {
+                allProductMaterials[materialId] = { material_id: materialId, quantity_required: mat.quantityRequired };
+              }
+            }
+          }
+
+          // Add sub-component materials
+          if (productDetails.subComponents) {
+            for (const subComp of productDetails.subComponents) {
+              if (subComp.materials) {
+                for (const mat of subComp.materials) {
+                  const materialId = mat.materialId;
+                  if (allProductMaterials[materialId]) {
+                    allProductMaterials[materialId].quantity_required += mat.quantityRequired;
+                  } else {
+                    allProductMaterials[materialId] = { material_id: materialId, quantity_required: mat.quantityRequired };
+                  }
+                }
+              }
+            }
+          }
+          
+          // Deduct materials from inventory
+          for (const materialId in allProductMaterials) {
+            const bomItem = allProductMaterials[materialId];
+            const quantityToDeduct = bomItem.quantity_required * batch.quantity;
+            
+            // Update raw material inventory
+            const updateInventoryQuery = `
+              UPDATE inventory.raw_materials
+              SET 
+                current_stock = current_stock - $1,
+                updated_at = $2
+              WHERE material_id = $3
+              RETURNING current_stock;
+            `;
+            
+            const inventoryResult = await client.query(updateInventoryQuery, [
+              quantityToDeduct,
+              now,
+              bomItem.material_id
+            ]);
+
+            // Check if we have enough stock
+            if (inventoryResult.rows[0].current_stock < 0) {
+              throw new Error(`Insufficient raw material stock for material ID ${bomItem.material_id}`);
+            }
+          }
+
+          // Update batch status to completed
           await client.query(`
             UPDATE manufacturing.manufacturing_batches
-            SET status = 'completed', updated_by = $1
-            WHERE batch_id = $2;
-          `, [userId, batchId]);
+            SET status = 'completed', updated_by = $1, updated_at = $2
+            WHERE batch_id = $3;
+          `, [userId, now, batchId]);
+
+          // Add to finished products inventory
+          const existingFinishedProducts = await FinishedProduct.getProductInventory(batch.product_id);
+          
+          if (existingFinishedProducts && existingFinishedProducts.length > 0) {
+            // If product exists, update its quantity
+            await FinishedProduct.updateQuantity(existingFinishedProducts[0].finished_product_id, batch.quantity);
+          } else {
+            // If product does not exist, create a new entry
+            await FinishedProduct.createFinishedProduct({
+              product_id: batch.product_id,
+              quantity_available: batch.quantity,
+              // Add other necessary fields with default or derived values if required by your schema
+              // For example: storage_location: 'Default Warehouse', status: 'available', unit_price: 0
+            });
+          }
         }
       }
 

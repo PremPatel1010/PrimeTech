@@ -129,6 +129,7 @@ class Product {
         materials: row.materials,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
+        price: parseFloat(row.price),
       }));
     } catch (error) {
       throw error;
@@ -151,8 +152,8 @@ class Product {
       await client.query("BEGIN");
 
       const productQuery = `
-        INSERT INTO product.products (name, product_code, description, rating_range, discharge_range, head_range, category, version, final_assembly_time)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        INSERT INTO product.products (name, product_code, description, rating_range, discharge_range, head_range, category, version, final_assembly_time, price)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
         RETURNING *
       `;
 
@@ -166,6 +167,7 @@ class Product {
         productData.category,
         productData.version,
         productData.finalAssemblyTime,
+        productData.price || 0,
       ]);
 
       const product = productResult.rows[0];
@@ -222,34 +224,81 @@ class Product {
     try {
       await client.query("BEGIN");
 
+      let updateFields = [];
+      let values = [];
+      let paramCount = 1;
+
+      if (productData.name !== undefined) {
+        updateFields.push(`name = $${paramCount}`);
+        values.push(productData.name);
+        paramCount++;
+      }
+      if (productData.productCode !== undefined) {
+        updateFields.push(`product_code = $${paramCount}`);
+        values.push(productData.productCode);
+        paramCount++;
+      }
+      if (productData.description !== undefined) {
+        updateFields.push(`description = $${paramCount}`);
+        values.push(productData.description);
+        paramCount++;
+      }
+      if (productData.ratingRange !== undefined) {
+        updateFields.push(`rating_range = $${paramCount}`);
+        values.push(productData.ratingRange);
+        paramCount++;
+      }
+      if (productData.dischargeRange !== undefined) {
+        updateFields.push(`discharge_range = $${paramCount}`);
+        values.push(productData.dischargeRange);
+        paramCount++;
+      }
+      if (productData.headRange !== undefined) {
+        updateFields.push(`head_range = $${paramCount}`);
+        values.push(productData.head_range);
+        paramCount++;
+      }
+      if (productData.category !== undefined) {
+        updateFields.push(`category = $${paramCount}`);
+        values.push(productData.category);
+        paramCount++;
+      }
+      if (productData.version !== undefined) {
+        updateFields.push(`version = $${paramCount}`);
+        values.push(productData.version);
+        paramCount++;
+      }
+      if (productData.finalAssemblyTime !== undefined) {
+        updateFields.push(`final_assembly_time = $${paramCount}`);
+        values.push(productData.finalAssemblyTime);
+        paramCount++;
+      }
+      if (productData.price !== undefined) {
+        updateFields.push(`price = $${paramCount}`);
+        values.push(productData.price);
+        paramCount++;
+      }
+
+      if (updateFields.length === 0) {
+        throw new Error("No fields to update");
+      }
+
+      values.push(id);
+
       const updateQuery = `
-        UPDATE product.products 
-        SET name = $1, product_code = $2, description = $3, rating_range = $4, 
-            discharge_range = $5, head_range = $6, category = $7, version = $8, 
-            final_assembly_time = $9, updated_at = NOW()
-        WHERE id = $10
+        UPDATE product.products
+        SET ${updateFields.join(", ")}
+        WHERE id = $${paramCount}
         RETURNING *
       `;
 
-      const result = await client.query(updateQuery, [
-        productData.name,
-        productData.productCode,
-        productData.description,
-        productData.ratingRange,
-        productData.dischargeRange,
-        productData.headRange,
-        productData.category,
-        productData.version,
-        productData.finalAssemblyTime,
-        id,
-      ]);
+      const result = await client.query(updateQuery, values);
 
       if (result.rows.length === 0) {
-        throw new Error("Product not found");
+        throw new Error(`Product with ID ${id} not found`);
       }
-
       await client.query("COMMIT");
-      return await this.findById(id);
+      return result.rows[0];
     } catch (error) {
       await client.query("ROLLBACK");
       throw error;

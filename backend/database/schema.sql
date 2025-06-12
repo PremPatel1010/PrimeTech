@@ -178,16 +178,17 @@ CREATE TABLE purchase.grn_materials (
 CREATE TABLE product.products (
     id SERIAL PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
-    product_code VARCHAR(100) UNIQUE NOT NULL,
+    product_code VARCHAR(255) UNIQUE NOT NULL,
     description TEXT,
-    rating_range VARCHAR(100),
-    discharge_range VARCHAR(100),
-    head_range VARCHAR(100),
-    category VARCHAR(100),
-    version VARCHAR(50) DEFAULT '1.0',
-    final_assembly_time INTEGER DEFAULT 60, -- in minutes
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW()
+    rating_range VARCHAR(255),
+    discharge_range VARCHAR(255),
+    head_range VARCHAR(255),
+    category VARCHAR(255),
+    version VARCHAR(50),
+    final_assembly_time INT DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    price NUMERIC(10, 2) DEFAULT 0.00
 );
 
 -- Manufacturing Steps table
@@ -599,7 +600,7 @@ BEGIN
                 u.user_id,
                 'Low Finished Product Alert',
                 format('Finished product "%s" is running low. Current stock: %s units, Minimum required: %s units',
-                    p.product_name,
+                    p.name,
                     NEW.quantity_available,
                     NEW.minimum_stock
                 ),
@@ -607,9 +608,9 @@ BEGIN
                 NEW.finished_product_id,
                 'finished_product'
             FROM auth.users u
-            CROSS JOIN products.product p
+            CROSS JOIN product.products p
             WHERE u.role IN ('admin', 'manager')
-            AND p.product_id = NEW.product_id;
+            AND p.id = NEW.product_id;
         END IF;
     END IF;
 

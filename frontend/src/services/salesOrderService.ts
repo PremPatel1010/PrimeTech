@@ -2,7 +2,7 @@ import axiosInstance from '@/utils/axios';
 import { SalesOrder, OrderProduct } from '../types';
 import axios from 'axios';
 
-export const createSalesOrder = async (order: SalesOrder) => {
+export const createSalesOrder = async (order: Omit<SalesOrder, 'id'>) => {
   const payload = {
     order_number: order.orderNumber,
     order_date: order.date,

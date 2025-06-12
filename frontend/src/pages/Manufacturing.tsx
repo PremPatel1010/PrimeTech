@@ -241,11 +241,15 @@ export const ManufacturingDashboard = () => {
         title: 'Success',
         description: 'Workflow status updated successfully',
       });
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error updating workflow:', err);
+      let errorMessage = 'Failed to update workflow status';
+      if (err.response && err.response.data && err.response.data.error) {
+        errorMessage = err.response.data.error;
+      }
       toast({
         title: 'Error',
-        description: 'Failed to update workflow status',
+        description: errorMessage,
         variant: 'destructive',
       });
     }

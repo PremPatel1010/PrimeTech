@@ -120,7 +120,8 @@ class ManufacturingController {
       console.error('Error in ManufacturingController.updateWorkflowStatus:', error);
       if (error.message === 'Manufacturing batch not found' ||
           error.message === 'Manufacturing step not found in batch' ||
-          error.message.includes('Invalid status transition')) {
+          error.message.includes('Invalid status transition') ||
+          error.message.includes('Insufficient raw material stock')) {
         res.status(400).json({ error: error.message });
       } else {
         res.status(500).json({ 

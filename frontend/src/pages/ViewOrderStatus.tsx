@@ -45,12 +45,13 @@ import { Progress } from "@/components/ui/progress";
 import { fetchSalesOrders, updateSalesOrder, fetchNextOrderNumber, deleteSalesOrder, checkOrderAvailability, createSalesOrder } from '../services/salesOrderService';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { productService, Product, ProductApiResponse } from '../services/productService';
+import {  Product, ProductService } from '../services/Product.service';
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from '@/components/ui/accordion';
 import axiosInstance from '@/utils/axios';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { finishedProductService, FinishedProductAPI } from '../services/finishedProduct.service';
 import { manufacturingApi, ManufacturingBatch } from '../services/manufacturingApi';
+import { InventoryManagementModal } from "@/components/inventory/InventoryManagementModal";
 
 const ViewOrderStatus: React.FC = () => {
   const queryClient = useQueryClient();
@@ -62,7 +63,7 @@ const ViewOrderStatus: React.FC = () => {
   const [orders, setOrders] = useState<SalesOrder[]>([]);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [newOrder, setNewOrder] = useState<Partial<SalesOrder>>({
+  const [newOrder, setNewOrder] = useState<Omit<SalesOrder, 'id'>>({
     orderNumber: `SO-${new Date().getFullYear()}-001`,
     date: new Date().toISOString().split('T')[0],
     customerName: '',
@@ -89,6 +90,11 @@ const ViewOrderStatus: React.FC = () => {
   const [pendingSuggestedQty, setPendingSuggestedQty] = useState<number | null>(null);
   const addButtonRef = useRef<HTMLButtonElement>(null);
   const [availabilityInfo, setAvailabilityInfo] = useState<any[]>([]);
+  const [isInventoryModalOpen, setIsInventoryModalOpen] = useState(false);
+  const [selectedProductForInventory, setSelectedProductForInventory] = useState<{
+    product: any;
+    availability: any;
+  } | null>(null);
   
   // Fetch finished products
   const { data: finishedProducts = [], isLoading: isLoadingFinishedProducts } = useQuery<FinishedProductAPI[]>({
@@ -128,7 +134,7 @@ const ViewOrderStatus: React.FC = () => {
   }, []);
   
   useEffect(() => {
-    productService.getAllProducts().then(response => setProducts(response.data));
+    ProductService.getAllProducts().then(response => setProducts(response.data));
     console.log(products);
   }, []);
   
@@ -348,7 +354,6 @@ const ViewOrderStatus: React.FC = () => {
   };
   
   const handleAddProduct = async () => {
-   
     if (selectedProduct && productQuantity > 0) {
       const product = products.find(p => String(p.id) === selectedProduct);
       if (product) {
@@ -364,51 +369,12 @@ const ViewOrderStatus: React.FC = () => {
           const availabilityResult = await checkOrderAvailability(orderData);
           const result = availabilityResult.availability_results[0];
 
-          // Block only if neither stock nor manufacturing is possible, or not enough raw material for requested quantity
-          console.log(result)
-          if (!result.can_fulfill_from_stock && (!result.can_manufacture || result.max_manufacturable_quantity < productQuantity)) {
-            toast({
-              title: "Error",
-              description: "Cannot add product - insufficient stock and cannot manufacture requested quantity.",
-              variant: "destructive"
-            });
-            return;
-          }
-
-          // If we can't fulfill completely from stock, but can manufacture, add for manufacturing
-          if (!result.can_fulfill_from_stock && result.can_manufacture && result.max_manufacturable_quantity >= productQuantity) {
-            addProductToOrder({
-              productId: String(product.product_id),
-              productName: product.product_name,
-              productCategory: product.product_code || '',
-              quantity: productQuantity,
-              price: product.price || 0
-            });
-            return;
-          }
-
-          // If we can't fulfill completely, show custom dialog for partial fulfillment (if only partial can be manufactured)
-          if (!result.can_fulfill_from_stock && result.can_manufacture && result.max_manufacturable_quantity < productQuantity) {
-            setPendingProduct({
-              product,
-              productId: String(product.product_id),
-              productName: product.product_name,
-              productCategory: product.product_code || '',
-              price: product.price || 0
-            });
-            setPendingSuggestedQty(result.max_manufacturable_quantity);
-            setPartialDialogOpen(true);
-            return;
-          }
-
-          // Add product directly if fully fulfillable from stock
-          addProductToOrder({
-            productId: String(product.product_id),
-            productName: product.product_name,
-            productCategory: product.product_code || '',
-            quantity: productQuantity,
-            price: product.price || 0
+          // For all other cases, show inventory management modal
+          setSelectedProductForInventory({
+            product,
+            availability: result
           });
+          setIsInventoryModalOpen(true);
         } catch (error) {
           toast({
             title: "Error",
@@ -417,6 +383,43 @@ const ViewOrderStatus: React.FC = () => {
           });
         }
       }
+    }
+  };
+
+  const handleInventoryAction = async () => {
+    if (!selectedProductForInventory) return;
+
+    try {
+      // The `handleInventoryAction` should primarily be for user acknowledgement or to update local state
+      // about the fulfillment strategy, not for creating the sales order directly.
+      // The `createSalesOrder` backend call should be initiated by `handleCreateOrder` with the complete `newOrder`.
+      
+      // Close the modal after user interaction
+      setIsInventoryModalOpen(false);
+      
+      // Add the product to the order with the original quantity after confirmation
+      const { product } = selectedProductForInventory;
+      addProductToOrder({
+        productId: String(product.id),
+        productName: product.name,
+        productCategory: product.productCode || '',
+        quantity: productQuantity, // Use the original productQuantity from state
+        price: product.price || 0
+      });
+
+      toast({
+        title: 'Info',
+        description: 'Inventory action confirmed. Product added to order. Proceed with creating the sales order.',
+      });
+    } catch (error) {
+      console.error('Error handling inventory action:', error);
+      toast({
+        title: 'Error',
+        description: 'An error occurred during inventory action confirmation.',
+        variant: 'destructive',
+      });
+    } finally {
+      setSelectedProductForInventory(null); // Reset after processing
     }
   };
 
@@ -471,10 +474,8 @@ const ViewOrderStatus: React.FC = () => {
   const handleOpenCreateOrderDialog = async () => {
     setIsDialogOpen(true);
     // Only fetch if creating a new order
-    if (!newOrder.id) {
-      const nextOrderNumber = await fetchNextOrderNumber();
-      setNewOrder((prev) => ({ ...prev, orderNumber: nextOrderNumber }));
-    }
+    const nextOrderNumber = await fetchNextOrderNumber();
+    setNewOrder((prev) => ({ ...prev, orderNumber: nextOrderNumber }));
   };
 
   const handleCreateOrder = async () => {
@@ -500,48 +501,23 @@ const ViewOrderStatus: React.FC = () => {
         
         if (!availabilityResult.overall_status.can_fulfill_partially) {
           toast({
-            title: "Error",
-            description: "Cannot create order - insufficient stock and materials",
-            variant: "destructive"
+            title: "Warning",
+            description: "Order can only be partially fulfilled due to insufficient stock and materials.",
+            variant: "default"
           });
-          return;
         }
 
-        // If we can fulfill partially, show confirmation dialog
+        // If the order cannot be fulfilled completely, inform the user but do NOT modify the order quantity.
+        // The backend's createSalesOrder will handle the actual fulfillment logic.
         if (!availabilityResult.overall_status.can_fulfill_completely) {
-          const confirmed = window.confirm(
-            "This order can only be partially fulfilled. Would you like to proceed with the suggested quantities?"
-          );
-          
-          if (!confirmed) {
-            return;
-          }
-
-          // Update quantities based on suggestions
-          const updatedProducts = newOrder.products.map(p => {
-            const suggestion = availabilityResult.overall_status.suggested_quantities.find(
-              s => String(s.product_id) === p.productId
-            );
-            return {
-              ...p,
-              quantity: suggestion ? suggestion.suggested_quantity : p.quantity
-            };
+          toast({
+            title: "Order Partially Fulfilled",
+            description: "This order can only be partially fulfilled due to raw material constraints. The available quantity will be manufactured, and the order will continue.",
+            variant: "default" // You can use a custom variant here if desired
           });
-
-          // Recalculate total value
-          const totalValue = updatedProducts.reduce(
-            (total, p) => total + (p.quantity * (p.price || 0)),
-            0
-          );
-
-          setNewOrder(prev => ({
-            ...prev,
-            products: updatedProducts,
-            totalValue
-          }));
         }
 
-        // Create the order
+        // Create the order with the original requested quantities
         await createSalesOrder(newOrder as Omit<SalesOrder, 'id'>);
         setIsDialogOpen(false);
         resetNewOrder();
@@ -698,7 +674,7 @@ const ViewOrderStatus: React.FC = () => {
   
   const ProductAvailabilityInfo = ({ productId, quantity }) => {
     console.log(finishedProducts);
-    const productInventory = finishedProducts.find(p => String(p.id) === String(productId));
+    const productInventory = finishedProducts.find(p => String(p.product_id) === String(productId));
     const available = productInventory ? productInventory.quantity_available : 0;
     const ready = Math.min(quantity, available);
     const toManufacture = Math.max(0, quantity - available);
@@ -1161,7 +1137,7 @@ const ViewOrderStatus: React.FC = () => {
                 <h4 className="font-medium mb-2">Product Availability Breakdown</h4>
                 {availabilityInfo.map((info, idx) => (
                   <div key={info.product_id} className="border rounded-md p-3 mb-2">
-                    <div><b>Product:</b> {products.find(p => String(p.product_id) === String(info.product_id))?.product_name || info.product_id}</div>
+                    <div><b>Product:</b> {products.find(p => String(p.id) === String(info.product_id))?.name || info.product_id}</div>
                     <div><b>Ordered:</b> {info.requested_quantity}</div>
                     <div><b>Ready in Stock:</b> {info.available_in_stock}</div>
                     <div><b>To Manufacture:</b> {info.to_be_manufactured}</div>
@@ -1269,7 +1245,7 @@ const ViewOrderStatus: React.FC = () => {
                       </SelectTrigger>
                       <SelectContent>
                         {products.map((prod) => (
-                          <SelectItem key={prod.product_id} value={String(prod.product_id)}>{prod.product_name}</SelectItem>
+                          <SelectItem key={prod.id} value={String(prod.id)}>{prod.name}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
@@ -1375,6 +1351,21 @@ const ViewOrderStatus: React.FC = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {selectedProductForInventory && (
+        <InventoryManagementModal
+          isOpen={isInventoryModalOpen}
+          onClose={() => {
+            setIsInventoryModalOpen(false);
+            setSelectedProductForInventory(null);
+          }}
+          productId={String(selectedProductForInventory.product.id)}
+          productName={selectedProductForInventory.product.name}
+          requestedQuantity={productQuantity}
+          availableInStock={selectedProductForInventory.availability.available_in_stock}
+          maxManufacturableQuantity={selectedProductForInventory.availability.max_manufacturable_quantity}
+          onConfirm={handleInventoryAction}
+        />
+      )}
     </div>
   );
 };

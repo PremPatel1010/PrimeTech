@@ -124,10 +124,41 @@ export const updateOrder = async (req, res) => {
 export const updateOrderStatus = async (req, res) => {
   try {
     const { status } = req.body;
-    const order = await JobworkOrder.updateStatus(req.params.orderId, status, req.user.userId);
+    const orderId = req.params.orderId;
+    const userId = req.user.userId;
+
+    // Get the current order details before updating status
+    const currentOrder = await JobworkOrder.getOrderById(orderId);
+    if (!currentOrder) {
+      return res.status(404).json({ message: 'Order not found' });
+    }
+
+    const order = await JobworkOrder.updateStatus(orderId, status, userId);
+
     if (!order) {
       return res.status(404).json({ message: 'Order not found' });
     }
+
+    // If status is changed to completed and it wasn't completed before, create a receipt
+    if (status === 'completed' && currentOrder.status !== 'completed') {
+      try {
+        await JobworkReceipt.createReceipt({
+          orderId: order.order_id,
+          receiptDate: new Date().toISOString().split('T')[0], // Current date
+          finalItemName: order.expected_return_item, // Item expected to be returned
+          quantityReceived: order.quantity_sent, // Assuming quantity sent is quantity received upon completion
+          quantityLoss: 0, // Assuming no loss on completion, can be updated later if needed
+          remarks: `Auto-generated receipt for completed jobwork order ${order.jobwork_number}`,
+          documentUrl: '',
+          createdBy: userId
+        });
+      } catch (receiptError) {
+        console.error(`Error creating receipt for completed jobwork order ${order.jobwork_number}:`, receiptError);
+        // Optionally, you might want to revert the status or notify the user
+        // For now, we'll log the error and proceed without throwing to avoid blocking order status update
+      }
+    }
+
     res.json(order);
   } catch (error) {
     res.status(500).json({ message: 'Error updating order status', error: error.message });

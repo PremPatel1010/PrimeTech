@@ -157,12 +157,21 @@ class FinishedProduct {
     }
   }
 
-  static async updateQuantity(finishedProductId, quantityChange) {
-    const client = await pool.connect();
-    try {
-      await client.query('BEGIN');
+  static async updateQuantity(finishedProductId, quantityChange, client = null) {
+    let queryClient = client; // Use the provided client if available
+    let shouldReleaseClient = false; // Flag to indicate if we need to release the client
 
-      const result = await client.query(`
+    try {
+      if (!queryClient) {
+        queryClient = await pool.connect(); // Get a client from the pool
+        shouldReleaseClient = true; // Mark it for release
+        await queryClient.query('BEGIN'); // Start transaction if it's a new client
+      } else {
+        // If an external client is provided, assume it's already part of a transaction
+        // No need to call BEGIN/COMMIT/ROLLBACK here for the external client
+      }
+
+      const result = await queryClient.query(`
         UPDATE inventory.finished_products 
         SET quantity_available = quantity_available + $1
         WHERE finished_product_id = $2
@@ -174,13 +183,19 @@ class FinishedProduct {
         throw new Error('Insufficient quantity available');
       }
 
-      await client.query('COMMIT');
+      if (shouldReleaseClient) {
+        await queryClient.query('COMMIT'); // Commit transaction if it's a new client
+      }
       return result.rows[0];
     } catch (error) {
-      await client.query('ROLLBACK');
+      if (shouldReleaseClient) {
+        await queryClient.query('ROLLBACK'); // Rollback transaction if it's a new client
+      }
       throw error;
     } finally {
-      client.release();
+      if (shouldReleaseClient) {
+        queryClient.release(); // Release the client if we acquired it
+      }
     }
   }
 
