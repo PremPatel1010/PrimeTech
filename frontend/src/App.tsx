@@ -26,6 +26,11 @@ import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
 import { PurchaseOrderDashboard } from './components/po/PurchaseOrderDashboard';
 import  ProductDashboard  from './pages/ProductDashboard';
+import Jobwork from './pages/JobWork'
+import JobWorkTracking from './pages/JobWorkTracking';
+import CreateJobworkOrder from './pages/CreateJobworkOrder';
+import JobworkVendors from './pages/JobworkVendors';
+
 const queryClient = new QueryClient();
 
 const App: React.FC = () => {
@@ -62,6 +67,14 @@ const App: React.FC = () => {
                 <Route path="/products" element={<ProductDashboard />} />
 
                 <Route path="/purchase" element={<PurchaseOrderDashboard />} />
+                {/* Jobwork Routes */}
+                <Route path="/jobwork">
+                  <Route index element={<JobWorkTracking />} />
+                  <Route path="tracking" element={<JobWorkTracking />} />
+                  <Route path="create" element={<CreateJobworkOrder />} />
+                  <Route path="vendors" element={<JobworkVendors />} />
+                  <Route path=":jobworkNumber" element={<Jobwork />} />
+                </Route>
                 <Route path="/suppliers" element={<Suppliers />} />
                 {admin && <Route path="/users" element={<UserManagement />} />}
                 <Route path="/settings" element={<SettingsPage />} />

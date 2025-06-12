@@ -145,6 +145,12 @@ const Sidebar: React.FC = () => {
             text="Manufacturing" 
             isActive={currentPath === '/manufacturing'} 
           />
+          <NavItem
+            to='/jobwork'
+            icon={<Package size={20} />}
+            text="Jobwork"
+            isActive={currentPath === '/jobwork' || currentPath.startsWith('/jobwork/')}
+          />
           <NavItem 
             to="/reports" 
             icon={<BarChart size={20} />} 

@@ -11,7 +11,7 @@ import purchaseOrderRoutes from './routes/purchaseOrder.routes.js'
 import supplierRoutes from './routes/supplier.routes.js';
 import salesOrderRoutes from './routes/salesOrder.routes.js';
 import manufacturingRoutes from './routes/manufacturing.routes.js';
-
+import jobworkRoutes from './routes/jobwork.routes.js';
 import finishedProductRoutes from './routes/finishedProduct.routes.js';
 import revenueAnalysisRoutes from './routes/revenueAnalysis.routes.js';
 import notificationRoutes from './routes/notification.routes.js';
@@ -38,7 +38,7 @@ app.use('/api/purchase-orders', purchaseOrderRoutes);
 app.use('/api/suppliers', supplierRoutes);
 app.use('/api/sales-orders', salesOrderRoutes);
 app.use('/api/manufacturing', manufacturingRoutes);
-
+app.use('/api/jobwork', jobworkRoutes);
 app.use('/api/finished-products', finishedProductRoutes);
 app.use('/api/revenue-analysis', revenueAnalysisRoutes);
 app.use('/api/notifications', notificationRoutes);
