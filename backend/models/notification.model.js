@@ -2,74 +2,141 @@ import pool from '../db/db.js';
 
 class Notification {
   static async createNotification(notificationData) {
-    const { user_id, title, message, type, reference_id, reference_type } = notificationData;
-    
-    const result = await pool.query(
-      `INSERT INTO auth.notifications 
-       (user_id, title, message, type, reference_id, reference_type)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING *`,
-      [user_id, title, message, type, reference_id, reference_type]
-    );
-    
+    const {
+      user_id,
+      title,
+      message,
+      module,
+      type,
+      priority = 'normal',
+      status = 'unread'
+    } = notificationData;
+
+    const query = `
+      INSERT INTO auth.notifications 
+      (user_id, title, message, module, type, priority, status, created_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)
+      RETURNING *
+    `;
+
+    const values = [user_id, title, message, module, type, priority, status];
+    const result = await pool.query(query, values);
     return result.rows[0];
   }
 
-  static async getUserNotifications(userId, limit = 50, offset = 0) {
-    const result = await pool.query(
-      `SELECT * FROM auth.notifications 
-       WHERE user_id = $1 
-       ORDER BY created_at DESC 
-       LIMIT $2 OFFSET $3`,
-      [userId, limit, offset]
-    );
+  static async getUserNotifications(userId, filters = {}) {
+    const {
+      limit = 50,
+      offset = 0,
+      module,
+      type,
+      status,
+      priority,
+      startDate,
+      endDate
+    } = filters;
+
+    let query = `
+      SELECT * FROM auth.notifications 
+      WHERE user_id = $1
+    `;
+    const queryParams = [userId];
+    let paramCount = 1;
+
+    if (module) {
+      paramCount++;
+      query += ` AND module = $${paramCount}`;
+      queryParams.push(module);
+    }
+
+    if (type) {
+      paramCount++;
+      query += ` AND type = $${paramCount}`;
+      queryParams.push(type);
+    }
+
+    if (status) {
+      paramCount++;
+      query += ` AND status = $${paramCount}`;
+      queryParams.push(status);
+    }
+
+    if (priority) {
+      paramCount++;
+      query += ` AND priority = $${paramCount}`;
+      queryParams.push(priority);
+    }
+
+    if (startDate) {
+      paramCount++;
+      query += ` AND created_at >= $${paramCount}`;
+      queryParams.push(startDate);
+    }
+
+    if (endDate) {
+      paramCount++;
+      query += ` AND created_at <= $${paramCount}`;
+      queryParams.push(endDate);
+    }
+
+    query += ` ORDER BY 
+      CASE 
+        WHEN priority = 'high' THEN 1
+        WHEN priority = 'normal' THEN 2
+        WHEN priority = 'low' THEN 3
+      END,
+      created_at DESC 
+      LIMIT $${paramCount + 1} OFFSET $${paramCount + 2}`;
     
+    queryParams.push(limit, offset);
+
+    const result = await pool.query(query, queryParams);
     return result.rows;
   }
 
   static async getUnreadCount(userId) {
-    const result = await pool.query(
-      `SELECT COUNT(*) as count 
-       FROM auth.notifications 
-       WHERE user_id = $1 AND status = 'unread'`,
-      [userId]
-    );
+    const query = `
+      SELECT COUNT(*) as count
+      FROM auth.notifications
+      WHERE user_id = $1 AND status = 'unread'
+    `;
     
+    const result = await pool.query(query, [userId]);
     return parseInt(result.rows[0].count);
   }
 
   static async markAsRead(notificationId, userId) {
-    const result = await pool.query(
-      `UPDATE auth.notifications 
-       SET status = 'read', read_at = CURRENT_TIMESTAMP 
-       WHERE notification_id = $1 AND user_id = $2 
-       RETURNING *`,
-      [notificationId, userId]
-    );
+    const query = `
+      UPDATE auth.notifications 
+      SET status = 'read'
+      WHERE notification_id = $1 AND user_id = $2
+      RETURNING *
+    `;
     
+    const result = await pool.query(query, [notificationId, userId]);
     return result.rows[0];
   }
 
   static async markAllAsRead(userId) {
-    const result = await pool.query(
-      `UPDATE auth.notifications 
-       SET status = 'read', read_at = CURRENT_TIMESTAMP 
-       WHERE user_id = $1 AND status = 'unread' 
-       RETURNING *`,
-      [userId]
-    );
+    const query = `
+      UPDATE auth.notifications 
+      SET status = 'read'
+      WHERE user_id = $1 AND status = 'unread'
+      RETURNING *
+    `;
     
+    const result = await pool.query(query, [userId]);
     return result.rows;
   }
 
   static async deleteNotification(notificationId, userId) {
-    const result = await pool.query(
-      `DELETE FROM auth.notifications 
-       WHERE notification_id = $1 AND user_id = $2 
-       RETURNING *`,
-      [notificationId, userId]
-    );
+    const query = `
+      DELETE FROM auth.notifications 
+      WHERE notification_id = $1 AND user_id = $2
+      RETURNING *
+    `;
     
+    const result = await pool.query(query, [notificationId, userId]);
     return result.rows[0];
   }
 
@@ -207,6 +274,261 @@ class Notification {
         );
       }
     }
+  }
+
+  // New helper methods for specific notification types
+  static async createPurchaseOrderNotification(poId, poNumber, event, userId) {
+    const notifications = {
+      'created': {
+        title: 'New Purchase Order Created',
+        message: `Purchase Order ${poNumber} has been created.`,
+        type: 'purchase_order',
+        module: 'purchase',
+        priority: 'normal'
+      },
+      'updated': {
+        title: 'Purchase Order Updated',
+        message: `Purchase Order ${poNumber} has been updated.`,
+        type: 'purchase_order',
+        module: 'purchase',
+        priority: 'normal'
+      },
+      'approved': {
+        title: 'Purchase Order Approved',
+        message: `Purchase Order ${poNumber} has been approved.`,
+        type: 'purchase_order',
+        module: 'purchase',
+        priority: 'high'
+      },
+      'rejected': {
+        title: 'Purchase Order Rejected',
+        message: `Purchase Order ${poNumber} has been rejected.`,
+        type: 'purchase_order',
+        module: 'purchase',
+        priority: 'high'
+      }
+    };
+
+    if (notifications[event]) {
+      return await this.createNotification({
+        ...notifications[event],
+        reference_id: poId,
+        reference_type: 'purchase_order',
+        target_type: 'user',
+        target_id: userId,
+        link: `/purchase-orders/${poId}`
+      });
+    }
+  }
+
+  static async createGRNNotification(grnId, grnNumber, event, userId) {
+    const notifications = {
+      'created': {
+        title: 'New GRN Created',
+        message: `GRN ${grnNumber} has been created.`,
+        type: 'grn',
+        module: 'purchase',
+        priority: 'normal'
+      },
+      'approved': {
+        title: 'GRN Approved',
+        message: `GRN ${grnNumber} has been approved.`,
+        type: 'grn',
+        module: 'purchase',
+        priority: 'high'
+      },
+      'rejected': {
+        title: 'GRN Rejected',
+        message: `GRN ${grnNumber} has been rejected.`,
+        type: 'grn',
+        module: 'purchase',
+        priority: 'high'
+      }
+    };
+
+    if (notifications[event]) {
+      return await this.createNotification({
+        ...notifications[event],
+        reference_id: grnId,
+        reference_type: 'grn',
+        target_type: 'user',
+        target_id: userId,
+        link: `/grns/${grnId}`
+      });
+    }
+  }
+
+  static async createQCNotification(qcId, materialName, event, userId) {
+    const notifications = {
+      'failed': {
+        title: 'QC Failed',
+        message: `Quality check failed for ${materialName}.`,
+        type: 'qc',
+        module: 'purchase',
+        priority: 'high'
+      },
+      'passed': {
+        title: 'QC Passed',
+        message: `Quality check passed for ${materialName}.`,
+        type: 'qc',
+        module: 'purchase',
+        priority: 'normal'
+      }
+    };
+
+    if (notifications[event]) {
+      return await this.createNotification({
+        ...notifications[event],
+        reference_id: qcId,
+        reference_type: 'qc',
+        target_type: 'user',
+        target_id: userId,
+        link: `/qc/${qcId}`
+      });
+    }
+  }
+
+  static async createManufacturingNotification(batchId, batchNumber, event, userId) {
+    const notifications = {
+      'started': {
+        title: 'Manufacturing Batch Started',
+        message: `Manufacturing batch ${batchNumber} has started.`,
+        type: 'manufacturing',
+        module: 'manufacturing',
+        priority: 'normal'
+      },
+      'completed': {
+        title: 'Manufacturing Batch Completed',
+        message: `Manufacturing batch ${batchNumber} has been completed.`,
+        type: 'manufacturing',
+        module: 'manufacturing',
+        priority: 'high'
+      }
+    };
+
+    if (notifications[event]) {
+      return await this.createNotification({
+        ...notifications[event],
+        reference_id: batchId,
+        reference_type: 'manufacturing_batch',
+        target_type: 'user',
+        target_id: userId,
+        link: `/manufacturing/batches/${batchId}`
+      });
+    }
+  }
+
+  static async createUserManagementNotification(userId, username, event) {
+    const notifications = {
+      'created': {
+        title: 'New User Added',
+        message: `New user ${username} has been added to the system.`,
+        type: 'user_management',
+        module: 'admin',
+        priority: 'normal',
+        target_type: 'role',
+        target_id: 'admin'
+      },
+      'role_changed': {
+        title: 'User Role Changed',
+        message: `Role for user ${username} has been updated.`,
+        type: 'user_management',
+        module: 'admin',
+        priority: 'high',
+        target_type: 'role',
+        target_id: 'admin'
+      },
+      'permissions_updated': {
+        title: 'User Permissions Updated',
+        message: `Permissions for user ${username} have been updated.`,
+        type: 'user_management',
+        module: 'admin',
+        priority: 'high',
+        target_type: 'role',
+        target_id: 'admin'
+      }
+    };
+
+    if (notifications[event]) {
+      return await this.createNotification({
+        ...notifications[event],
+        reference_id: userId,
+        reference_type: 'user',
+        link: `/admin/users/${userId}`
+      });
+    }
+  }
+
+  // Helper method to prevent duplicate notifications
+  static async checkDuplicateNotification(userId, type, referenceId, timeWindow = 300) { // 5 minutes default
+    const result = await pool.query(
+      `SELECT COUNT(*) as count 
+       FROM auth.notifications 
+       WHERE user_id = $1 
+       AND type = $2 
+       AND reference_id = $3 
+       AND created_at > NOW() - INTERVAL '${timeWindow} seconds'`,
+      [userId, type, referenceId]
+    );
+    
+    return parseInt(result.rows[0].count) > 0;
+  }
+
+  static async getNotificationStats(userId) {
+    const stats = await pool.query(`
+      SELECT 
+        COUNT(*) as total,
+        COUNT(CASE WHEN status = 'unread' THEN 1 END) as unread,
+        COUNT(CASE WHEN priority = 'high' AND status = 'unread' THEN 1 END) as high_priority_unread,
+        COUNT(CASE WHEN module = 'purchase' AND status = 'unread' THEN 1 END) as purchase_unread,
+        COUNT(CASE WHEN module = 'sales' AND status = 'unread' THEN 1 END) as sales_unread,
+        COUNT(CASE WHEN module = 'manufacturing' AND status = 'unread' THEN 1 END) as manufacturing_unread,
+        COUNT(CASE WHEN module = 'inventory' AND status = 'unread' THEN 1 END) as inventory_unread,
+        COUNT(CASE WHEN module = 'admin' AND status = 'unread' THEN 1 END) as admin_unread,
+        COUNT(CASE WHEN created_at > NOW() - INTERVAL '24 hours' THEN 1 END) as last_24h,
+        COUNT(CASE WHEN created_at > NOW() - INTERVAL '7 days' THEN 1 END) as last_7d
+      FROM auth.notifications 
+      WHERE user_id = $1
+    `, [userId]);
+
+    return stats.rows[0];
+  }
+
+  static async getNotificationById(notificationId) {
+    const result = await pool.query(
+      'SELECT * FROM auth.notifications WHERE notification_id = $1',
+      [notificationId]
+    );
+    return result.rows[0];
+  }
+
+  static async getNotificationsByUserId(conditions, params, limit, offset) {
+    const query = `
+      SELECT 
+        notification_id,
+        user_id,
+        title,
+        message,
+        module,
+        type,
+        priority,
+        status,
+        created_at
+      FROM auth.notifications 
+      WHERE ${conditions}
+      ORDER BY 
+        CASE 
+          WHEN priority = 'high' AND status = 'unread' THEN 1
+          WHEN status = 'unread' THEN 2
+          ELSE 3
+        END,
+        created_at DESC
+      LIMIT $${params.length - 1}
+      OFFSET $${params.length}
+    `;
+
+    const result = await pool.query(query, params);
+    return result.rows;
   }
 }
 

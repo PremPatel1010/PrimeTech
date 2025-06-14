@@ -31,12 +31,12 @@ class KPIModel {
           AVG(
             CASE 
               WHEN status = 'completed' 
-              THEN EXTRACT(EPOCH FROM (stage_completion_dates->>'completed')::timestamp - start_date) / 86400
+              THEN EXTRACT(EPOCH FROM (updated_at)::timestamp - created_at) / 86400
               ELSE NULL 
             END
           ) as avg_completion_days
-        FROM manufacturing.product_manufacturing
-        WHERE updated_at >= NOW() - INTERVAL '30 days'
+        FROM manufacturing.manufacturing_batches
+        -- WHERE updated_at >= NOW() - INTERVAL '30 days'
       )
       SELECT 
         total_batches,
@@ -54,7 +54,7 @@ class KPIModel {
         status,
         COUNT(*) as count
       FROM sales.sales_order
-      WHERE created_at >= NOW() - INTERVAL '30 days'
+      -- WHERE created_at >= NOW() - INTERVAL '30 days'
       GROUP BY status
     `);
     return result.rows;
@@ -67,8 +67,8 @@ class KPIModel {
         SUM(total_amount) as total_revenue,
         COUNT(*) as order_count
       FROM sales.sales_order
-      WHERE status = 'delivered'
-        AND created_at >= $2
+      -- WHERE status = 'delivered'
+      WHERE created_at >= $2
         AND created_at <= $3
       GROUP BY DATE_TRUNC($1, created_at)
       ORDER BY period_start

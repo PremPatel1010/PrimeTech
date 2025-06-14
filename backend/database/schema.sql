@@ -38,7 +38,286 @@ CREATE TABLE auth.users (
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
+-- ========================
+-- RBAC TABLES
+-- ========================
 
+-- Roles table
+CREATE TABLE auth.roles (
+    role_id SERIAL PRIMARY KEY,
+    name VARCHAR(50) UNIQUE NOT NULL,
+    description TEXT,
+    is_system_role BOOLEAN DEFAULT false,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Permissions table
+CREATE TABLE auth.permissions (
+    permission_id SERIAL PRIMARY KEY,
+    name VARCHAR(100) UNIQUE NOT NULL,
+    description TEXT,
+    module VARCHAR(50) NOT NULL,
+    route_path VARCHAR(255) NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Role-Permission mapping
+CREATE TABLE auth.role_permissions (
+    role_id INTEGER REFERENCES auth.roles(role_id) ON DELETE CASCADE,
+    permission_id INTEGER REFERENCES auth.permissions(permission_id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (role_id, permission_id)
+);
+
+-- User-Role mapping
+CREATE TABLE auth.user_roles (
+    user_id INTEGER REFERENCES auth.users(user_id) ON DELETE CASCADE,
+    role_id INTEGER REFERENCES auth.roles(role_id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    created_by INTEGER REFERENCES auth.users(user_id),
+    PRIMARY KEY (user_id, role_id)
+);
+
+-- User-Permission overrides
+CREATE TABLE auth.user_permissions (
+    user_id INTEGER REFERENCES auth.users(user_id) ON DELETE CASCADE,
+    permission_id INTEGER REFERENCES auth.permissions(permission_id) ON DELETE CASCADE,
+    is_allowed BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    created_by INTEGER REFERENCES auth.users(user_id),
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_by INTEGER REFERENCES auth.users(user_id),
+    PRIMARY KEY (user_id, permission_id)
+);
+
+-- Insert default system roles
+INSERT INTO auth.roles (name, description, is_system_role) VALUES
+    ('admin', 'System Administrator with full access', true),
+    ('owner', 'Company Owner with full access', true),
+    ('sales_manager', 'Sales Department Manager', true),
+    ('purchase_manager', 'Purchase Department Manager', true),
+    ('inventory_manager', 'Inventory Department Manager', true),
+    ('manufacturing_manager', 'Manufacturing Department Manager', true),
+    ('department_manager', 'Generic Department Manager', true)
+ON CONFLICT (name) DO NOTHING;
+
+-- Insert default permissions
+INSERT INTO auth.permissions (name, description, module, route_path) VALUES
+    ('view_dashboard', 'View Dashboard', 'dashboard', '/dashboard'),
+    ('view_users', 'View Users List', 'users', '/users'),
+    ('create_user', 'Create New User', 'users', '/users/create'),
+    ('edit_user', 'Edit User Details', 'users', '/users/edit'),
+    ('delete_user', 'Delete User', 'users', '/users/delete'),
+    ('manage_roles', 'Manage User Roles', 'users', '/users/roles'),
+    ('view_sales', 'View Sales Module', 'sales', '/sales'),
+    ('view_sales_orders', 'View Sales Orders', 'sales', '/sales/orders'),
+    ('create_sales_order', 'Create Sales Order', 'sales', '/sales/orders/create'),
+    ('edit_sales_order', 'Edit Sales Order', 'sales', '/sales/orders/edit'),
+    ('delete_sales_order', 'Delete Sales Order', 'sales', '/sales/orders/delete'),
+    ('view_purchase', 'View Purchase Module', 'purchase', '/purchase'),
+    ('view_purchase_orders', 'View Purchase Orders', 'purchase', '/purchase/orders'),
+    ('create_purchase_order', 'Create Purchase Order', 'purchase', '/purchase/orders/create'),
+    ('edit_purchase_order', 'Edit Purchase Order', 'purchase', '/purchase/orders/edit'),
+    ('delete_purchase_order', 'Delete Purchase Order', 'purchase', '/purchase/orders/delete'),
+    ('view_inventory', 'View Inventory Module', 'inventory', '/inventory'),
+    ('view_raw_materials', 'View Raw Materials', 'inventory', '/inventory/materials'),
+    ('manage_raw_materials', 'Manage Raw Materials', 'inventory', '/inventory/materials/manage'),
+    ('view_finished_products', 'View Finished Products', 'inventory', '/inventory/products'),
+    ('manage_finished_products', 'Manage Finished Products', 'inventory', '/inventory/products/manage'),
+    ('view_manufacturing', 'View Manufacturing Module', 'manufacturing', '/manufacturing'),
+    ('view_manufacturing_orders', 'View Manufacturing Orders', 'manufacturing', '/manufacturing/orders'),
+    ('create_manufacturing_order', 'Create Manufacturing Order', 'manufacturing', '/manufacturing/orders/create'),
+    ('edit_manufacturing_order', 'Edit Manufacturing Order', 'manufacturing', '/manufacturing/orders/edit'),
+    ('delete_manufacturing_order', 'Delete Manufacturing Order', 'manufacturing', '/manufacturing/orders/delete'),
+    ('view_reports', 'View Reports', 'reports', '/reports'),
+    ('view_sales_reports', 'View Sales Reports', 'reports', '/reports/sales'),
+    ('view_inventory_reports', 'View Inventory Reports', 'reports', '/reports/inventory'),
+    ('view_manufacturing_reports', 'View Manufacturing Reports', 'reports', '/reports/manufacturing'),
+
+    -- Admin Panel Module
+    ('view_admin_panel', 'View Admin Panel', 'admin', '/admin'),
+    ('manage_permissions', 'Manage System Permissions', 'admin', '/admin/permissions'),
+    ('view_audit_logs', 'View Audit Logs', 'admin', '/admin/audit-logs'),
+    ('manage_system_settings', 'Manage System Settings', 'admin', '/admin/settings'),
+    ('view_user_activity', 'View User Activity', 'admin', '/admin/user-activity'),
+    ('manage_backups', 'Manage System Backups', 'admin', '/admin/backups'),
+
+    -- Suppliers Module
+    ('view_suppliers', 'View Suppliers List', 'suppliers', '/suppliers'),
+    ('create_supplier', 'Create New Supplier', 'suppliers', '/suppliers/create'),
+    ('edit_supplier', 'Edit Supplier Details', 'suppliers', '/suppliers/edit'),
+    ('delete_supplier', 'Delete Supplier', 'suppliers', '/suppliers/delete'),
+    ('view_supplier_history', 'View Supplier History', 'suppliers', '/suppliers/history'),
+    ('manage_supplier_ratings', 'Manage Supplier Ratings', 'suppliers', '/suppliers/ratings'),
+
+    -- Products Module
+    ('view_products', 'View Products List', 'products', '/products'),
+    ('create_product', 'Create New Product', 'products', '/products/create'),
+    ('edit_product', 'Edit Product Details', 'products', '/products/edit'),
+    ('delete_product', 'Delete Product', 'products', '/products/delete'),
+    ('manage_product_categories', 'Manage Product Categories', 'products', '/products/categories'),
+    ('view_product_history', 'View Product History', 'products', '/products/history'),
+    ('manage_product_pricing', 'Manage Product Pricing', 'products', '/products/pricing'),
+
+    -- Job Work Module
+    ('view_jobwork', 'View Job Work Module', 'jobwork', '/jobwork'),
+    ('view_vendors', 'View Vendors List', 'jobwork', '/jobwork/vendors'),
+    ('create_vendor', 'Create New Vendor', 'jobwork', '/jobwork/vendors/create'),
+    ('edit_vendor', 'Edit Vendor Details', 'jobwork', '/jobwork/vendors/edit'),
+    ('delete_vendor', 'Delete Vendor', 'jobwork', '/jobwork/vendors/delete'),
+    ('view_jobwork_orders', 'View Job Work Orders', 'jobwork', '/jobwork/orders'),
+    ('create_jobwork_order', 'Create Job Work Order', 'jobwork', '/jobwork/orders/create'),
+    ('edit_jobwork_order', 'Edit Job Work Order', 'jobwork', '/jobwork/orders/edit'),
+    ('delete_jobwork_order', 'Delete Job Work Order', 'jobwork', '/jobwork/orders/delete'),
+    ('manage_jobwork_status', 'Manage Job Work Status', 'jobwork', '/jobwork/orders/status'),
+
+    -- Company Settings Module
+    ('view_company_settings', 'View Company Settings', 'settings', '/settings'),
+    ('edit_company_settings', 'Edit Company Settings', 'settings', '/settings/edit'),
+    ('manage_company_profile', 'Manage Company Profile', 'settings', '/settings/profile'),
+    ('manage_company_documents', 'Manage Company Documents', 'settings', '/settings/documents'),
+
+    -- Notifications Module
+    ('view_notifications', 'View Notifications', 'notifications', '/notifications'),
+    ('manage_notifications', 'Manage Notifications', 'notifications', '/notifications/manage'),
+    ('delete_notifications', 'Delete Notifications', 'notifications', '/notifications/delete'),
+    ('mark_notifications_read', 'Mark Notifications as Read', 'notifications', '/notifications/mark-read'),
+
+    -- Revenue Analysis Module
+    ('view_revenue_analysis', 'View Revenue Analysis', 'revenue', '/revenue/analysis'),
+    ('export_revenue_reports', 'Export Revenue Reports', 'revenue', '/revenue/export'),
+    ('view_revenue_details', 'View Revenue Details', 'revenue', '/revenue/details'),
+    ('manage_revenue_settings', 'Manage Revenue Settings', 'revenue', '/revenue/settings'),
+
+    -- Raw Materials Module
+    ('view_raw_materials_list', 'View Raw Materials List', 'materials', '/materials'),
+    ('create_raw_material', 'Create Raw Material', 'materials', '/materials/create'),
+    ('edit_raw_material', 'Edit Raw Material', 'materials', '/materials/edit'),
+    ('delete_raw_material', 'Delete Raw Material', 'materials', '/materials/delete'),
+    ('manage_material_categories', 'Manage Material Categories', 'materials', '/materials/categories'),
+    ('view_material_history', 'View Material History', 'materials', '/materials/history'),
+    ('manage_material_pricing', 'Manage Material Pricing', 'materials', '/materials/pricing'),
+
+    -- Sub Components Module
+    ('view_sub_components', 'View Sub Components', 'components', '/components'),
+    ('create_sub_component', 'Create Sub Component', 'components', '/components/create'),
+    ('edit_sub_component', 'Edit Sub Component', 'components', '/components/edit'),
+    ('delete_sub_component', 'Delete Sub Component', 'components', '/components/delete'),
+    ('view_component_transactions', 'View Component Transactions', 'components', '/components/transactions'),
+    ('manage_component_stock', 'Manage Component Stock', 'components', '/components/stock'),
+    ('view_low_stock_components', 'View Low Stock Components', 'components', '/components/low-stock')
+ON CONFLICT (name) DO NOTHING;
+
+-- Assign permissions to admin and owner roles (all permissions)
+INSERT INTO auth.role_permissions (role_id, permission_id)
+SELECT r.role_id, p.permission_id
+FROM auth.roles r
+CROSS JOIN auth.permissions p
+WHERE r.name IN ('admin', 'owner')
+ON CONFLICT DO NOTHING;
+
+-- Assign module-specific permissions to department managers
+INSERT INTO auth.role_permissions (role_id, permission_id)
+SELECT r.role_id, p.permission_id
+FROM auth.roles r
+CROSS JOIN auth.permissions p
+WHERE (r.name = 'sales_manager' AND p.module = 'sales')
+   OR (r.name = 'purchase_manager' AND p.module = 'purchase')
+   OR (r.name = 'inventory_manager' AND p.module = 'inventory')
+   OR (r.name = 'manufacturing_manager' AND p.module = 'manufacturing')
+ON CONFLICT DO NOTHING;
+
+-- Add dashboard permission to all roles
+INSERT INTO auth.role_permissions (role_id, permission_id)
+SELECT r.role_id, p.permission_id
+FROM auth.roles r
+CROSS JOIN auth.permissions p
+WHERE p.name = 'view_dashboard'
+ON CONFLICT DO NOTHING;
+
+-- Create indexes
+CREATE INDEX idx_role_permissions_role ON auth.role_permissions(role_id);
+CREATE INDEX idx_role_permissions_permission ON auth.role_permissions(permission_id);
+CREATE INDEX idx_user_roles_user ON auth.user_roles(user_id);
+CREATE INDEX idx_user_roles_role ON auth.user_roles(role_id);
+CREATE INDEX idx_user_permissions_user ON auth.user_permissions(user_id);
+CREATE INDEX idx_user_permissions_permission ON auth.user_permissions(permission_id);
+CREATE INDEX idx_permissions_module ON auth.permissions(module);
+CREATE INDEX idx_permissions_route ON auth.permissions(route_path);
+
+-- Function to get user permissions
+CREATE OR REPLACE FUNCTION auth.get_user_permissions(p_user_id INTEGER)
+RETURNS TABLE (
+    permission_id INTEGER,
+    name VARCHAR,
+    module VARCHAR,
+    route_path VARCHAR,
+    is_allowed BOOLEAN
+) AS $$
+BEGIN
+    RETURN QUERY
+    WITH user_roles AS (
+        SELECT role_id 
+        FROM auth.user_roles 
+        WHERE user_id = p_user_id
+    ),
+    role_perms AS (
+        SELECT DISTINCT p.permission_id, p.name, p.module, p.route_path, true as is_allowed
+        FROM auth.role_permissions rp
+        JOIN auth.permissions p ON p.permission_id = rp.permission_id
+        JOIN user_roles ur ON ur.role_id = rp.role_id
+    ),
+    user_perms AS (
+        SELECT p.permission_id, p.name, p.module, p.route_path, up.is_allowed
+        FROM auth.user_permissions up
+        JOIN auth.permissions p ON p.permission_id = up.permission_id
+        WHERE up.user_id = p_user_id
+    )
+    SELECT 
+        COALESCE(up.permission_id, rp.permission_id) as permission_id,
+        COALESCE(up.name, rp.name) as name,
+        COALESCE(up.module, rp.module) as module,
+        COALESCE(up.route_path, rp.route_path) as route_path,
+        COALESCE(up.is_allowed, rp.is_allowed) as is_allowed
+    FROM role_perms rp
+    FULL OUTER JOIN user_perms up ON up.permission_id = rp.permission_id
+    WHERE up.permission_id IS NULL OR up.is_allowed = true;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Function to check if user has permission
+CREATE OR REPLACE FUNCTION auth.has_permission(p_user_id INTEGER, p_route_path VARCHAR)
+RETURNS BOOLEAN AS $$
+DECLARE
+    v_is_admin BOOLEAN;
+    v_is_owner BOOLEAN;
+    v_has_permission BOOLEAN;
+BEGIN
+    -- Check if user is admin or owner
+    SELECT EXISTS (
+        SELECT 1 
+        FROM auth.user_roles ur
+        JOIN auth.roles r ON r.role_id = ur.role_id
+        WHERE ur.user_id = p_user_id 
+        AND r.name IN ('admin', 'owner')
+    ) INTO v_is_admin;
+    
+    IF v_is_admin THEN
+        RETURN true;
+    END IF;
+    
+    -- Check specific permission
+    SELECT EXISTS (
+        SELECT 1 
+        FROM auth.get_user_permissions(p_user_id) p
+        WHERE p.route_path = p_route_path
+        AND p.is_allowed = true
+    ) INTO v_has_permission;
+    
+    RETURN v_has_permission;
+END;
+$$ LANGUAGE plpgsql;
 
 CREATE TABLE inventory.raw_materials (
     material_id SERIAL PRIMARY KEY,
@@ -171,10 +450,7 @@ CREATE TABLE purchase.grn_materials (
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
-
-
 -- Products table
-
 CREATE TABLE product.products (
     id SERIAL PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
@@ -629,8 +905,6 @@ AFTER INSERT OR UPDATE ON inventory.finished_products
 FOR EACH ROW
 EXECUTE FUNCTION inventory.check_stock_levels();
 
-
-
 CREATE OR REPLACE FUNCTION update_updated_at_column()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -653,4 +927,6 @@ CREATE TRIGGER update_batches_updated_at BEFORE UPDATE ON product.manufacturing_
 
 CREATE TRIGGER update_workflows_updated_at BEFORE UPDATE ON product.batch_workflows
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+
 

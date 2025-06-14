@@ -9,6 +9,8 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import Layout from "./components/layout/Layout";
 import { FactoryProvider } from "./context/FactoryContext";
+import { RbacProvider } from './contexts/RbacContext';
+import { withPermission } from './contexts/RbacContext';
 
 // Pages
 import Dashboard from "./pages/Dashboard";
@@ -30,12 +32,30 @@ import Jobwork from './pages/JobWork'
 import JobWorkTracking from './pages/JobWorkTracking';
 import CreateJobworkOrder from './pages/CreateJobworkOrder';
 import JobworkVendors from './pages/JobworkVendors';
+import AdminPanel from './pages/AdminPanel';
 
 const queryClient = new QueryClient();
 
+// Wrap components with withPermission HOC
+const ProtectedDashboard = withPermission(Dashboard, '/dashboard');
+const ProtectedViewOrderStatus = withPermission(ViewOrderStatus, '/sales');
+const ProtectedInventory = withPermission(Inventory, '/inventory');
+const ProtectedManufacturing = withPermission(Manufacturing, '/manufacturing');
+const ProtectedReports = withPermission(Reports, '/reports');
+const ProtectedProductDashboard = withPermission(ProductDashboard, '/products');
+const ProtectedPurchaseOrderDashboard = withPermission(PurchaseOrderDashboard, '/purchase');
+const ProtectedJobWorkTracking = withPermission(JobWorkTracking, '/jobwork');
+const ProtectedCreateJobworkOrder = withPermission(CreateJobworkOrder, '/jobwork/create');
+const ProtectedJobworkVendors = withPermission(JobworkVendors, '/jobwork/vendors');
+const ProtectedJobwork = withPermission(Jobwork, '/jobwork');
+const ProtectedSuppliers = withPermission(Suppliers, '/suppliers');
+const ProtectedUserManagement = withPermission(UserManagement, '/users');
+const ProtectedSettingsPage = withPermission(SettingsPage, '/settings');
+const ProtectedAdminPanel = withPermission(AdminPanel, '/admin');
+
 const App: React.FC = () => {
   const { authState } = useAuth();
-  const admin = authState.user?.role === 'admin';
+  // const admin = authState.user?.role === 'admin'; // No longer needed as withPermission handles it
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
@@ -43,106 +63,109 @@ const App: React.FC = () => {
         <Sonner />
         <Router>
           <FactoryProvider>
-            <Routes>
-              {/* Public Routes */}
-              <Route path="/login" element={<Login />} />
-              <Route path="/" element={<Navigate to="/dashboard" replace />} />
+            <RbacProvider>
+              <Routes>
+                {/* Public Routes */}
+                <Route path="/login" element={<Login />} />
+                <Route path="/" element={<Navigate to="/dashboard" replace />} />
 
-              {/* Protected Routes with Layout */}
-              <Route
-                element={
-                  <ProtectedRoute>
-                    <Layout>
-                      <Outlet />
-                    </Layout>
-                  </ProtectedRoute>
-                }
-              >
-                <Route path="/dashboard" element={<Dashboard />} />
-                <Route path="/sales" element={<ViewOrderStatus />} />
-                <Route path="/inventory" element={<Inventory />} />
-                <Route path="/manufacturing" element={<Manufacturing />} />
-                <Route path="/reports" element={<Reports />} />
-                {/* <Route path="/products" element={<Products />} /> */}
-                <Route path="/products" element={<ProductDashboard />} />
+                {/* Protected Routes with Layout */}
+                <Route
+                  element={
+                    <ProtectedRoute>
+                      <Layout>
+                        <Outlet />
+                      </Layout>
+                    </ProtectedRoute>
+                  }
+                >
+                  <Route path="/dashboard" element={<ProtectedDashboard />} />
+                  <Route path="/sales" element={<ProtectedViewOrderStatus />} />
+                  <Route path="/inventory" element={<ProtectedInventory />} />
+                  <Route path="/manufacturing" element={<ProtectedManufacturing />} />
+                  <Route path="/reports" element={<ProtectedReports />} />
+                  {/* <Route path="/products" element={<Products />} /> */}
+                  <Route path="/products" element={<ProtectedProductDashboard />} />
 
-                <Route path="/purchase" element={<PurchaseOrderDashboard />} />
-                {/* Jobwork Routes */}
-                <Route path="/jobwork">
-                  <Route index element={<JobWorkTracking />} />
-                  <Route path="tracking" element={<JobWorkTracking />} />
-                  <Route path="create" element={<CreateJobworkOrder />} />
-                  <Route path="vendors" element={<JobworkVendors />} />
-                  <Route path=":jobworkNumber" element={<Jobwork />} />
+                  <Route path="/purchase" element={<ProtectedPurchaseOrderDashboard />} />
+                  {/* Jobwork Routes */}
+                  <Route path="/jobwork">
+                    <Route index element={<ProtectedJobWorkTracking />} />
+                    <Route path="tracking" element={<ProtectedJobWorkTracking />} />
+                    <Route path="create" element={<ProtectedCreateJobworkOrder />} />
+                    <Route path="vendors" element={<ProtectedJobworkVendors />} />
+                    <Route path=":jobworkNumber" element={<ProtectedJobwork />} />
+                  </Route>
+                  <Route path="/suppliers" element={<ProtectedSuppliers />} />
+                  {/* Removed admin conditional as withPermission handles it */}
+                  <Route path="/users" element={<ProtectedUserManagement />} />
+                  <Route path="/settings" element={<ProtectedSettingsPage />} />
                 </Route>
-                <Route path="/suppliers" element={<Suppliers />} />
-                {admin && <Route path="/users" element={<UserManagement />} />}
-                <Route path="/settings" element={<SettingsPage />} />
-              </Route>
 
-              {/* Admin Only Routes */}
-              <Route
-                path="/admin"
-                element={
-                  <ProtectedRoute requiredRole="admin">
-                    <Layout>
-                      <div>Admin Panel (Coming Soon)</div>
-                    </Layout>
-                  </ProtectedRoute>
-                }
-              />
+                {/* Admin Panel Route (already protected, but using ProtectedAdminPanel for consistency) */}
+                <Route
+                  path="/admin"
+                  element={
+                    <ProtectedRoute requiredRole="admin">
+                      <Layout>
+                        <ProtectedAdminPanel />
+                      </Layout>
+                    </ProtectedRoute>
+                  }
+                />
 
-              {/* Unauthorized Route */}
-              <Route
-                path="/unauthorized"
-                element={
-                  <div className="min-h-screen flex items-center justify-center">
-                    <div className="text-center">
-                      <h1 className="text-2xl font-bold text-gray-900 mb-4">Unauthorized Access</h1>
-                      <p className="text-gray-600 mb-4">You don't have permission to access this page.</p>
-                      <button
-                        onClick={() => window.history.back()}
-                        className="text-indigo-600 hover:text-indigo-500"
-                      >
-                        Go Back
-                      </button>
+                {/* Unauthorized Route */}
+                <Route
+                  path="/unauthorized"
+                  element={
+                    <div className="min-h-screen flex items-center justify-center">
+                      <div className="text-center">
+                        <h1 className="text-2xl font-bold text-gray-900 mb-4">Unauthorized Access</h1>
+                        <p className="text-gray-600 mb-4">You don't have permission to access this page.</p>
+                        <button
+                          onClick={() => window.history.back()}
+                          className="text-indigo-600 hover:text-indigo-500"
+                        >
+                          Go Back
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                }
-              />
+                  }
+                />
 
-              {/* Redirect root to dashboard if authenticated, otherwise to login */}
-              <Route
-                path="/"
-                element={
-                  <ProtectedRoute>
-                    <Navigate to="/dashboard" replace />
-                  </ProtectedRoute>
-                }
-              />
+                {/* Redirect root to dashboard if authenticated, otherwise to login */}
+                <Route
+                  path="/"
+                  element={
+                    <ProtectedRoute>
+                      <Navigate to="/dashboard" replace />
+                    </ProtectedRoute>
+                  }
+                />
 
-              {/* 404 Route */}
-              <Route
-                path="*"
-                element={
-                  <div className="min-h-screen flex items-center justify-center">
-                    <div className="text-center">
-                      <h1 className="text-2xl font-bold text-gray-900 mb-4">404 - Page Not Found</h1>
-                      <p className="text-gray-600 mb-4">The page you're looking for doesn't exist.</p>
-                      <button
-                        onClick={() => window.history.back()}
-                        className="text-indigo-600 hover:text-indigo-500"
-                      >
-                        Go Back
-                      </button>
+                {/* 404 Route */}
+                <Route
+                  path="*"
+                  element={
+                    <div className="min-h-screen flex items-center justify-center">
+                      <div className="text-center">
+                        <h1 className="text-2xl font-bold text-gray-900 mb-4">404 - Page Not Found</h1>
+                        <p className="text-gray-600 mb-4">The page you're looking for doesn't exist.</p>
+                        <button
+                          onClick={() => window.history.back()}
+                          className="text-indigo-600 hover:text-indigo-500"
+                        >
+                          Go Back
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                }
-              />
+                  }
+                />
 
-              <Route path="/forgot-password" element={<ForgotPassword />} />
-              <Route path="/reset-password" element={<ResetPassword />} />
-            </Routes>
+                <Route path="/forgot-password" element={<ForgotPassword />} />
+                <Route path="/reset-password" element={<ResetPassword />} />
+              </Routes>
+            </RbacProvider>
           </FactoryProvider>
         </Router>
       </TooltipProvider>

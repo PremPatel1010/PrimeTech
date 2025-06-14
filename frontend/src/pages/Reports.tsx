@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { useFactory } from '../context/FactoryContext';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -9,6 +8,16 @@ import {
   calculateTotalSales,
   formatCurrency 
 } from '../utils/calculations';
+import {
+  fetchInventoryValues,
+  fetchManufacturingEfficiency,
+  fetchOrderStatusDistribution,
+  fetchSalesTrend,
+  fetchRawMaterials,
+  fetchFinishedProducts,
+  fetchSalesOrders,
+  fetchManufacturingBatches
+} from '../services/kpi.service';
 import { 
   ResponsiveContainer, 
   LineChart, 
@@ -24,12 +33,16 @@ import {
   Pie,
   Cell
 } from 'recharts';
-import axiosInstance from '@/utils/axios';
+import { RawMaterial, FinishedProduct, SalesOrder, ManufacturingBatch, OrderStatus } from '../types';
 
 const COLORS = ['#1E3A8A', '#2563EB', '#4F46E5', '#6366F1', '#8B5CF6'];
 
 const Reports: React.FC = () => {
-  const { rawMaterials = [], finishedProducts = [], salesOrders = [], manufacturingBatches = [] } = useFactory();
+  const [rawMaterials, setRawMaterials] = useState<RawMaterial[]>([]);
+  const [finishedProducts, setFinishedProducts] = useState<FinishedProduct[]>([]);
+  const [salesOrders, setSalesOrders] = useState<SalesOrder[]>([]);
+  const [manufacturingBatches, setManufacturingBatches] = useState<ManufacturingBatch[]>([]);
+
   const [timeRange, setTimeRange] = useState('all');
   const [salesTrend, setSalesTrend] = useState<{ date: string, sales: number }[]>([]);
   const [inventoryValues, setInventoryValues] = useState({ raw_material_value: 0, finished_product_value: 0 });
@@ -41,7 +54,7 @@ const Reports: React.FC = () => {
   // Calculate key metrics from backend data
   const rawMaterialValue = calculateRawMaterialValue(rawMaterials);
   const finishedProductValue = calculateFinishedProductValue(finishedProducts);
-  const totalSalesValue = calculateTotalSales(salesOrders || [], 'delivered');
+  const totalSalesValue = calculateTotalSales(salesOrders);
   
   // Manufacturing data
   const manufacturingBatchesByStage = {
@@ -63,41 +76,44 @@ const Reports: React.FC = () => {
   // Helper to ensure a value is a safe number
   const getSafeNumber = (val: any) => (typeof val === 'number' && !isNaN(val) ? val : 0);
   
-  const safeRawMaterialValue = getSafeNumber(rawMaterialValue);
-  const safeFinishedProductValue = getSafeNumber(finishedProductValue);
+  const safeRawMaterialValue = getSafeNumber(inventoryValues.raw_material_value);
+  const safeFinishedProductValue = getSafeNumber(inventoryValues.finished_product_value);
   
   // Inventory distribution data for pie chart
   const inventoryDistributionData = [
-    { name: 'Raw Materials', value: rawMaterialValue },
-    { name: 'Finished Products', value: finishedProductValue }
+    { name: 'Raw Materials', value: safeRawMaterialValue },
+    { name: 'Finished Products', value: safeFinishedProductValue }
   ];
   
   // Fetch all KPIs
   useEffect(() => {
-    const fetchKPIs = async () => {
+    const fetchAllData = async () => {
       try {
         setLoading(true);
         setError(null);
 
-        // Fetch inventory values
-        const inventoryRes = await axiosInstance.get('/kpi/inventory-values');
-        if (inventoryRes.data.success) {
-          setInventoryValues(inventoryRes.data.data);
-        }
+        // Fetch all base data in parallel
+        const [rawMats, finishedProds, salesOrds, manfBatches] = await Promise.all([
+          fetchRawMaterials(),
+          fetchFinishedProducts(),
+          fetchSalesOrders(),
+          fetchManufacturingBatches()
+        ]);
+        setRawMaterials(rawMats);
+        setFinishedProducts(finishedProds);
+        setSalesOrders(salesOrds);
+        setManufacturingBatches(manfBatches);
 
-        // Fetch manufacturing efficiency
-        const efficiencyRes = await axiosInstance.get('/kpi/manufacturing-efficiency');
-        if (efficiencyRes.data.success) {
-          setManufacturingEfficiency(efficiencyRes.data.data);
-        }
+        // Fetch KPI specific data
+        const inventory = await fetchInventoryValues();
+        setInventoryValues(inventory);
 
-        // Fetch order status distribution
-        const distributionRes = await axiosInstance.get('/kpi/order-status-distribution');
-        if (distributionRes.data.success) {
-          setOrderStatusDistribution(distributionRes.data.data);
-        }
+        const efficiencyData = await fetchManufacturingEfficiency();
+        setManufacturingEfficiency(efficiencyData);
 
-        // Fetch sales trend
+        const distribution = await fetchOrderStatusDistribution();
+        setOrderStatusDistribution(distribution);
+
         const today = new Date();
         let startDate = '';
         let endDate = today.toISOString().slice(0, 10);
@@ -130,15 +146,9 @@ const Reports: React.FC = () => {
           }
         }
 
-        const trendRes = await axiosInstance.get('/kpi/sales-trend', {
-          params: { periodType: 'day', startDate, endDate }
-        });
-        if (trendRes.data.success) {
-          setSalesTrend(trendRes.data.data.map((d: any) => ({
-            date: d.period_start,
-            sales: Number(d.total_revenue)
-          })));
-        }
+        const sales = await fetchSalesTrend('day', startDate, endDate);
+        setSalesTrend(sales);
+
       } catch (err) {
         console.error('Error fetching KPIs:', err);
         setError('Failed to load report data. Please try again later.');
@@ -147,14 +157,14 @@ const Reports: React.FC = () => {
       }
     };
 
-    fetchKPIs();
+    fetchAllData();
   }, [timeRange]);
   
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h1 className="text-2xl font-bold text-factory-gray-900">Reports & Analytics</h1>
-        <div className="flex items-center gap-2">
+        <div className="flex justify-between items-center">
           <span className="text-sm text-factory-gray-600">Time Range:</span>
           <Select 
             value={timeRange}
@@ -228,15 +238,15 @@ const Reports: React.FC = () => {
                     <div className="grid grid-cols-3 gap-4">
                       <div>
                         <p className="text-sm text-factory-gray-500">Active Orders</p>
-                        <p className="text-lg font-medium">{salesOrders.filter(o => o.status === 'pending').length}</p>
+                        <p className="text-lg font-medium">{(salesOrders || []).filter(o => o.status !== 'completed' && o.status !== 'delivered' && o.status !== 'cancelled').length}</p>
                       </div>
                       <div>
                         <p className="text-sm text-factory-gray-500">Completed Orders</p>
-                        <p className="text-lg font-medium">{salesOrders.filter(o => o.status === 'delivered').length}</p>
+                        <p className="text-lg font-medium">{(salesOrders || []).filter(o => o.status === 'delivered' || o.status === 'completed').length}</p>
                       </div>
                       <div>
                         <p className="text-sm text-factory-gray-500">Manufacturing Batches</p>
-                        <p className="text-lg font-medium">{manufacturingBatches.length}</p>
+                        <p className="text-lg font-medium">{(manufacturingBatches || []).length}</p>
                       </div>
                     </div>
                   </div>
@@ -308,7 +318,7 @@ const Reports: React.FC = () => {
                           dataKey="sales" 
                           stroke="#1E3A8A" 
                           strokeWidth={2} 
-                          dot={{ r: 4 }}
+                          dot={{ r: 4 }} 
                           name="Daily Sales" 
                         />
                       </LineChart>
@@ -332,11 +342,7 @@ const Reports: React.FC = () => {
                         layout="vertical"
                         data={(finishedProducts || []).map(product => {
                           // Calculate total quantity sold for each product
-                          const quantitySold = (salesOrders || [])
-                            .filter(o => o.status === 'delivered')
-                            .flatMap(o => o.products || [])
-                            .filter(p => p.productId === product.id)
-                            .reduce((sum, p) => sum + (p.quantity || 0), 0);
+                          const quantitySold = (salesOrders || []).flatMap(o => o.products || []).filter(p => p.productId === product.id).reduce((sum, p) => sum + (p.quantity || 0), 0);
                             
                           return {
                             name: product.name,
@@ -373,17 +379,13 @@ const Reports: React.FC = () => {
                     <ResponsiveContainer width="100%" height="100%">
                       <PieChart>
                         <Pie
-                          data={[
-                            { name: 'Delivered', value: (salesOrders || []).filter(o => o.status === 'delivered').length },
-                            { name: 'Pending', value: (salesOrders || []).filter(o => o.status === 'pending').length },
-                            { name: 'Cancelled', value: (salesOrders || []).filter(o => o.status === 'cancelled').length }
-                          ]}
+                          data={orderStatusDistribution.map(d => ({name: d.status, value: d.count}))}
                           cx="50%"
                           cy="50%"
                           outerRadius={100}
                           fill="#8884d8"
                           dataKey="value"
-                          label={({ name, value, percent }) => `${name}: ${value} (${(percent * 100).toFixed(0)}%)`}
+                          label={({ name, value, percent }) => `${stageNames[name] || name}: ${value} (${(percent * 100).toFixed(0)}%)`}
                         >
                           <Cell fill="#10B981" /> {/* Delivered */}
                           <Cell fill="#F59E0B" /> {/* Pending */}
@@ -433,25 +435,22 @@ const Reports: React.FC = () => {
                 <CardContent>
                   <div className="h-[350px]">
                     <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={finishedProducts.map(product => {
+                      <BarChart data={(finishedProducts || []).map(product => {
                         // Find all completed batches for this product
-                        const completedBatches = manufacturingBatches
-                          .filter(b => b.productId === product.id && b.currentStage === 'completed');
+                        const completedBatches = (manufacturingBatches || []).filter(b => b.productId === product.id && b.currentStage === 'completed');
                           
                         // Calculate average time to complete (in days)
                         const avgCompletionDays = completedBatches.length > 0
                           ? completedBatches.reduce((sum, batch) => {
                               const startDate = new Date(batch.startDate).getTime();
-                              const endDate = batch.stageCompletionDates.completed 
-                                ? new Date(batch.stageCompletionDates.completed).getTime() 
-                                : new Date().getTime();
+                              const endDate = new Date(batch.estimatedCompletionDate || new Date()).getTime(); 
                               return sum + (endDate - startDate) / (1000 * 60 * 60 * 24);
                             }, 0) / completedBatches.length
                           : 0;
                           
                         return {
                           name: product.name,
-                          days: avgCompletionDays.toFixed(1),
+                          days: parseFloat(avgCompletionDays.toFixed(1)),
                           batches: completedBatches.length
                         };
                       })}>

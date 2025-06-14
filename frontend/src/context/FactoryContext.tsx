@@ -111,15 +111,39 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     // Initial fetch
     notificationService.getAll()
-      .then(data => setNotifications(data.notifications || []))
+      .then(data => {
+        console.log('Raw notifications from backend:', data.data.notifications);
+        const mappedNotifications = (data.data.notifications || []).map((n: any) => ({
+          id: n.notification_id,
+          title: n.title,
+          type: n.module, // Map backend 'module' to frontend 'type'
+          message: n.message,
+          date: n.created_at, // Use created_at as date
+          read: n.status === 'read', // Convert status string to boolean
+          priority: n.priority // Keep priority as is
+        }));
+        console.log('Mapped notifications for frontend:', mappedNotifications);
+        setNotifications(mappedNotifications);
+      })
       .catch(() => setNotifications([]));
 
     const pollInterval = setInterval(async () => {
       try {
         const data = await notificationService.getAll();
-        if (data.notifications) {
+        if (data.data.notifications) {
+          console.log('Raw polled notifications from backend:', data.data.notifications);
+          const mappedNewNotifications = data.data.notifications.map((n: any) => ({
+            id: n.notification_id,
+            title: n.title,
+            type: n.module, // Map backend 'module' to frontend 'type'
+            message: n.message,
+            date: n.created_at, // Use created_at as date
+            read: n.status === 'read', // Convert status string to boolean
+            priority: n.priority // Keep priority as is
+          }));
+          console.log('Mapped new notifications for frontend:', mappedNewNotifications);
           // Find new notifications not already in state
-          const newOnes = data.notifications.filter(
+          const newOnes = mappedNewNotifications.filter(
             n => !notificationsRef.current.some(existing => existing.id === n.id)
           );
           if (newOnes.length > 0) {
@@ -758,31 +782,45 @@ export const FactoryProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const value: FactoryContextType = {
-   
+    // Raw Materials
+    rawMaterials,
     addRawMaterial,
     updateRawMaterial,
-   
+    // Finished Products
+    finishedProducts,
     addFinishedProduct,
     updateFinishedProduct,
     setFinishedProducts,
     deleteFinishedProduct,
-    
+    // Sales Orders
+    salesOrders,
     addSalesOrder,
     updateSalesOrderStatus,
-   
+    // Manufacturing Batches
+    manufacturingBatches,
     setManufacturingBatches,
    
+    // Purchase Orders
+    purchaseOrders,
     addPurchaseOrder,
     updatePurchaseOrderStatus,
-    checkProductAvailability,
+
+    // Suppliers
+    // ... existing code ...
+
+    // Notifications
+    notifications,
+    markNotificationAsRead,
+    deleteNotification,
+
+    // Add quantity to finished product using PATCH route
+    addQuantityToFinishedProduct,
+
+    // Helper to filter batches
     getActiveBatches,
     getCompletedBatches,
 
     setBackendProducts,
- 
-    markNotificationAsRead,
-    deleteNotification,
-    addQuantityToFinishedProduct,
   };
   
   return (

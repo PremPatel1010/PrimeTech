@@ -40,5 +40,10 @@ export const userService = {
     return axiosInstance.post('/auth/reset-password', { token, newPassword });
   },
 
+  async updateUserRole(userId: string, roleId: number) {
+    const response = await axiosInstance.put(`/auth/users/${userId}/role`, { roleId });
+    return response.data;
+  },
+
   // Add more user-related functions as needed
 }; 

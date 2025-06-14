@@ -1,12 +1,20 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import Sidebar from './Sidebar';
-import { Menu, Bell } from 'lucide-react';
+import { Menu, Bell, X, Check, Trash2, Filter, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Link, useNavigate } from 'react-router-dom';
-
-import axiosInstance from '@/utils/axios';
+import { useNavigate } from 'react-router-dom';
 import { useFactory } from '../../context/FactoryContext';
-
+import { useAuth } from '../../contexts/AuthContext';
+import { Badge } from '@/components/ui/badge';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Separator } from '@/components/ui/separator';
+import { cn } from '@/lib/utils';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -14,26 +22,73 @@ interface LayoutProps {
 
 const Layout: React.FC<LayoutProps> = ({ children }) => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [notificationFilter, setNotificationFilter] = useState<'all' | 'unread'>('all');
+  const notificationRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
   const { notifications, markNotificationAsRead, deleteNotification } = useFactory();
-  const [showNotifications, setShowNotifications] = useState(false);
+  const { logout: authLogout } = useAuth();
 
-  
+  console.log('Notifications in Layout:', notifications);
+
+  // Close notifications when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (notificationRef.current && !notificationRef.current.contains(event.target as Node)) {
+        setShowNotifications(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
   const toggleSidebar = () => {
     setSidebarOpen(!sidebarOpen);
   };
 
-  const handleLogout = async () => {
-    try {
-      await axiosInstance.post('/auth/logout');
-      // Clear any stored tokens
-      localStorage.removeItem('token');
-      localStorage.removeItem('user');
-      window.location.reload();
-      // Redirect to login page
-      navigate('/login');
-    } catch (error) {
-      console.error('Logout failed:', error);
+  const handleLogout = () => {
+    authLogout();
+    navigate('/login');
+  };
+
+  const filteredNotifications = notifications.filter(n => 
+    notificationFilter === 'all' || !n.read
+  );
+
+  console.log('Filtered notifications in Layout:', filteredNotifications);
+
+  const unreadCount = notifications.filter(n => !n.read).length;
+
+  const getNotificationIcon = (type: string) => {
+    switch (type) {
+      case 'purchase_order':
+        return '🛒';
+      case 'grn':
+        return '📦';
+      case 'qc':
+        return '🔍';
+      case 'manufacturing':
+        return '🏭';
+      case 'inventory':
+        return '📊';
+      case 'user_management':
+        return '👥';
+      default:
+        return '📢';
+    }
+  };
+
+  const getPriorityColor = (priority: string) => {
+    switch (priority) {
+      case 'high':
+        return 'text-red-600 bg-red-50';
+      case 'normal':
+        return 'text-blue-600 bg-blue-50';
+      case 'low':
+        return 'text-gray-600 bg-gray-50';
+      default:
+        return 'text-gray-600 bg-gray-50';
     }
   };
 
@@ -47,7 +102,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         />
       )}
       
-      {/* Sidebar - hidden on mobile by default, shown when sidebarOpen is true */}
+      {/* Sidebar */}
       <div 
         className={`fixed inset-y-0 left-0 z-30 w-64 transform transition-transform duration-300 lg:relative lg:translate-x-0 ${
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
@@ -57,8 +112,8 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       </div>
       
       {/* Main content */}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Header with mobile menu button */}
+      <div className="flex-1 flex flex-col min-h-screen">
+        {/* Header */}
         <header className="bg-white border-b border-factory-gray-200 p-4 flex items-center justify-between lg:justify-start">
           <div className="flex items-center">
             <Button 
@@ -73,42 +128,137 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
           <div className="hidden sm:flex items-center gap-4 ml-auto relative">
             {/* Notification Bell */}
-            <button
-              className="relative focus:outline-none"
-              onClick={() => setShowNotifications(v => !v)}
-            >
-              <Bell size={22} className="text-factory-primary" />
-              {notifications && notifications.filter(n => !n.read).length > 0 && (
-                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full px-1.5 py-0.5">
-                  {notifications.filter(n => !n.read).length}
-                </span>
-              )}
-            </button>
-            {/* Notification Dropdown */}
-            {showNotifications && (
-              <div className="absolute right-0 mt-10 w-80 bg-white border border-factory-gray-200 rounded-lg shadow-lg z-50 max-h-96 overflow-y-auto">
-                <div className="p-3 border-b font-semibold text-factory-primary">Notifications</div>
-                {notifications.length === 0 ? (
-                  <div className="p-4 text-center text-factory-gray-500">No notifications</div>
-                ) : (
-                  notifications.map(n => (
-                    <div key={n.id} className={`flex items-start gap-2 px-4 py-3 border-b last:border-b-0 ${n.read ? 'bg-gray-50' : 'bg-factory-primary/10'}`}>
-                      <div className="flex-1">
-                        <div className="font-medium text-sm mb-1">{n.type.replace(/_/g, ' ')}</div>
-                        <div className="text-xs text-factory-gray-700 mb-1">{n.message}</div>
-                        <div className="text-xs text-factory-gray-400">{new Date(n.date).toLocaleString()}</div>
-                      </div>
-                      <div className="flex flex-col gap-1 items-end">
-                        {!n.read && (
-                          <button className="text-xs text-blue-600 hover:underline" onClick={() => markNotificationAsRead(n.id)}>Mark as read</button>
-                        )}
-                        <button className="text-xs text-red-500 hover:underline" onClick={() => deleteNotification(n.id)}>Delete</button>
-                      </div>
-                    </div>
-                  ))
+            <div ref={notificationRef} className="relative">
+              <button
+                className={cn(
+                  "relative p-2 rounded-full hover:bg-gray-100 transition-colors",
+                  showNotifications && "bg-gray-100"
                 )}
-              </div>
-            )}
+                onClick={() => setShowNotifications(v => !v)}
+              >
+                <Bell size={22} className="text-factory-primary" />
+                {unreadCount > 0 && (
+                  <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-5 min-w-[1.25rem] flex items-center justify-center px-1">
+                    {unreadCount}
+                  </span>
+                )}
+              </button>
+
+              {/* Notification Panel */}
+              {showNotifications && (
+                <div className="absolute right-0 mt-2 w-96 bg-white rounded-lg shadow-lg border border-gray-200 z-50">
+                  {/* Header */}
+                  <div className="p-4 border-b flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-semibold text-gray-900">Notifications</h3>
+                      {unreadCount > 0 && (
+                        <Badge variant="secondary" className="bg-blue-100 text-blue-700">
+                          {unreadCount} new
+                        </Badge>
+                      )}
+                    </div>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="sm" className="h-8 px-2">
+                          <Filter size={16} className="mr-2" />
+                          {notificationFilter === 'all' ? 'All' : 'Unread'}
+                          <ChevronDown size={16} className="ml-2" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => setNotificationFilter('all')}>
+                          All Notifications
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setNotificationFilter('unread')}>
+                          Unread Only
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+
+                  {/* Notifications List */}
+                  <ScrollArea className="h-[400px]">
+                    {filteredNotifications.length === 0 ? (
+                      <div className="p-8 text-center text-gray-500">
+                        <Bell size={24} className="mx-auto mb-2 text-gray-400" />
+                        <p>No notifications</p>
+                      </div>
+                    ) : (
+                      <div className="divide-y divide-gray-100">
+                        {filteredNotifications.map((notification) => (
+                          <div
+                            key={notification.id}
+                            className={cn(
+                              "p-4 hover:bg-gray-50 transition-colors",
+                              !notification.read && "bg-blue-50/50"
+                            )}
+                          >
+                            <div className="flex gap-3">
+                              <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-lg">
+                                {getNotificationIcon(notification.type)}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-start justify-between gap-2">
+                                  <div>
+                                    <p className={cn(
+                                      "text-sm font-semibold",
+                                      !notification.read && "text-gray-900",
+                                      notification.read && "text-gray-700"
+                                    )}>
+                                      {notification.title}
+                                    </p>
+                                    <p className="text-sm text-gray-600 mt-1">
+                                      {notification.message}
+                                    </p>
+                                  </div>
+                                  <Badge 
+                                    variant="secondary" 
+                                    className={cn(
+                                      "text-xs",
+                                      getPriorityColor(notification.priority)
+                                    )}
+                                  >
+                                    {notification.priority}
+                                  </Badge>
+                                </div>
+                                <div className="flex items-center justify-between mt-2">
+                                  <span className="text-xs text-gray-500">
+                                    {new Date(notification.date).toLocaleString()}
+                                  </span>
+                                  <div className="flex items-center gap-2">
+                                    {!notification.read && (
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-7 px-2 text-xs text-blue-600 hover:text-blue-700"
+                                        onClick={() => markNotificationAsRead(notification.id)}
+                                      >
+                                        <Check size={14} className="mr-1" />
+                                        Mark as read
+                                      </Button>
+                                    )}
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-7 px-2 text-xs text-red-600 hover:text-red-700"
+                                      onClick={() => deleteNotification(notification.id)}
+                                    >
+                                      <Trash2 size={14} className="mr-1" />
+                                      Delete
+                                    </Button>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </ScrollArea>
+                </div>
+              )}
+            </div>
+
             <button 
               onClick={handleLogout}
               className="text-sm font-medium text-gray-600 hover:text-factory-primary"

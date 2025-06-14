@@ -108,10 +108,19 @@ const ViewOrderStatus: React.FC = () => {
     queryFn: manufacturingApi.getAllBatches,
   });
 
-  // Initialize real-time updates
+  // Replace the useEffect for fetching sales orders with a React Query hook
+  const { data: ordersData = [], isLoading: isLoadingOrders } = useQuery({
+    queryKey: ['salesOrders'],
+    queryFn: fetchSalesOrders,
+    refetchInterval: 5000, // Poll every 5 seconds
+    refetchIntervalInBackground: true, // Continue polling even when tab is not active
+    staleTime: 0, // Consider data stale immediately
+  });
+
+  // Update the orders state when data changes
   useEffect(() => {
-    fetchSalesOrders().then((data) => {
-      const mapped = data.map((order: any) => ({
+    if (ordersData) {
+      const mapped = ordersData.map((order: any) => ({
         id: order.sales_order_id || order.id,
         orderNumber: order.order_number,
         date: order.order_date,
@@ -130,8 +139,8 @@ const ViewOrderStatus: React.FC = () => {
         partialFulfillment: order.partialFulfillment || [],
       }));
       setOrders(mapped);
-    });
-  }, []);
+    }
+  }, [ordersData]);
   
   useEffect(() => {
     ProductService.getAllProducts().then(response => setProducts(response.data));
@@ -268,67 +277,35 @@ const ViewOrderStatus: React.FC = () => {
     });
   };
 
-  const handleStatusChange = async (newStatus: OrderStatus) => {
-    if (!selectedOrder) return;
-
-    setIsUpdating(true);
-    try {
-      const response = await updateSalesOrder(selectedOrder.id, { status: newStatus });
-
-      // Instead of updating the order in local state, invalidate the query to refetch
+  // Update the handleStatusChange mutation
+  const updateStatusMutation = useMutation({
+    mutationFn: ({ orderId, newStatus }: { orderId: string, newStatus: OrderStatus }) => 
+      updateSalesOrder(orderId, { status: newStatus }),
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['salesOrders'] });
-      
-      // Close the dialog
       setIsUpdateDialogOpen(false);
       setSelectedOrder(null);
-
-      // Show success message
       toast({
         title: 'Success',
         description: 'Order status updated successfully',
       });
-
-      // If order is completed, show additional message about inventory
-      if (newStatus === 'completed') {
-        toast({
-          title: 'Order Completed',
-          description: 'Inventory has been updated accordingly',
-        });
-        // Refetch finished products to update inventory in UI
-        queryClient.invalidateQueries({ queryKey: ['finishedProducts'] });
-      }
-    } catch (error: any) {
+    },
+    onError: (error: any) => {
       console.error('Error updating order status:', error);
-      
-      // Show error message
       toast({
         title: 'Error',
         description: error.response?.data?.message || 'Failed to update order status',
         variant: 'destructive',
       });
-
-      // If the error is about incomplete manufacturing, show a more detailed message
-      if (error.response?.data?.message?.includes('manufacturing batches are not completed')) {
-        toast({
-          title: 'Cannot Complete Order',
-          description: 'Please ensure all manufacturing batches are completed before completing the order',
-          variant: 'destructive',
-        });
-      }
-
-      // If the error is about insufficient inventory, show a more detailed message
-      if (error.response?.data?.message?.includes('Insufficient stock')) {
-        toast({
-          title: 'Cannot Complete Order',
-          description: 'There is not enough inventory to fulfill this order. Please check the manufacturing progress.',
-          variant: 'destructive',
-        });
-      }
-    } finally {
-      setIsUpdating(false);
     }
+  });
+
+  // Update the handleStatusChange function
+  const handleStatusChange = async (newStatus: OrderStatus) => {
+    if (!selectedOrder) return;
+    updateStatusMutation.mutate({ orderId: selectedOrder.id, newStatus });
   };
-  
+
   // Add getStatusBadgeColor for sales order statuses
   const getStatusBadgeColor = (status: OrderStatus) => {
     switch(status) {
@@ -478,6 +455,29 @@ const ViewOrderStatus: React.FC = () => {
     setNewOrder((prev) => ({ ...prev, orderNumber: nextOrderNumber }));
   };
 
+  // Update the handleCreateOrder mutation
+  const createOrderMutation = useMutation({
+    mutationFn: (orderData: Omit<SalesOrder, 'id'>) => createSalesOrder(orderData),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['salesOrders'] });
+      setIsDialogOpen(false);
+      resetNewOrder();
+      toast({
+        title: "Success",
+        description: "Sales order created successfully"
+      });
+    },
+    onError: (error: any) => {
+      console.error("Error creating sales order:", error);
+      toast({
+        title: "Error",
+        description: "Failed to create sales order",
+        variant: "destructive"
+      });
+    }
+  });
+
+  // Update the handleCreateOrder function
   const handleCreateOrder = async () => {
     if (
       newOrder.orderNumber &&
@@ -488,7 +488,6 @@ const ViewOrderStatus: React.FC = () => {
     ) {
       setIsProcessing(true);
       try {
-        // First check availability
         const orderData = {
           items: newOrder.products.map(p => ({
             product_id: p.productId,
@@ -507,33 +506,20 @@ const ViewOrderStatus: React.FC = () => {
           });
         }
 
-        // If the order cannot be fulfilled completely, inform the user but do NOT modify the order quantity.
-        // The backend's createSalesOrder will handle the actual fulfillment logic.
         if (!availabilityResult.overall_status.can_fulfill_completely) {
           toast({
             title: "Order Partially Fulfilled",
             description: "This order can only be partially fulfilled due to raw material constraints. The available quantity will be manufactured, and the order will continue.",
-            variant: "default" // You can use a custom variant here if desired
+            variant: "default"
           });
         }
 
-        // Create the order with the original requested quantities
-        await createSalesOrder(newOrder as Omit<SalesOrder, 'id'>);
-        setIsDialogOpen(false);
-        resetNewOrder();
-        
-        // Refetch orders by invalidating query
-        queryClient.invalidateQueries({ queryKey: ['salesOrders'] });
-
-        toast({
-          title: "Success",
-          description: "Sales order created successfully"
-        });
+        createOrderMutation.mutate(newOrder as Omit<SalesOrder, 'id'>);
       } catch (error) {
-        console.error("Error creating sales order:", error);
+        console.error("Error checking availability:", error);
         toast({
           title: "Error",
-          description: "Failed to create sales order",
+          description: "Failed to check order availability",
           variant: "destructive"
         });
       } finally {
@@ -592,6 +578,30 @@ const ViewOrderStatus: React.FC = () => {
     setEditOrder({ ...editOrder, products: updatedProducts });
   };
 
+  // Update the handleEditSave mutation
+  const editOrderMutation = useMutation({
+    mutationFn: ({ orderId, orderData }: { orderId: string, orderData: any }) => 
+      updateSalesOrder(orderId, orderData),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['salesOrders'] });
+      setIsEditDialogOpen(false);
+      setEditOrder(null);
+      toast({
+        title: "Success",
+        description: "Sales order updated successfully"
+      });
+    },
+    onError: (error: any) => {
+      console.error("Error updating sales order:", error);
+      toast({
+        title: "Error",
+        description: "Failed to update sales order",
+        variant: "destructive"
+      });
+    }
+  });
+
+  // Update the handleEditSave function
   const handleEditSave = async () => {
     if (!editOrder) return;
     setIsUpdating(true);
@@ -607,21 +617,7 @@ const ViewOrderStatus: React.FC = () => {
           return mapped;
         })
       };
-      await updateSalesOrder(editOrder.id, mappedOrder);
-      setIsEditDialogOpen(false);
-      setEditOrder(null);
-      queryClient.invalidateQueries({ queryKey: ['salesOrders'] });
-      toast({
-        title: "Success",
-        description: "Sales order updated successfully"
-      });
-    } catch (error) {
-      console.error("Error updating sales order:", error);
-      toast({
-        title: "Error",
-        description: "Failed to update sales order",
-        variant: "destructive"
-      });
+      editOrderMutation.mutate({ orderId: editOrder.id, orderData: mappedOrder });
     } finally {
       setIsUpdating(false);
     }
@@ -653,16 +649,32 @@ const ViewOrderStatus: React.FC = () => {
     setIsDeleteDialogOpen(true);
   };
 
-  const handleDeleteConfirm = async () => {
-    if (orderToDelete) {
-      await deleteSalesOrder(orderToDelete.id);
+  // Update the handleDeleteConfirm mutation
+  const deleteOrderMutation = useMutation({
+    mutationFn: (orderId: string) => deleteSalesOrder(orderId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['salesOrders'] });
       setIsDeleteDialogOpen(false);
       setOrderToDelete(null);
-      queryClient.invalidateQueries({ queryKey: ['salesOrders'] });
       toast({
         title: "Success",
         description: "Sales order deleted successfully"
       });
+    },
+    onError: (error: any) => {
+      console.error("Error deleting order:", error);
+      toast({
+        title: "Error",
+        description: "Failed to delete sales order",
+        variant: "destructive"
+      });
+    }
+  });
+
+  // Update the handleDeleteConfirm function
+  const handleDeleteConfirm = async () => {
+    if (orderToDelete) {
+      deleteOrderMutation.mutate(orderToDelete.id);
     } else {
       toast({
         title: "Error",
@@ -724,6 +736,18 @@ const ViewOrderStatus: React.FC = () => {
     fetchAvailability();
   }, [newOrder.products, finishedProducts]);
   
+  // Add loading state to the UI
+  if (isLoadingOrders) {
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-factory-primary mx-auto"></div>
+          <p className="mt-4 text-factory-gray-600">Loading orders...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6 order-status-main-container">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">

@@ -86,6 +86,8 @@ const Sidebar: React.FC = () => {
   const { authState } = useAuth();
   const admin = authState.user?.role === 'admin';
   
+  console.log('Sidebar authState.user:', authState.user);
+  
   // Check if current path is related to sales
   const isSalesActive = currentPath.includes('/sales');
   
@@ -133,6 +135,15 @@ const Sidebar: React.FC = () => {
             text="Suppliers" 
             isActive={currentPath === '/suppliers'} 
           />
+          {/* Admin Panel link, only for admin users */}
+          {admin && (
+            <NavItem
+              to="/admin"
+              icon={<Shield size={20} />}
+              text="Admin Panel"
+              isActive={currentPath === '/admin'}
+            />
+          )}
           <NavItem 
             to="/products" 
             icon={<FileText size={20} />} 

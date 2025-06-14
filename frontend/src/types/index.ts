@@ -174,6 +174,7 @@ export interface User {
   username: string;
   email: string;
   role: 'admin' | 'manager' | 'department_manager';
+  role_id?: number;
   departmentId?: string;
   departmentName?: string;
   lastLogin?: string;
@@ -201,9 +202,10 @@ export interface ManufacturingProgress {
 
 export interface AppNotification {
   id: number;
+  title: string;
   type: string;
   message: string;
   date: string;
   read: boolean;
-  priority: 'low' | 'medium' | 'high';
+  priority: 'low' | 'normal' | 'high';
 }

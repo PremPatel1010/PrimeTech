@@ -1,14 +1,23 @@
 import React, { useState, useEffect } from 'react';
 import StatCard from '../components/ui-custom/StatCard';
 import ProgressBar from '../components/ui-custom/ProgressBar';
-import { useFactory } from '../context/FactoryContext';
 import { 
   calculateRawMaterialValue, 
-  calculateFinishedProductValue, 
+  calculateFinishedProductValue,
   calculateTotalSales,
   formatCurrency,
   formatDate
 } from '../utils/calculations';
+import {
+  fetchInventoryValues,
+  fetchManufacturingEfficiency,
+  fetchOrderStatusDistribution,
+  fetchSalesTrend,
+  fetchRawMaterials,
+  fetchFinishedProducts,
+  fetchSalesOrders,
+  fetchManufacturingBatches
+} from '../services/kpi.service';
 import { 
   Package, 
   Factory, 
@@ -30,53 +39,50 @@ import {
   CartesianGrid, 
   Tooltip
 } from 'recharts';
-import { OrderStatus } from '../types';
-import axiosInstance from '@/utils/axios';
+import { OrderStatus, RawMaterial, FinishedProduct, SalesOrder, ManufacturingBatch } from '../types';
 
 const Dashboard: React.FC = () => {
-  const { 
-    rawMaterials, 
-    finishedProducts, 
-    salesOrders = [], 
-    manufacturingBatches 
-  } = useFactory();
+  const [rawMaterials, setRawMaterials] = useState<RawMaterial[]>([]);
+  const [finishedProducts, setFinishedProducts] = useState<FinishedProduct[]>([]);
+  const [salesOrders, setSalesOrders] = useState<SalesOrder[]>([]);
+  const [manufacturingBatches, setManufacturingBatches] = useState<ManufacturingBatch[]>([]);
+
   const [salesTrend, setSalesTrend] = useState<{ date: string, sales: number }[]>([]);
   const [inventoryValues, setInventoryValues] = useState({ raw_material_value: 0, finished_product_value: 0 });
   const [manufacturingEfficiency, setManufacturingEfficiency] = useState({ efficiency_percentage: 0, avg_completion_days: 0 });
   const [orderStatusDistribution, setOrderStatusDistribution] = useState<{ status: string, count: number }[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [useDummyData, setUseDummyData] = useState(true);
   
   const rawMaterialValue = calculateRawMaterialValue(rawMaterials);
   const finishedProductValue = calculateFinishedProductValue(finishedProducts);
-  const totalSales = calculateTotalSales(salesOrders, 'delivered');
+  const totalSales = calculateTotalSales(salesOrders);
   
   // Active manufacturing batches
-  const activeBatches = manufacturingBatches.filter(batch => batch.currentStage !== 'completed');
+  const activeBatches = (manufacturingBatches || []).filter(batch => batch.currentStage !== 'completed');
 
   // Active orders for the dashboard
-  const activeOrders = salesOrders.filter(order => 
+  const activeOrders = (salesOrders || []).filter(order => 
     order.status !== 'completed' && 
     order.status !== 'delivered' && 
     order.status !== 'cancelled'
   );
 
   // Manufacturing efficiency: percent of completed batches
-  const completedBatches = manufacturingBatches.filter(b => b.currentStage === 'completed');
-  const efficiency = manufacturingBatches.length > 0 ? Math.round((completedBatches.length / manufacturingBatches.length) * 100) : 0;
+  const completedBatches = (manufacturingBatches || []).filter(b => b.currentStage === 'completed');
+  const efficiency = (manufacturingBatches && (manufacturingBatches || []).length > 0) ? Math.round((completedBatches.length / (manufacturingBatches || []).length) * 100) : 0;
 
   // Stock alerts: raw materials and finished products below minThreshold
   const stockAlerts = [
-    ...rawMaterials.filter(m => m.minThreshold !== undefined && m.quantity < m.minThreshold).map(m => ({
-      id: m.id,
-      itemName: m.name,
+    ...(rawMaterials || []).filter(m => m.minimum_stock !== undefined && m.current_stock < m.minimum_stock).map(m => ({
+      id: m.material_id,
+      itemName: m.material_name,
       itemType: 'raw',
-      currentQuantity: m.quantity,
-      minThreshold: m.minThreshold!,
-      status: m.quantity === 0 ? 'critical' : 'warning',
+      currentQuantity: m.current_stock,
+      minThreshold: m.minimum_stock!,
+      status: m.current_stock === 0 ? 'critical' : 'warning',
     })),
-    ...finishedProducts.filter(p => p.minThreshold !== undefined && p.quantity < p.minThreshold).map(p => ({
+    ...(finishedProducts || []).filter(p => p.minThreshold !== undefined && p.quantity < p.minThreshold).map(p => ({
       id: p.id,
       itemName: p.name,
       itemType: 'finished',
@@ -88,80 +94,58 @@ const Dashboard: React.FC = () => {
 
   // Fetch all KPIs
   useEffect(() => {
-    const fetchKPIs = async () => {
+    const fetchData = async () => {
       try {
         setLoading(true);
         setError(null);
 
-        if (useDummyData) {
-          // Add dummy data for salesTrend
-          const dummySalesTrend = [
-            { date: '2023-10-01', sales: 1500 },
-            { date: '2023-10-02', sales: 1800 },
-            { date: '2023-10-03', sales: 1200 },
-            { date: '2023-10-04', sales: 2000 },
-            { date: '2023-10-05', sales: 1700 },
-            { date: '2023-10-06', sales: 2200 },
-            { date: '2023-10-07', sales: 1900 },
-          ];
-          setSalesTrend(dummySalesTrend);
+        // Fetch all base data
+        const [rawMats, finishedProds, salesOrds, manfBatches] = await Promise.all([
+          fetchRawMaterials(),
+          fetchFinishedProducts(),
+          fetchSalesOrders(),
+          fetchManufacturingBatches()
+        ]);
+        setRawMaterials(rawMats);
+        setFinishedProducts(finishedProds);
+        setSalesOrders(salesOrds);
+        setManufacturingBatches(manfBatches);
 
-          // Add dummy data for orderStatusDistribution
-          const dummyOrderStatusDistribution = [
-            { status: 'pending', count: 5 },
-            { status: 'in_production', count: 8 },
-            { status: 'confirmed', count: 12 },
-            { status: 'delivered', count: 20 },
-            { status: 'cancelled', count: 3 },
-          ];
-          setOrderStatusDistribution(dummyOrderStatusDistribution);
+        console.log("Fetched Raw Materials:", rawMats);
+        console.log("Fetched Finished Products:", finishedProds);
+        console.log("Fetched Sales Orders:", salesOrds);
+        console.log("Fetched Manufacturing Batches:", manfBatches);
 
-          setLoading(false);
-        } else {
-          // Fetch inventory values
-          const inventoryRes = await axiosInstance.get('/kpi/inventory-values');
-          if (inventoryRes.data.success) {
-            setInventoryValues(inventoryRes.data.data);
-          }
+        // Fetch KPI specific data
+        const inventory = await fetchInventoryValues();
+        setInventoryValues(inventory);
+        console.log("Fetched Inventory Values:", inventory);
 
-          // Fetch manufacturing efficiency
-          const efficiencyRes = await axiosInstance.get('/kpi/manufacturing-efficiency');
-          if (efficiencyRes.data.success) {
-            setManufacturingEfficiency(efficiencyRes.data.data);
-          }
+        const efficiencyData = await fetchManufacturingEfficiency();
+        setManufacturingEfficiency(efficiencyData);
+        console.log("Fetched Manufacturing Efficiency:", efficiencyData);
 
-          // Fetch order status distribution
-          const distributionRes = await axiosInstance.get('/kpi/order-status-distribution');
-          if (distributionRes.data.success) {
-            setOrderStatusDistribution(distributionRes.data.data);
-          }
+        const distribution = await fetchOrderStatusDistribution();
+        setOrderStatusDistribution(distribution);
+        console.log("Fetched Order Status Distribution:", distribution);
 
-          // Fetch sales trend
-          const today = new Date();
-          const startDate = '2000-01-01';
-          const endDate = today.toISOString().slice(0, 10);
-          const trendRes = await axiosInstance.get('/kpi/sales-trend', {
-            params: { periodType: 'day', startDate, endDate }
-          });
-          if (trendRes.data.success) {
-            setSalesTrend(trendRes.data.data.map((d: any) => ({
-              date: d.period_start,
-              sales: Number(d.total_revenue)
-            })));
-          }
-        }
+        const today = new Date();
+        const startDate = '2000-01-01'; // Or a more reasonable start date
+        const endDate = today.toISOString().slice(0, 10);
+        const sales = await fetchSalesTrend('day', startDate, endDate);
+        setSalesTrend(sales);
+        console.log("Fetched Sales Trend:", sales);
+
       } catch (err) {
-        console.error('Error fetching KPIs:', err);
+        console.error('Error fetching dashboard data:', err);
         setError('Failed to load dashboard data. Please try again later.');
       } finally {
-        if (!useDummyData) {
-          setLoading(false);
-        }
+        setLoading(false);
       }
     };
 
-    fetchKPIs();
-  }, [useDummyData]);
+    fetchData();
+  }, []);
 
   // Get status icon component
   const getStatusIcon = (status: OrderStatus) => {
