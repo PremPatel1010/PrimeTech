@@ -696,6 +696,34 @@ const productController = {
         error: error.message
       });
     }
+  },
+
+  // Get single raw material by ID
+  async getRawMaterial(req, res) {
+    try {
+      const { materialId } = req.params;
+      const material = await RawMaterial.findById(materialId);
+      
+      if (!material) {
+        return res.status(404).json({
+          success: false,
+          message: 'Raw material not found'
+        });
+      }
+      
+      res.json({
+        success: true,
+        data: material,
+        message: 'Raw material retrieved successfully'
+      });
+    } catch (error) {
+      console.error('Error fetching raw material:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error fetching raw material',
+        error: error.message
+      });
+    }
   }
 };
 

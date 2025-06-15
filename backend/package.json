@@ -22,7 +22,8 @@
     "morgan": "^1.10.0",
     "nodemailer": "^7.0.2",
     "pdfkit": "^0.17.1",
-    "pg": "^8.11.3"
+    "pg": "^8.11.3",
+    "puppeteer": "^24.10.1"
   },
   "devDependencies": {
     "nodemon": "^3.0.2"

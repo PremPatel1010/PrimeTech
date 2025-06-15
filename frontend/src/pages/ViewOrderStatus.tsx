@@ -51,7 +51,7 @@ import axiosInstance from '@/utils/axios';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { finishedProductService, FinishedProductAPI } from '../services/finishedProduct.service';
 import { manufacturingApi, ManufacturingBatch } from '../services/manufacturingApi';
-import { InventoryManagementModal } from "@/components/inventory/InventoryManagementModal";
+import { InventoryManagementModal } from '@/components/inventory/InventoryManagementModal';
 
 const ViewOrderStatus: React.FC = () => {
   const queryClient = useQueryClient();
@@ -73,11 +73,21 @@ const ViewOrderStatus: React.FC = () => {
     status: 'pending',
     totalValue: 0
   });
-  const [selectedProduct, setSelectedProduct] = useState<string>('');
+  // Remove selectedProduct, it will be derived from name and ranges
+  // const [selectedProduct, setSelectedProduct] = useState<string>(''); 
+  const [selectedProductName, setSelectedProductName] = useState<string>('');
+  const [selectedRatingRange, setSelectedRatingRange] = useState<string>('');
+  const [selectedDischargeRange, setSelectedDischargeRange] = useState<string>('');
+  const [selectedHeadRange, setSelectedHeadRange] = useState<string>('');
   const [productQuantity, setProductQuantity] = useState<number>(1);
   const [products, setProducts] = useState<Product[]>([]);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [editOrder, setEditOrder] = useState<SalesOrder | null>(null);
+  const [editSelectedProductName, setEditSelectedProductName] = useState<string>('');
+  const [editSelectedRatingRange, setEditSelectedRatingRange] = useState<string>('');
+  const [editSelectedDischargeRange, setEditSelectedDischargeRange] = useState<string>('');
+  const [editSelectedHeadRange, setEditSelectedHeadRange] = useState<string>('');
+  const [editProductQuantity, setEditProductQuantity] = useState<number>(1);
   const [isUpdating, setIsUpdating] = useState(false);
   const [orderTab, setOrderTab] = useState<'active' | 'history'>('active');
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
@@ -91,9 +101,12 @@ const ViewOrderStatus: React.FC = () => {
   const addButtonRef = useRef<HTMLButtonElement>(null);
   const [availabilityInfo, setAvailabilityInfo] = useState<any[]>([]);
   const [isInventoryModalOpen, setIsInventoryModalOpen] = useState(false);
-  const [selectedProductForInventory, setSelectedProductForInventory] = useState<{
-    product: any;
-    availability: any;
+  const [currentInventoryProduct, setCurrentInventoryProduct] = useState<{
+    productId: string;
+    productName: string;
+    requestedQuantity: number;
+    availableInStock: number;
+    maxManufacturableQuantity: number;
   } | null>(null);
   
   // Fetch finished products
@@ -331,76 +344,101 @@ const ViewOrderStatus: React.FC = () => {
   };
   
   const handleAddProduct = async () => {
-    if (selectedProduct && productQuantity > 0) {
-      const product = products.find(p => String(p.id) === selectedProduct);
+    if (selectedProductName && productQuantity > 0 && selectedRatingRange && selectedDischargeRange && selectedHeadRange) {
+      const product = products.find(
+        p => p.name === selectedProductName &&
+             p.ratingRange === selectedRatingRange &&
+             p.dischargeRange === selectedDischargeRange &&
+             p.headRange === selectedHeadRange
+      );
+
       if (product) {
         // Check availability first
         const orderData = {
           items: [{
-            product_id: selectedProduct,
+            product_id: product.id,
             quantity: productQuantity,
             unit_price: product.price || 0
           }]
         };
-        try {
-          const availabilityResult = await checkOrderAvailability(orderData);
-          const result = availabilityResult.availability_results[0];
 
-          // For all other cases, show inventory management modal
-          setSelectedProductForInventory({
-            product,
-            availability: result
+        const availabilityResult = await checkOrderAvailability(orderData);
+        const productAvailability = availabilityResult.availability_results?.[0] || availabilityResult;
+
+        // Show inventory management modal if product needs manufacturing
+        if (productAvailability.available_in_stock < productQuantity) {
+          setCurrentInventoryProduct({
+            productId: product.id,
+            productName: product.name,
+            requestedQuantity: productQuantity,
+            availableInStock: productAvailability.available_in_stock,
+            maxManufacturableQuantity: productAvailability.max_manufacturable_quantity || 0
           });
           setIsInventoryModalOpen(true);
-        } catch (error) {
-          toast({
-            title: "Error",
-            description: "Failed to check product availability",
-            variant: "destructive"
-          });
+          return;
         }
+
+        // If all available in stock, add directly
+        addProductToOrder({
+          productId: product.id,
+          productName: product.name,
+          productCategory: product.category,
+          quantity: productQuantity,
+          price: product.price || 0,
+          ratingRange: product.ratingRange,
+          dischargeRange: product.dischargeRange,
+          headRange: product.headRange,
+        });
+        setSelectedProductName('');
+        setSelectedRatingRange('');
+        setSelectedDischargeRange('');
+        setSelectedHeadRange('');
+        setProductQuantity(1);
+      } else {
+        toast({
+          title: "Cannot Add Product",
+          description: "Please select a complete product variation.",
+          variant: "destructive"
+        });
       }
+    } else {
+      toast({
+        title: "Missing Information",
+        description: "Please select a product and enter a quantity.",
+        variant: "destructive"
+      });
     }
   };
 
-  const handleInventoryAction = async () => {
-    if (!selectedProductForInventory) return;
+  const handleInventoryConfirm = async (stockDeduction: number, manufacturingQuantity: number) => {
+    if (!currentInventoryProduct) return;
 
-    try {
-      // The `handleInventoryAction` should primarily be for user acknowledgement or to update local state
-      // about the fulfillment strategy, not for creating the sales order directly.
-      // The `createSalesOrder` backend call should be initiated by `handleCreateOrder` with the complete `newOrder`.
-      
-      // Close the modal after user interaction
-      setIsInventoryModalOpen(false);
-      
-      // Add the product to the order with the original quantity after confirmation
-      const { product } = selectedProductForInventory;
-      addProductToOrder({
-        productId: String(product.id),
-        productName: product.name,
-        productCategory: product.productCode || '',
-        quantity: productQuantity, // Use the original productQuantity from state
-        price: product.price || 0
-      });
+    const product = products.find(p => p.id === currentInventoryProduct.productId);
+    if (!product) return;
 
-      toast({
-        title: 'Info',
-        description: 'Inventory action confirmed. Product added to order. Proceed with creating the sales order.',
-      });
-    } catch (error) {
-      console.error('Error handling inventory action:', error);
-      toast({
-        title: 'Error',
-        description: 'An error occurred during inventory action confirmation.',
-        variant: 'destructive',
-      });
-    } finally {
-      setSelectedProductForInventory(null); // Reset after processing
-    }
+    // Add product with specified quantities
+    addProductToOrder({
+      productId: product.id,
+      productName: product.name,
+      productCategory: product.category,
+      quantity: stockDeduction + manufacturingQuantity,
+      price: product.price || 0,
+      ratingRange: product.ratingRange,
+      dischargeRange: product.dischargeRange,
+      headRange: product.headRange,
+      stockDeduction,
+      manufacturingQuantity
+    });
+
+    // Reset form
+    setSelectedProductName('');
+    setSelectedRatingRange('');
+    setSelectedDischargeRange('');
+    setSelectedHeadRange('');
+    setProductQuantity(1);
+    setCurrentInventoryProduct(null);
   };
 
-  // Helper to add product to order and reset selection
   const addProductToOrder = (orderProduct: any) => {
     if (!orderProduct.quantity || orderProduct.quantity <= 0) {
       // Allow adding if the intent is to manufacture (i.e., quantity requested > 0)
@@ -425,14 +463,9 @@ const ViewOrderStatus: React.FC = () => {
       products: updatedProducts,
       totalValue
     });
-    setSelectedProduct('');
-    setProductQuantity(1);
-    setPendingProduct(null);
-    setPendingSuggestedQty(null);
-    setPartialDialogOpen(false);
     toast({
       title: "Product Added",
-      description: `${orderProduct.productName} (${orderProduct.quantity} units) added to order.`
+      description: `${orderProduct.productName} ${orderProduct.ratingRange ? `(${orderProduct.ratingRange} HP)` : ''} added to order.`
     });
     setTimeout(() => addButtonRef.current?.focus(), 100);
   };
@@ -453,10 +486,17 @@ const ViewOrderStatus: React.FC = () => {
     // Only fetch if creating a new order
     const nextOrderNumber = await fetchNextOrderNumber();
     setNewOrder((prev) => ({ ...prev, orderNumber: nextOrderNumber }));
+    // Reset selected product fields when opening the dialog
+    setSelectedProductName('');
+    setSelectedRatingRange('');
+    setSelectedDischargeRange('');
+    setSelectedHeadRange('');
+    setProductQuantity(1);
   };
 
   // Update the handleCreateOrder mutation
   const createOrderMutation = useMutation({
+    
     mutationFn: (orderData: Omit<SalesOrder, 'id'>) => createSalesOrder(orderData),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['salesOrders'] });
@@ -483,22 +523,64 @@ const ViewOrderStatus: React.FC = () => {
       newOrder.orderNumber &&
       newOrder.customerName &&
       newOrder.products &&
-      newOrder.products.length > 0 &&
-      typeof newOrder.totalValue === 'number'
+      newOrder.products.length > 0
     ) {
+      // Validate that all products have valid prices
+      const invalidProducts = newOrder.products.filter(p => !p.price || p.price <= 0);
+      if (invalidProducts.length > 0) {
+        toast({
+          title: "Invalid Product Prices",
+          description: "All products must have a valid price greater than 0.",
+          variant: "destructive"
+        });
+        return;
+      }
+
       setIsProcessing(true);
       try {
+        // First, validate that all products have valid stock deduction and manufacturing quantities
+        const invalidProducts = newOrder.products.filter(p => {
+          const stockDeduction = p.stockDeduction || 0;
+          const manufacturingQuantity = p.manufacturingQuantity || 0;
+          return stockDeduction + manufacturingQuantity !== p.quantity;
+        });
+
+        if (invalidProducts.length > 0) {
+          toast({
+            title: "Invalid Product Quantities",
+            description: "Stock deduction and manufacturing quantities must sum to the total quantity for each product.",
+            variant: "destructive"
+          });
+          setIsProcessing(false);
+          return;
+        }
+        console.log(newOrder)
+
         const orderData = {
+          order_number: newOrder.orderNumber,
+          order_date: newOrder.date,
+          customer_name: newOrder.customerName,
+          discount: newOrder.discount || 0,
+          gst: newOrder.gst || 18,
+          total_amount: newOrder.totalValue,
+          status: newOrder.status || 'pending',
           items: newOrder.products.map(p => ({
             product_id: p.productId,
+            product_category: p.productCategory,
             quantity: p.quantity,
-            unit_price: p.price
+            unit_price: Number(p.price),
+            rating_range: p.ratingRange,
+            discharge_range: p.dischargeRange,
+            head_range: p.headRange,
+            stock_deduction: p.stockDeduction || 0,
+            manufacturing_quantity: p.manufacturingQuantity || 0
           }))
         };
+        console.log('Sending order data:', orderData);
 
         const availabilityResult = await checkOrderAvailability(orderData);
         
-        if (!availabilityResult.overall_status.can_fulfill_partially) {
+        if (!availabilityResult.overall_status?.can_fulfill_partially) {
           toast({
             title: "Warning",
             description: "Order can only be partially fulfilled due to insufficient stock and materials.",
@@ -506,7 +588,7 @@ const ViewOrderStatus: React.FC = () => {
           });
         }
 
-        if (!availabilityResult.overall_status.can_fulfill_completely) {
+        if (!availabilityResult.overall_status?.can_fulfill_completely) {
           toast({
             title: "Order Partially Fulfilled",
             description: "This order can only be partially fulfilled due to raw material constraints. The available quantity will be manufactured, and the order will continue.",
@@ -514,7 +596,44 @@ const ViewOrderStatus: React.FC = () => {
           });
         }
 
-        createOrderMutation.mutate(newOrder as Omit<SalesOrder, 'id'>);
+        // Calculate total value, discount, and GST before creating order
+        const calculatedTotalValue = newOrder.products.reduce((total, p) => total + (p.quantity * Number(p.price)), 0);
+        const finalTotalValue = calculatedTotalValue * (1 - (newOrder.discount || 0) / 100) * (1 + (newOrder.gst || 0) / 100);
+
+        // Create the order with the same data structure as orderData
+        createOrderMutation.mutate({
+          orderNumber: orderData.order_number,
+          date: orderData.order_date,
+          customerName: orderData.customer_name,
+          discount: orderData.discount,
+          gst: orderData.gst,
+          status: orderData.status,
+          totalValue: finalTotalValue,
+          products: newOrder.products.map(p => {
+            // Ensure we have the stock deduction and manufacturing quantities
+            const stockDeduction = p.stockDeduction || 0;
+            const manufacturingQuantity = p.manufacturingQuantity || 0;
+            
+            // Validate that they sum to the total quantity
+            if (stockDeduction + manufacturingQuantity !== p.quantity) {
+              throw new Error(`Invalid quantities for product ${p.productName}: stock deduction (${stockDeduction}) + manufacturing (${manufacturingQuantity}) must equal total quantity (${p.quantity})`);
+            }
+
+            return {
+              productId: p.productId,
+              productName: p.productName,
+              productCategory: p.productCategory,
+              quantity: p.quantity,
+              price: Number(p.price),
+              ratingRange: p.ratingRange,
+              dischargeRange: p.dischargeRange,
+              headRange: p.headRange,
+              stockDeduction: stockDeduction,
+              manufacturingQuantity: manufacturingQuantity
+            };
+          })
+        });
+        console.log(createOrderMutation)
       } catch (error) {
         console.error("Error checking availability:", error);
         toast({
@@ -525,6 +644,12 @@ const ViewOrderStatus: React.FC = () => {
       } finally {
         setIsProcessing(false);
       }
+    } else {
+      toast({
+        title: "Missing Information",
+        description: "Please fill in all required order details and add at least one product.",
+        variant: "destructive"
+      });
     }
   };
 
@@ -539,13 +664,25 @@ const ViewOrderStatus: React.FC = () => {
       status: 'pending',
       totalValue: 0
     });
-    setSelectedProduct('');
+    setSelectedProductName('');
+    setSelectedRatingRange('');
+    setSelectedDischargeRange('');
+    setSelectedHeadRange('');
     setProductQuantity(1);
   };
 
   const handleEditClick = (order: SalesOrder) => {
     setEditOrder(order);
     setIsEditDialogOpen(true);
+    // Populate edit dialog dropdowns
+    if (order.products.length > 0) {
+      const firstProduct = order.products[0];
+      setEditSelectedProductName(firstProduct.productName);
+      setEditSelectedRatingRange(firstProduct.ratingRange || '');
+      setEditSelectedDischargeRange(firstProduct.dischargeRange || '');
+      setEditSelectedHeadRange(firstProduct.headRange || '');
+      setEditProductQuantity(firstProduct.quantity);
+    }
   };
 
   const handleEditOrderChange = (field: keyof SalesOrder, value: any) => {
@@ -557,16 +694,19 @@ const ViewOrderStatus: React.FC = () => {
     if (!editOrder) return;
     const updatedProducts = [...editOrder.products];
     updatedProducts[idx] = { ...updatedProducts[idx], [field]: value };
-    setEditOrder({ ...editOrder, products: updatedProducts });
+    // Recalculate total value when product details change
+    const totalValue = updatedProducts.reduce((total, p) => total + (p.quantity * (p.price || 0)), 0);
+    const finalTotalValue = totalValue * (1 - (editOrder.discount || 0) / 100) * (1 + (editOrder.gst || 0) / 100);
+    setEditOrder({ ...editOrder, products: updatedProducts, totalValue: finalTotalValue });
   };
 
-  const handleEditAddProduct = () => {
+  const handleEditAddProduct = (newProduct: OrderProduct) => {
     if (!editOrder) return;
     setEditOrder({
       ...editOrder,
       products: [
         ...editOrder.products,
-        { productId: '', productName: '', quantity: 1, price: 0 }
+        newProduct
       ]
     });
   };
@@ -575,12 +715,50 @@ const ViewOrderStatus: React.FC = () => {
     if (!editOrder) return;
     const updatedProducts = [...editOrder.products];
     updatedProducts.splice(idx, 1);
-    setEditOrder({ ...editOrder, products: updatedProducts });
+    // Recalculate total value when product is removed
+    const totalValue = updatedProducts.reduce((total, p) => total + (p.quantity * (p.price || 0)), 0);
+    const finalTotalValue = totalValue * (1 - (editOrder.discount || 0) / 100) * (1 + (editOrder.gst || 0) / 100);
+    setEditOrder({ ...editOrder, products: updatedProducts, totalValue: finalTotalValue });
   };
+
+  // Memoized lists for cascading dropdowns for Edit Sales Order
+  const editUniqueProductNames = React.useMemo(() => {
+    const names = new Set<string>();
+    products.forEach(p => names.add(p.name));
+    return Array.from(names);
+  }, [products]);
+
+  const editFilteredRatingRanges = React.useMemo(() => {
+    if (!editSelectedProductName) return [];
+    const ranges = new Set<string>();
+    products.filter(p => p.name === editSelectedProductName && p.ratingRange)
+      .forEach(p => p.ratingRange && ranges.add(p.ratingRange));
+    return Array.from(ranges);
+  }, [products, editSelectedProductName]);
+
+  const editFilteredDischargeRanges = React.useMemo(() => {
+    if (!editSelectedProductName || !editSelectedRatingRange) return [];
+    const ranges = new Set<string>();
+    products.filter(p => p.name === editSelectedProductName && p.ratingRange === editSelectedRatingRange && p.dischargeRange)
+      .forEach(p => p.dischargeRange && ranges.add(p.dischargeRange));
+    return Array.from(ranges);
+  }, [products, editSelectedProductName, editSelectedRatingRange]);
+
+  const editFilteredHeadRanges = React.useMemo(() => {
+    if (!editSelectedProductName || !editSelectedRatingRange || !editSelectedDischargeRange) return [];
+    const ranges = new Set<string>();
+    products.filter(p => 
+      p.name === editSelectedProductName && 
+      p.ratingRange === editSelectedRatingRange && 
+      p.dischargeRange === editSelectedDischargeRange &&
+      p.headRange
+    ).forEach(p => p.headRange && ranges.add(p.headRange));
+    return Array.from(ranges);
+  }, [products, editSelectedProductName, editSelectedRatingRange, editSelectedDischargeRange]);
 
   // Update the handleEditSave mutation
   const editOrderMutation = useMutation({
-    mutationFn: ({ orderId, orderData }: { orderId: string, orderData: any }) => 
+    mutationFn: ({ orderId, orderData }: { orderId: string, orderData: Partial<SalesOrder> }) => 
       updateSalesOrder(orderId, orderData),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['salesOrders'] });
@@ -601,25 +779,72 @@ const ViewOrderStatus: React.FC = () => {
     }
   });
 
-  // Update the handleEditSave function
   const handleEditSave = async () => {
-    if (!editOrder) return;
-    setIsUpdating(true);
-    try {
-      const mappedOrder = {
-        ...editOrder,
-        products: editOrder.products.map((p) => {
-          const mapped: any = { ...p };
-          mapped.product_id = (p as any).productId || '';
-          mapped.product_category = (p as any).productCategory || '';
-          mapped.unit_price = p.price || 0;
-          mapped.quantity = p.quantity || 0;
-          return mapped;
-        })
-      };
-      editOrderMutation.mutate({ orderId: editOrder.id, orderData: mappedOrder });
-    } finally {
-      setIsUpdating(false);
+    if (editOrder) {
+      setIsUpdating(true);
+      try {
+        const orderData = {
+          items: editOrder.products.map(p => ({
+            product_id: p.productId,
+            quantity: p.quantity,
+            unit_price: p.price,
+            rating_range: p.ratingRange,
+            discharge_range: p.dischargeRange,
+            head_range: p.headRange,
+          })),
+          status: editOrder.status,
+          totalValue: editOrder.totalValue,
+          partialFulfillment: editOrder.partialFulfillment,
+        };
+
+        const availabilityResult = await checkOrderAvailability(orderData);
+
+        if (!availabilityResult.overall_status.can_fulfill_partially) {
+          toast({
+            title: "Warning",
+            description: "Order can only be partially fulfilled due to insufficient stock and materials.",
+            variant: "default"
+          });
+        }
+
+        if (!availabilityResult.overall_status.can_fulfill_completely) {
+          toast({
+            title: "Order Partially Fulfilled",
+            description: "This order can only be partially fulfilled due to raw material constraints. The available quantity will be manufactured, and the order will continue.",
+            variant: "default"
+          });
+        }
+
+        const calculatedTotalValue = editOrder.products.reduce((total, p) => total + (p.quantity * (p.price || 0)), 0);
+        const finalTotalValue = calculatedTotalValue * (1 - (editOrder.discount || 0) / 100) * (1 + (editOrder.gst || 0) / 100);
+
+        editOrderMutation.mutate({
+          orderId: editOrder.id,
+          orderData: {
+            ...editOrder,
+            totalValue: finalTotalValue,
+            products: editOrder.products.map(p => ({
+              productId: p.productId,
+              productName: p.productName,
+              productCategory: p.productCategory,
+              quantity: p.quantity,
+              price: p.price,
+              ratingRange: p.ratingRange,
+              dischargeRange: p.dischargeRange,
+              headRange: p.headRange,
+            })),
+          }
+        });
+      } catch (error) {
+        console.error("Error updating sales order:", error);
+        toast({
+          title: "Error",
+          description: "Failed to update sales order",
+          variant: "destructive"
+        });
+      } finally {
+        setIsUpdating(false);
+      }
     }
   };
 
@@ -736,6 +961,41 @@ const ViewOrderStatus: React.FC = () => {
     fetchAvailability();
   }, [newOrder.products, finishedProducts]);
   
+  // Memoized lists for cascading dropdowns for Create New Sales Order
+  const uniqueProductNames = React.useMemo(() => {
+    const names = new Set<string>();
+    products.forEach(p => names.add(p.name));
+    return Array.from(names);
+  }, [products]);
+
+  const filteredRatingRanges = React.useMemo(() => {
+    if (!selectedProductName) return [];
+    const ranges = new Set<string>();
+    products.filter(p => p.name === selectedProductName && p.ratingRange)
+      .forEach(p => p.ratingRange && ranges.add(p.ratingRange));
+    return Array.from(ranges);
+  }, [products, selectedProductName]);
+
+  const filteredDischargeRanges = React.useMemo(() => {
+    if (!selectedProductName || !selectedRatingRange) return [];
+    const ranges = new Set<string>();
+    products.filter(p => p.name === selectedProductName && p.ratingRange === selectedRatingRange && p.dischargeRange)
+      .forEach(p => p.dischargeRange && ranges.add(p.dischargeRange));
+    return Array.from(ranges);
+  }, [products, selectedProductName, selectedRatingRange]);
+
+  const filteredHeadRanges = React.useMemo(() => {
+    if (!selectedProductName || !selectedRatingRange || !selectedDischargeRange) return [];
+    const ranges = new Set<string>();
+    products.filter(p => 
+      p.name === selectedProductName && 
+      p.ratingRange === selectedRatingRange && 
+      p.dischargeRange === selectedDischargeRange &&
+      p.headRange
+    ).forEach(p => p.headRange && ranges.add(p.headRange));
+    return Array.from(ranges);
+  }, [products, selectedProductName, selectedRatingRange, selectedDischargeRange]);
+
   // Add loading state to the UI
   if (isLoadingOrders) {
     return (
@@ -752,14 +1012,14 @@ const ViewOrderStatus: React.FC = () => {
     <div className="space-y-6 order-status-main-container">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div className="order-status-header-row w-full justify-between">
-        <h1 className="text-2xl font-bold text-factory-gray-900">Sales Orders</h1>
-        <Button 
-          onClick={handleOpenCreateOrderDialog}
-          className="bg-factory-primary hover:bg-factory-primary/90"
-        >
-          Add New Order
-        </Button>
-      </div>
+          <h1 className="text-2xl font-bold text-factory-gray-900">Sales Orders</h1>
+          <Button 
+            onClick={handleOpenCreateOrderDialog}
+            className="bg-factory-primary hover:bg-factory-primary/90"
+          >
+            Add New Order
+          </Button>
+        </div>
       </div>
       <div className="order-status-search-filter-row">
         <div className="relative flex-grow">
@@ -913,8 +1173,8 @@ const ViewOrderStatus: React.FC = () => {
               >
                 &#62;
               </button>
-        </div>
-      )}
+            </div>
+          )}
         </div>
       )}
       {orderTab === 'history' && (
@@ -1006,20 +1266,20 @@ const ViewOrderStatus: React.FC = () => {
               ))
             ) : (
               <div className="col-span-full text-center py-12 bg-white rounded-lg border">
-                <p className="mt-4 text-factory-gray-500">No order history found.</p>
+                <p className="mt-4 text-factory-gray-500">No history orders found.</p>
               </div>
             )}
           </Accordion>
-            {totalHistoryPages > 1 && (
+          {totalHistoryPages > 1 && (
             <div className="order-status-pagination">
-                  <button
+              <button
                 className={`px-3 py-1 rounded border ${activeHistoryPage === 1 ? 'opacity-50 cursor-not-allowed' : 'bg-white text-factory-primary border-factory-primary'}`}
                 onClick={() => activeHistoryPage > 1 && setActiveHistoryPage(activeHistoryPage - 1)}
                 disabled={activeHistoryPage === 1}
                 aria-label="Previous Page"
               >
                 &#60;
-                  </button>
+              </button>
               <span className="px-2 py-1 text-sm text-gray-700">{activeHistoryPage} <span className="mx-1">of</span> {totalHistoryPages}</span>
               <button
                 className={`px-3 py-1 rounded border ${activeHistoryPage === totalHistoryPages ? 'opacity-50 cursor-not-allowed' : 'bg-white text-factory-primary border-factory-primary'}`}
@@ -1029,367 +1289,460 @@ const ViewOrderStatus: React.FC = () => {
               >
                 &#62;
               </button>
-              </div>
-            )}
+            </div>
+          )}
         </div>
       )}
-      <Dialog open={isDialogOpen} onOpenChange={(open) => { if (!isProcessing) setIsDialogOpen(open); }}>
-        <DialogContent className="sm:max-w-[600px] max-h-[80vh] overflow-y-auto">
+
+      {/* Create New Sales Order Dialog */}
+      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+        <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Create New Sales Order</DialogTitle>
           </DialogHeader>
           <div className="grid gap-4 py-4">
-            <div className="order-status-dialog-grid">
-              <div className="space-y-2">
-                <Label htmlFor="orderDate">Order Date</Label>
-                <Input 
-                  id="orderDate" 
-                  type="date" 
-                  value={newOrder.date} 
-                  onChange={(e) => setNewOrder({...newOrder, date: e.target.value})}
-                />
-              </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="orderNumber" className="text-right">Order Number</Label>
+              <Input id="orderNumber" value={newOrder.orderNumber} readOnly className="col-span-3 bg-gray-100" />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="customerName">Customer Name</Label>
-              <Input 
-                id="customerName" 
-                value={newOrder.customerName} 
-                onChange={(e) => setNewOrder({...newOrder, customerName: e.target.value})}
-                placeholder="Customer name"
-              />
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="orderDate" className="text-right">Order Date</Label>
+              <Input id="orderDate" type="date" value={newOrder.date} onChange={(e) => setNewOrder({ ...newOrder, date: e.target.value })} className="col-span-3" />
             </div>
-            <div className="space-y-2">
+            <div className="grid grid-cols-4 items-center gap-4">
+              <Label htmlFor="customerName" className="text-right">Customer Name</Label>
+              <Input id="customerName" value={newOrder.customerName} onChange={(e) => setNewOrder({ ...newOrder, customerName: e.target.value })} className="col-span-3" />
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="discount">Discount (%)</Label>
-              <Input
-                id="discount"
-                type="number"
-                value={newOrder.discount}
-                onChange={e => setNewOrder({ ...newOrder, discount: Number(e.target.value) })}
-                className="mb-2"
-              />
+              <Input id="discount" type="number" value={newOrder.discount} onChange={(e) => setNewOrder({ ...newOrder, discount: Number(e.target.value) })} />
             </div>
-            <div className="space-y-2">
+            <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="gst">GST (%)</Label>
-              <Input
-                id="gst"
-                type="number"
-                value={newOrder.gst}
-                onChange={e => setNewOrder({ ...newOrder, gst: Number(e.target.value) })}
-                className="mb-4"
-              />
+              <Input id="gst" type="number" value={newOrder.gst} onChange={(e) => setNewOrder({ ...newOrder, gst: Number(e.target.value) })} />
             </div>
-            <h4 className="font-medium mb-2">Add Products</h4>
-            <div className="order-status-product-add-grid">
-              <div className="col-span-3 md:col-span-1 space-y-2">
-                <Label htmlFor="product">Product</Label>
-                <Select 
-                  value={selectedProduct}
-                  onValueChange={setSelectedProduct}
+
+            <h4 className="font-semibold mt-4">Add Products</h4>
+            <div className="flex flex-col gap-4">
+              <div className="grid w-full items-center gap-1.5">
+                <Label htmlFor="productName">Product Name</Label>
+                <Select
+                  value={selectedProductName}
+                  onValueChange={(value) => {
+                    setSelectedProductName(value);
+                    setSelectedRatingRange('');
+                    setSelectedDischargeRange('');
+                    setSelectedHeadRange('');
+                  }}
                 >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select product" />
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Select product name" />
                   </SelectTrigger>
                   <SelectContent>
-                    {products.map((product) => (
-                      <SelectItem key={product.id} value={String(product.id)}>{product.name}</SelectItem>
+                    {uniqueProductNames.map(name => (
+                      <SelectItem key={name} value={name}>
+                        {name}
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-2">
+
+              {selectedProductName && ( 
+                <div className="grid w-full items-center gap-1.5">
+                  <Label htmlFor="ratingRange">HP Rating</Label>
+                  <Select
+                    value={selectedRatingRange}
+                    onValueChange={(value) => {
+                      setSelectedRatingRange(value);
+                      setSelectedDischargeRange('');
+                      setSelectedHeadRange('');
+                    }}
+                    disabled={!selectedProductName || filteredRatingRanges.length === 0}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Select HP rating" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {filteredRatingRanges.map(range => (
+                        <SelectItem key={range} value={range}>
+                          {range}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
+              {selectedProductName && selectedRatingRange && (
+                <div className="grid w-full items-center gap-1.5">
+                  <Label htmlFor="dischargeRange">Discharge Range</Label>
+                  <Select
+                    value={selectedDischargeRange}
+                    onValueChange={(value) => {
+                      setSelectedDischargeRange(value);
+                      setSelectedHeadRange('');
+                    }}
+                    disabled={!selectedRatingRange || filteredDischargeRanges.length === 0}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Select discharge range" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {filteredDischargeRanges.map(range => (
+                        <SelectItem key={range} value={range}>
+                          {range}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
+              {selectedProductName && selectedRatingRange && selectedDischargeRange && (
+                <div className="grid w-full items-center gap-1.5">
+                  <Label htmlFor="headRange">Head Range</Label>
+                  <Select
+                    value={selectedHeadRange}
+                    onValueChange={setSelectedHeadRange}
+                    disabled={!selectedDischargeRange || filteredHeadRanges.length === 0}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Select head range" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {filteredHeadRanges.map(range => (
+                        <SelectItem key={range} value={range}>
+                          {range}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
+              <div className="grid w-full items-center gap-1.5">
                 <Label htmlFor="quantity">Quantity</Label>
                 <Input
-                  id="quantity" 
-                  type="number" 
-                  min="1"
-                  value={productQuantity} 
-                  onChange={(e) => setProductQuantity(parseInt(e.target.value) || 0)}
+                  id="quantity"
+                  type="number"
+                  value={productQuantity}
+                  onChange={(e) => setProductQuantity(Number(e.target.value))}
+                  min={1}
                 />
               </div>
-              {selectedProduct && productQuantity > 0 && (
-                <ProductAvailabilityInfo
-                  productId={selectedProduct}
-                  quantity={productQuantity}
-                />
-              )}
-              <div className="flex items-end">
-                <Button 
-                  
-                  onClick={handleAddProduct}
-                  className="bg-factory-primary hover:bg-factory-primary/90 w-full"
-                >
-                  Add Product
-                </Button>
-              </div>
+              <Button
+                onClick={handleAddProduct}
+                disabled={!selectedProductName || !selectedRatingRange || !selectedDischargeRange || !selectedHeadRange || productQuantity <= 0 || isProcessing}
+                className="bg-factory-primary hover:bg-factory-primary/90"
+              >
+                Add Product
+              </Button>
             </div>
-            {(newOrder.products || []).length > 0 && (
-              <div className="border rounded-md p-4">
-                <h4 className="font-medium mb-2">Order Products</h4>
-                <div className="max-h-[200px] overflow-y-auto">
-                  {newOrder.products?.map((product, idx) => (
-                    <div key={idx} className="flex justify-between items-center py-2 border-b last:border-0">
-                      <div>
-                        <p className="font-medium">{product.productName}</p>
-                        <div className="flex gap-2 items-center">
-                          <p className="text-sm text-factory-gray-500">
-                            {product.quantity} x {formatCurrency(product.price || 0)}
-                          </p>
-                        </div>
-                      </div>
-                      <p className="font-medium mr-4">
-                        {formatCurrency((product.quantity || 0) * (product.price || 0))}
-                      </p>
-                      <Button 
-                        variant="ghost" 
-                        size="icon"
-                        onClick={() => handleRemoveProduct(idx)}
-                      >
-                        X
-                      </Button>
-                    </div>
-                  ))}
+            {newOrder.products && newOrder.products.length > 0 && (
+              <div className="w-full mt-4">
+                <h4 className="font-semibold mb-2">Products in this order:</h4>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Product Name</TableHead>
+                      <TableHead>HP Rating</TableHead>
+                      <TableHead>Discharge Range</TableHead>
+                      <TableHead>Head Range</TableHead>
+                      <TableHead>Quantity</TableHead>
+                      <TableHead>Price</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {newOrder.products.map((product, index) => (
+                      <TableRow key={index}>
+                        <TableCell>{product.productName}</TableCell>
+                        <TableCell>{product.ratingRange || 'N/A'}</TableCell>
+                        <TableCell>{product.dischargeRange || 'N/A'}</TableCell>
+                        <TableCell>{product.headRange || 'N/A'}</TableCell>
+                        <TableCell>{product.quantity}</TableCell>
+                        <TableCell>{formatCurrency(product.price)}</TableCell>
+                        <TableCell className="text-right">
+                          <Button variant="destructive" size="sm" onClick={() => handleRemoveProduct(index)}>
+                            Remove
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+                <div className="text-right font-bold text-lg mt-4">
+                  Total Value: {formatCurrency(newOrder.totalValue)}
                 </div>
-                <div className="mt-4 flex justify-between">
-                  <p className="font-medium">Total</p>
-                  <p className="font-bold">{formatCurrency(newOrder.totalValue || 0)}</p>
-                </div>
-              </div>
-            )}
-            {(availabilityInfo && availabilityInfo.length > 0) && (
-              <div className="mt-4">
-                <h4 className="font-medium mb-2">Product Availability Breakdown</h4>
-                {availabilityInfo.map((info, idx) => (
-                  <div key={info.product_id} className="border rounded-md p-3 mb-2">
-                    <div><b>Product:</b> {products.find(p => String(p.id) === String(info.product_id))?.name || info.product_id}</div>
-                    <div><b>Ordered:</b> {info.requested_quantity}</div>
-                    <div><b>Ready in Stock:</b> {info.available_in_stock}</div>
-                    <div><b>To Manufacture:</b> {info.to_be_manufactured}</div>
-                    <div><b>Can Manufacture:</b> {info.can_manufacture ? 'Yes' : 'No'}</div>
-                    <div><b>Max Manufacturable:</b> {info.max_manufacturable_quantity}</div>
-                    {info.materials_needed && info.materials_needed.length > 0 && (
-                      <div className="mt-2">
-                        <b>Materials Needed:</b>
-                        <ul className="ml-4 list-disc text-xs">
-                          {info.materials_needed.map((mat, midx) => (
-                            <li key={midx}>
-                              {mat.material_name}: Need {mat.required_quantity}, Available {mat.available_quantity} {mat.unit} {mat.missing_quantity > 0 ? `(Missing: ${mat.missing_quantity})` : ''}
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                  </div>
-                ))}
               </div>
             )}
           </div>
           <DialogFooter>
-            <Button 
-              variant="outline" 
-              onClick={() => {
-                if (!isProcessing) {
-                  setIsDialogOpen(false);
-                  resetNewOrder();
-                }
-              }}
-              disabled={isProcessing}
-            >
-              Cancel
-            </Button>
-            <Button 
-              onClick={handleCreateOrder}
-              className="bg-factory-primary hover:bg-factory-primary/90"
-              disabled={!(newOrder.customerName && newOrder.products && newOrder.products.length > 0) || isProcessing}
-            >
-              {isProcessing ? 'Processing...' : 'Create Order'}
+            <Button variant="outline" onClick={() => setIsDialogOpen(false)}>Cancel</Button>
+            <Button onClick={handleCreateOrder} disabled={newOrder.products.length === 0 || isProcessing} className="bg-factory-primary hover:bg-factory-primary/90">
+              Create Order
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      <Dialog open={isUpdateDialogOpen} onOpenChange={setIsUpdateDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Update Order Status</DialogTitle>
-            <DialogDescription>
-              Select a new status for order {selectedOrder?.orderNumber}.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="py-4">
-            <Select onValueChange={(value) => handleStatusChange(value as OrderStatus)} value={selectedOrder?.status}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select new status" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="pending">Pending</SelectItem>
-                <SelectItem value="completed">Completed</SelectItem>
-                <SelectItem value="cancelled">Cancelled</SelectItem>
-              </SelectContent>
-            </Select>
-            {isUpdating && <div className="mt-2 text-blue-600">Updating...</div>}
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsUpdateDialogOpen(false)} disabled={isUpdating}>
-              Cancel
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+
+      {/* Edit Order Dialog */}
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-        <DialogContent className="sm:max-w-[700px]">
+        <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Edit Sales Order</DialogTitle>
           </DialogHeader>
           {editOrder && (
             <div className="grid gap-4 py-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="edit-order-number">Order Number</Label>
-                  <Input id="edit-order-number" value={editOrder.orderNumber} onChange={e => handleEditOrderChange('orderNumber', e.target.value)} />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="edit-order-date">Order Date</Label>
-                  <Input id="edit-order-date" type="date" value={editOrder.date} onChange={e => handleEditOrderChange('date', e.target.value)} />
-                </div>
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="editOrderNumber" className="text-right">Order Number</Label>
+                <Input id="editOrderNumber" value={editOrder.orderNumber} onChange={(e) => handleEditOrderChange('orderNumber', e.target.value)} className="col-span-3" />
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="edit-customer-name">Customer Name</Label>
-                <Input id="edit-customer-name" value={editOrder.customerName} onChange={e => handleEditOrderChange('customerName', e.target.value)} />
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="editDate" className="text-right">Order Date</Label>
+                <Input id="editDate" type="date" value={editOrder.date} onChange={(e) => handleEditOrderChange('date', e.target.value)} className="col-span-3" />
               </div>
-              <h4 className="font-medium mb-2">Edit Products</h4>
-              <div className="space-y-2">
-                {editOrder.products.map((product, idx) => (
-                  <div key={idx} className="flex gap-2 items-center mb-2">
-                    <Select
-                      value={product.productId}
-                      onValueChange={val => handleEditProductChange(idx, 'productId', val)}
-                    >
-                      <SelectTrigger className="w-1/3">
-                        <SelectValue placeholder="Select product" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {products.map((prod) => (
-                          <SelectItem key={prod.id} value={String(prod.id)}>{prod.name}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <Input
-                      className="w-1/6"
-                      type="number"
-                      min="1"
-                      value={product.quantity}
-                      onChange={e => handleEditProductChange(idx, 'quantity', parseInt(e.target.value) || 0)}
-                      placeholder="Qty"
-                    />
-                    <Input
-                      className="w-1/6"
-                      type="number"
-                      min="0"
-                      value={product.price}
-                      onChange={e => handleEditProductChange(idx, 'price', parseFloat(e.target.value) || 0)}
-                      placeholder="Unit Price"
-                    />
-                    <Button variant="ghost" size="icon" onClick={() => handleEditRemoveProduct(idx)}>
-                      X
-                    </Button>
-                  </div>
-                ))}
-                <Button variant="outline" size="sm" onClick={handleEditAddProduct}>
-                  Add Product
-                </Button>
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="editCustomerName" className="text-right">Customer Name</Label>
+                <Input id="editCustomerName" value={editOrder.customerName} onChange={(e) => handleEditOrderChange('customerName', e.target.value)} className="col-span-3" />
+              </div>
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="editDiscount" className="text-right">Discount (%)</Label>
+                <Input id="editDiscount" type="number" value={editOrder.discount} onChange={(e) => handleEditOrderChange('discount', Number(e.target.value))} className="col-span-3" />
+              </div>
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="editGst" className="text-right">GST (%)</Label>
+                <Input id="editGst" type="number" value={editOrder.gst} onChange={(e) => handleEditOrderChange('gst', Number(e.target.value))} className="col-span-3" />
+              </div>
+
+              <h4 className="font-semibold mt-4">Products</h4>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Product Name</TableHead>
+                    <TableHead>HP Rating</TableHead>
+                    <TableHead>Discharge Range</TableHead>
+                    <TableHead>Head Range</TableHead>
+                    <TableHead>Quantity</TableHead>
+                    <TableHead>Unit Price</TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {editOrder.products.map((product, index) => (
+                    <TableRow key={index}>
+                      <TableCell>{product.productName}</TableCell>
+                      <TableCell>{product.ratingRange || 'N/A'}</TableCell>
+                      <TableCell>{product.dischargeRange || 'N/A'}</TableCell>
+                      <TableCell>{product.headRange || 'N/A'}</TableCell>
+                      <TableCell>
+                        <Input
+                          type="number"
+                          value={product.quantity}
+                          onChange={(e) => handleEditProductChange(index, 'quantity', Number(e.target.value))}
+                          className="w-24"
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          value={product.price}
+                          onChange={(e) => handleEditProductChange(index, 'price', Number(e.target.value))}
+                          className="w-24"
+                        />
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button variant="destructive" size="sm" onClick={() => handleEditRemoveProduct(index)}>
+                          Remove
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                  <TableRow>
+                    <TableCell colSpan={7}>
+                      <div className="flex flex-col gap-2">
+                        <Select
+                          value={editSelectedProductName}
+                          onValueChange={(value) => {
+                            setEditSelectedProductName(value);
+                            setEditSelectedRatingRange('');
+                            setEditSelectedDischargeRange('');
+                            setEditSelectedHeadRange('');
+                          }}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select product name" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {editUniqueProductNames.map(name => (
+                              <SelectItem key={name} value={name}>
+                                {name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+
+                        {editSelectedProductName && (
+                          <Select
+                            value={editSelectedRatingRange}
+                            onValueChange={(value) => {
+                              setEditSelectedRatingRange(value);
+                              setEditSelectedDischargeRange('');
+                              setEditSelectedHeadRange('');
+                            }}
+                            disabled={!editSelectedProductName || editFilteredRatingRanges.length === 0}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select HP rating" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {editFilteredRatingRanges.map(range => (
+                                <SelectItem key={range} value={range}>
+                                  {range}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        )}
+
+                        {editSelectedProductName && editSelectedRatingRange && (
+                          <Select
+                            value={editSelectedDischargeRange}
+                            onValueChange={(value) => {
+                              setEditSelectedDischargeRange(value);
+                              setEditSelectedHeadRange('');
+                            }}
+                            disabled={!editSelectedRatingRange || editFilteredDischargeRanges.length === 0}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select discharge range" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {editFilteredDischargeRanges.map(range => (
+                                <SelectItem key={range} value={range}>
+                                  {range}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        )}
+
+                        {editSelectedProductName && editSelectedRatingRange && editSelectedDischargeRange && (
+                          <Select
+                            value={editSelectedHeadRange}
+                            onValueChange={setEditSelectedHeadRange}
+                            disabled={!editSelectedDischargeRange || editFilteredHeadRanges.length === 0}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select head range" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {editFilteredHeadRanges.map(range => (
+                                <SelectItem key={range} value={range}>
+                                  {range}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        )}
+                        
+                        <Input
+                          type="number"
+                          value={editProductQuantity}
+                          onChange={(e) => setEditProductQuantity(Number(e.target.value))}
+                          min={1}
+                          placeholder="Quantity"
+                        />
+                        <Button
+                          onClick={() => {
+                            const selectedProd = products.find(
+                              p => p.name === editSelectedProductName &&
+                                   p.ratingRange === editSelectedRatingRange &&
+                                   p.dischargeRange === editSelectedDischargeRange &&
+                                   p.headRange === editSelectedHeadRange
+                            );
+                            if (selectedProd) {
+                              handleEditAddProduct({
+                                productId: selectedProd.id,
+                                productName: selectedProd.name,
+                                productCategory: selectedProd.category,
+                                quantity: editProductQuantity,
+                                price: selectedProd.price || 0,
+                                ratingRange: selectedProd.ratingRange,
+                                dischargeRange: selectedProd.dischargeRange,
+                                headRange: selectedProd.headRange,
+                              });
+                              setEditSelectedProductName('');
+                              setEditSelectedRatingRange('');
+                              setEditSelectedDischargeRange('');
+                              setEditSelectedHeadRange('');
+                              setEditProductQuantity(1);
+                            } else {
+                              toast({
+                                title: "Cannot Add Product",
+                                description: "Please select a complete product variation for editing.",
+                                variant: "destructive"
+                              });
+                            }
+                          }}
+                          disabled={!editSelectedProductName || !editSelectedRatingRange || !editSelectedDischargeRange || !editSelectedHeadRange || editProductQuantity <= 0}
+                          className="bg-factory-primary hover:bg-factory-primary/90"
+                        >
+                          Add Product
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                </TableBody>
+              </Table>
+              <div className="text-right font-bold text-lg mt-4">
+                Total Value: {formatCurrency(editOrder.totalValue)}
               </div>
             </div>
           )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsEditDialogOpen(false)} disabled={isUpdating}>
-              Cancel
-            </Button>
-            <Button onClick={handleEditSave} className="bg-factory-primary hover:bg-factory-primary/90" disabled={isUpdating}>
-              {isUpdating ? 'Saving...' : 'Save Changes'}
+            <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>Cancel</Button>
+            <Button onClick={handleEditSave} disabled={isUpdating} className="bg-factory-primary hover:bg-factory-primary/90">
+              Save Changes
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Delete Sales Order</DialogTitle>
-            <DialogDescription>
-              Are you sure you want to delete order {orderToDelete?.orderNumber}?
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsDeleteDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleDeleteConfirm} className="bg-red-600 hover:bg-red-700 text-white">
-              Delete
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      <Dialog open={partialDialogOpen} onOpenChange={setPartialDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Partial Fulfillment</DialogTitle>
-            <DialogDescription>
-              This product can only be partially fulfilled.<br />
-              Maximum available: <b>{pendingSuggestedQty ?? 0}</b> units.<br />
-              Would you like to add this quantity to the order?
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => {
-              setPartialDialogOpen(false);
-              setPendingProduct(null);
-              setPendingSuggestedQty(null);
-            }}>Cancel</Button>
-            <Button
-              onClick={() => {
-                if (pendingProduct && pendingSuggestedQty && pendingSuggestedQty > 0) {
-                  addProductToOrder({
-                    ...pendingProduct,
-                    quantity: pendingSuggestedQty
-                  });
-                } else if (pendingProduct && pendingSuggestedQty === 0 && pendingProduct) {
-                  // If can_manufacture is true and max_manufacturable_quantity is 0, allow adding with 0 to trigger manufacturing batch
-                  addProductToOrder({
-                    ...pendingProduct,
-                    quantity: productQuantity // use requested quantity for manufacturing
-                  });
-                } else {
-                  toast({
-                    title: "Cannot Add Product",
-                    description: "No units available to add.",
-                    variant: "destructive"
-                  });
-                  setPartialDialogOpen(false);
-                  setPendingProduct(null);
-                  setPendingSuggestedQty(null);
-                }
-              }}
-              className="bg-factory-primary hover:bg-factory-primary/90"
-            >
-              Add Units
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-      {selectedProductForInventory && (
+
+      {/* Add Inventory Management Modal */}
+      {currentInventoryProduct && (
         <InventoryManagementModal
           isOpen={isInventoryModalOpen}
           onClose={() => {
             setIsInventoryModalOpen(false);
-            setSelectedProductForInventory(null);
+            setCurrentInventoryProduct(null);
           }}
-          productId={String(selectedProductForInventory.product.id)}
-          productName={selectedProductForInventory.product.name}
-          requestedQuantity={productQuantity}
-          availableInStock={selectedProductForInventory.availability.available_in_stock}
-          maxManufacturableQuantity={selectedProductForInventory.availability.max_manufacturable_quantity}
-          onConfirm={handleInventoryAction}
+          productId={currentInventoryProduct.productId}
+          productName={currentInventoryProduct.productName}
+          requestedQuantity={currentInventoryProduct.requestedQuantity}
+          availableInStock={currentInventoryProduct.availableInStock}
+          maxManufacturableQuantity={currentInventoryProduct.maxManufacturableQuantity}
+          onConfirm={handleInventoryConfirm}
         />
       )}
+
+      {/* Delete Order Confirmation Dialog */}
+      <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Confirm Deletion</DialogTitle>
+          </DialogHeader>
+          <DialogDescription>
+            Are you sure you want to delete sales order <b>{orderToDelete?.orderNumber}</b>? This action cannot be undone.
+          </DialogDescription>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsDeleteDialogOpen(false)}>Cancel</Button>
+            <Button variant="destructive" onClick={handleDeleteConfirm} disabled={isProcessing}>Delete</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

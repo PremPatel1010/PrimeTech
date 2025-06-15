@@ -21,6 +21,7 @@ interface Product {
   headRange?: string;
   category?: string;
   version?: string;
+  price?: number;
   finalAssemblyTime: number;
   subComponents: SubComponent[];
   manufacturingSteps: ManufacturingStep[];
@@ -101,6 +102,7 @@ const [lowStockMaterials, setLowStockMaterials] = useState<RawMaterial[]>([]);
     headRange: '',
     category: '',
     version: '',
+    price: 0,
     finalAssemblyTime: 0
   });
 
@@ -178,6 +180,7 @@ const [lowStockMaterials, setLowStockMaterials] = useState<RawMaterial[]>([]);
       headRange: '',
       category: '',
       version: '',
+      price: 0,
       finalAssemblyTime: 0
     });
     setEditingProduct(null);
@@ -227,6 +230,7 @@ const [lowStockMaterials, setLowStockMaterials] = useState<RawMaterial[]>([]);
       headRange: product.headRange || '',
       category: product.category || '',
       version: product.version || '',
+      price: product.price || 0,
       finalAssemblyTime: product.finalAssemblyTime
     });
     setEditingProduct(product);
@@ -929,6 +933,17 @@ const [lowStockMaterials, setLowStockMaterials] = useState<RawMaterial[]>([]);
                 placeholder="60"
               />
             </div>
+            <div className="space-y-2">
+              <Label htmlFor="price">Unit Price (₹) *</Label>
+              <Input
+                id="price"
+                type="number"
+                step="0.01"
+                value={productForm.price}
+                onChange={(e) => setProductForm(prev => ({ ...prev, price: parseFloat(e.target.value) || 0 }))}
+                placeholder="0.00"
+              />
+            </div>
             <div className="col-span-2 space-y-2">
               <Label htmlFor="description">Description</Label>
               <Textarea
@@ -942,7 +957,10 @@ const [lowStockMaterials, setLowStockMaterials] = useState<RawMaterial[]>([]);
           </div>
           <div className="flex justify-end space-x-2">
             <Button variant="outline" onClick={() => setShowProductForm(false)}>Cancel</Button>
-            <Button onClick={handleSaveProduct}>
+            <Button 
+              onClick={handleSaveProduct}
+              disabled={!productForm.name || !productForm.productCode || productForm.price <= 0}
+            >
               <Save className="h-4 w-4 mr-2" />
               {editingProduct ? 'Update' : 'Create'}
             </Button>

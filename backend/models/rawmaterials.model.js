@@ -29,7 +29,18 @@ class RawMaterial {
   static async findById(id) {
     try {
       const query = `
-        SELECT material_id as id, material_name as name, unit, stock_quantity, min_stock_level, cost_per_unit, supplier_id, created_at, updated_at
+        SELECT 
+          material_id as id,
+          material_code,
+          material_name as name,
+          moc,
+          unit_weight,
+          unit,
+          current_stock as stockQuantity,
+          minimum_stock as minStockLevel,
+          unit_price as costPerUnit,
+          created_at as createdAt,
+          updated_at as updatedAt
         FROM inventory.raw_materials
         WHERE material_id = $1
       `;
@@ -40,19 +51,9 @@ class RawMaterial {
         return null;
       }
       
-      const row = result.rows[0];
-      return {
-        id: row.id,
-        name: row.material_name,
-        unit: row.unit,
-        stockQuantity: parseFloat(row.stock_quantity),
-        minStockLevel: parseFloat(row.min_stock_level),
-        costPerUnit: parseFloat(row.cost_per_unit),
-        supplierId: row.supplier_id,
-        createdAt: row.created_at,
-        updatedAt: row.updated_at
-      };
+      return result.rows[0];
     } catch (error) {
+      console.error('Error in RawMaterial.findById:', error);
       throw error;
     }
   }

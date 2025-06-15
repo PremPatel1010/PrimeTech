@@ -209,6 +209,9 @@ BEGIN
                 FROM auth.users WHERE role IN ('purchase_manager', 'inventory_manager', 'admin', 'owner');
             END IF;
 
+        ELSE
+            -- Handle other cases or log unhandled table names
+            RAISE NOTICE 'Unhandled table name in create_notification: %', TG_TABLE_NAME;
     END CASE;
 
     RETURN NEW;

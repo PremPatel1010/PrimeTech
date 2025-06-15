@@ -8,9 +8,9 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import Layout from "./components/layout/Layout";
-import { FactoryProvider } from "./context/FactoryContext";
 import { RbacProvider } from './contexts/RbacContext';
 import { withPermission } from './contexts/RbacContext';
+import { NotificationProvider } from './contexts/NotificationContext';
 
 // Pages
 import Dashboard from "./pages/Dashboard";
@@ -62,7 +62,7 @@ const App: React.FC = () => {
         <Toaster />
         <Sonner />
         <Router>
-          <FactoryProvider>
+          <NotificationProvider>
             <RbacProvider>
               <Routes>
                 {/* Public Routes */}
@@ -166,7 +166,7 @@ const App: React.FC = () => {
                 <Route path="/reset-password" element={<ResetPassword />} />
               </Routes>
             </RbacProvider>
-          </FactoryProvider>
+          </NotificationProvider>
         </Router>
       </TooltipProvider>
     </QueryClientProvider>

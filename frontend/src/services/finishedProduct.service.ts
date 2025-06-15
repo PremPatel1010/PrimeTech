@@ -13,6 +13,10 @@ export interface FinishedProductAPI {
   category?: string;
   unit_price?: number;
   total_price?: number;
+  rating_range?: string;
+  discharge_range?: string;
+  head_range?: string;
+  minimum_stock?: number;
 }
 
 export const finishedProductService = {

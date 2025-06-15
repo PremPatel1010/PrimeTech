@@ -338,6 +338,9 @@ CREATE TABLE inventory.finished_products (
     product_id INTEGER NOT NULL REFERENCES product.products(id) ON DELETE CASCADE,
     quantity_available INTEGER NOT NULL DEFAULT 0,
     unit_price DECIMAL(10,2) DEFAULT 0,
+    rating_range VARCHAR(255),
+    discharge_range VARCHAR(255),
+    head_range VARCHAR(255),
     -- total_price DECIMAL(12,2) GENERATED ALWAYS AS (quantity_available * unit_price) STORED,
     -- Calculate total_price in application code: total_price = quantity_available * unit_price
     minimum_stock INTEGER NOT NULL DEFAULT 5,
@@ -811,7 +814,7 @@ EXECUTE FUNCTION sales.update_revenue_analysis();
 -- ========================
 CREATE TABLE auth.notifications (
     notification_id SERIAL PRIMARY KEY,
-    user_id INTEGER REFERENCES auth.users(user_id),
+    user_id INTEGER REFERENCES auth.users(user_id) ON DELETE CASCADE,
     title VARCHAR(100) NOT NULL,
     message TEXT NOT NULL,
     type VARCHAR(50) NOT NULL CHECK (type IN ('order', 'manufacturing', 'inventory', 'system')),
@@ -927,6 +930,29 @@ CREATE TRIGGER update_batches_updated_at BEFORE UPDATE ON product.manufacturing_
 
 CREATE TRIGGER update_workflows_updated_at BEFORE UPDATE ON product.batch_workflows
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- Notification function
+CREATE OR REPLACE FUNCTION auth.create_notification(p_user_id INTEGER, p_title VARCHAR(100), p_message TEXT, p_type VARCHAR(50), p_reference_id INTEGER DEFAULT NULL, p_reference_type VARCHAR(50) DEFAULT NULL)
+RETURNS VOID AS $$
+BEGIN
+    INSERT INTO auth.notifications (user_id, title, message, type, reference_id, reference_type)
+    VALUES (p_user_id, p_title, p_message, p_type, p_reference_id, p_reference_type);
+
+    -- Optional: Add specific logic based on notification type
+    CASE p_type
+        WHEN 'new_sales_order' THEN
+            -- Logic for new sales order notification
+            RAISE NOTICE 'New sales order notification created for user %: %', p_user_id, p_message;
+        WHEN 'low_stock' THEN
+            -- Logic for low stock notification
+            RAISE NOTICE 'Low stock notification created for user %: %', p_user_id, p_message;
+        -- Add more cases as needed
+        ELSE
+            RAISE NOTICE 'General notification created for user %: %', p_user_id, p_message;
+    END CASE;
+END;
+$$
+LANGUAGE plpgsql;
 
 
 

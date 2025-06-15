@@ -12,13 +12,13 @@ export interface Product {
   headRange?: string;
   category?: string;
   version?: string;
+  price: number;
   finalAssemblyTime: number;
   createdAt: string;
   updatedAt: string;
   subComponents: SubComponent[];
   manufacturingSteps: ManufacturingStep[];
   materials: ComponentMaterial[];
-  price?: number;
 }
 
 export interface SubComponent {
@@ -129,13 +129,19 @@ export class ProductService {
     return response.data;
   }
 
-  static async createProduct(productData: Partial<Product>): Promise<ApiResponse<Product>> {
+  static async createProduct(productData: Omit<Product, 'id' | 'createdAt' | 'updatedAt'>): Promise<ApiResponse<Product>> {
+    if (!productData.price || productData.price <= 0) {
+      throw new Error('Product price is required and must be greater than 0');
+    }
     const response = await axiosInstance.post('/products', productData);
     toast.success('Product created successfully');
     return response.data;
   }
 
   static async updateProduct(id: string, productData: Partial<Product>): Promise<ApiResponse<Product>> {
+    if (productData.price !== undefined && productData.price <= 0) {
+      throw new Error('Product price must be greater than 0');
+    }
     const response = await axiosInstance.put(`/products/${id}`, productData);
     toast.success('Product updated successfully');
     return response.data;

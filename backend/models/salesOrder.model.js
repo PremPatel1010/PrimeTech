@@ -67,11 +67,12 @@ class SalesOrder {
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
+      console.log(orderData)
 
       // Create sales order
       const orderResult = await client.query(`
-        INSERT INTO sales.sales_order (order_number, order_date, customer_name, discount, gst, total_amount, status)
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        INSERT INTO sales.sales_order (order_number, order_date, customer_name, discount, gst, total_amount, status, created_by)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         RETURNING sales_order_id
       `, [
         orderData.order_number,
@@ -80,7 +81,8 @@ class SalesOrder {
         orderData.discount || 0,
         orderData.gst || 18,
         orderData.total_amount,
-        orderData.status || 'pending'
+        orderData.status || 'pending',
+        orderData.created_by || 1  // Default to user ID 1 if not provided
       ]);
 
       const salesOrderId = orderResult.rows[0].sales_order_id;
@@ -102,32 +104,37 @@ class SalesOrder {
           throw new Error(`Product with ID ${item.product_id} does not exist`);
         }
 
-        // Check finished product inventory
-        const inventoryRows = await FinishedProduct.getProductInventory(item.product_id);
-        let availableQty = 0;
-        let finishedProductId = null;
-        if (inventoryRows && inventoryRows.length > 0) {
-          availableQty = inventoryRows.reduce((sum, row) => sum + Number(row.quantity_available), 0);
-          finishedProductId = inventoryRows[0].finished_product_id;
+        // Get stock deduction and manufacturing quantities from the item
+        const stockDeduction = Number(item.stock_deduction) || 0;
+        const manufacturingQuantity = Number(item.manufacturing_quantity) || 0;
+        const totalQuantity = Number(item.quantity) || 0;
+
+        console.log('Quantity validation:', {
+          stockDeduction,
+          manufacturingQuantity,
+          totalQuantity,
+          sum: stockDeduction + manufacturingQuantity
+        });
+
+        // Validate quantities
+        if (Math.abs((stockDeduction + manufacturingQuantity) - totalQuantity) > 0.001) {
+          throw new Error(`Total quantity (${stockDeduction + manufacturingQuantity}) does not match requested quantity (${totalQuantity})`);
         }
 
-        let toManufacture = 0;
-        let toDeduct = 0;
-        if (availableQty >= item.quantity) {
-          // Enough inventory, deduct all
-          toDeduct = item.quantity;
-        } else if (availableQty > 0) {
-          // Partial inventory, deduct what is available, manufacture the rest
-          toDeduct = availableQty;
-          toManufacture = item.quantity - availableQty;
-        } else {
-          // No inventory, manufacture all
-          toManufacture = item.quantity;
-        }
+        // Check finished product inventory if stock deduction is needed
+        if (stockDeduction > 0) {
+          const inventoryRows = await FinishedProduct.getProductInventory(item.product_id);
+          let availableQty = 0;
+          if (inventoryRows && inventoryRows.length > 0) {
+            availableQty = inventoryRows.reduce((sum, row) => sum + Number(row.quantity_available), 0);
+          }
 
-        // Deduct from inventory if possible
-        if (toDeduct > 0 && inventoryRows && inventoryRows.length > 0) {
-          let qtyToDeduct = toDeduct;
+          if (availableQty < stockDeduction) {
+            throw new Error(`Insufficient stock for product ID ${item.product_id}. Required: ${stockDeduction}, Available: ${availableQty}`);
+          }
+
+          // Deduct from inventory
+          let qtyToDeduct = stockDeduction;
           for (const inv of inventoryRows) {
             if (qtyToDeduct <= 0) break;
             const deductQty = Math.min(inv.quantity_available, qtyToDeduct);
@@ -136,39 +143,49 @@ class SalesOrder {
               qtyToDeduct -= deductQty;
             }
           }
+
+          // Create order item for stock deduction
+          await client.query(`
+            INSERT INTO sales.sales_order_items 
+            (sales_order_id, product_category, product_id, quantity, unit_price, fulfilled_from_inventory, stock_deduction, manufacturing_quantity)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            RETURNING item_id
+          `, [
+            salesOrderId, 
+            item.product_category, 
+            item.product_id, 
+            stockDeduction, 
+            item.unit_price, 
+            true,
+            stockDeduction,
+            0
+          ]);
         }
 
-        // Map product_category to valid component_type for manufacturing stages
-        let componentType = (item.product_category || '').toLowerCase();
-        if (!['motor', 'pump', 'combined'].includes(componentType)) {
-          componentType = 'combined';
-        }
-
-        // Create order item for deducted quantity (from inventory)
-        if (toDeduct > 0) {
+        // Handle manufacturing if needed
+        if (manufacturingQuantity > 0) {
+          // Create order item for manufacturing
           const orderItemResult = await client.query(`
             INSERT INTO sales.sales_order_items 
-            (sales_order_id, product_category, product_id, quantity, unit_price, fulfilled_from_inventory)
-            VALUES ($1, $2, $3, $4, $5, $6)
+            (sales_order_id, product_category, product_id, quantity, unit_price, fulfilled_from_inventory, stock_deduction, manufacturing_quantity)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             RETURNING item_id
-          `, [salesOrderId, item.product_category, item.product_id, toDeduct, item.unit_price, true]);
-        }
+          `, [
+            salesOrderId, 
+            item.product_category, 
+            item.product_id, 
+            manufacturingQuantity, 
+            item.unit_price, 
+            false,
+            0,
+            manufacturingQuantity
+          ]);
 
-        // Create order item and manufacturing progress for quantity to manufacture
-        if (toManufacture > 0) {
-          const orderItemResult = await client.query(`
-            INSERT INTO sales.sales_order_items 
-            (sales_order_id, product_category, product_id, quantity, unit_price, fulfilled_from_inventory)
-            VALUES ($1, $2, $3, $4, $5, $6)
-            RETURNING item_id
-          `, [salesOrderId, item.product_category, item.product_id, toManufacture, item.unit_price, false]);
-          const orderItemId = orderItemResult.rows[0].item_id;
-
-          // Create manufacturing batch for the quantity to be manufactured
+          // Create manufacturing batch
           await ManufacturingBatch.create({
             product_id: item.product_id,
             sales_order_id: salesOrderId,
-            quantity: toManufacture,
+            quantity: manufacturingQuantity,
             notes: `Auto-created for Sales Order ${orderData.order_number || salesOrderId} - Product ${item.product_id}`,
             created_by: orderData.createdBy,
           });

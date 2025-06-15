@@ -3,8 +3,8 @@ import Sidebar from './Sidebar';
 import { Menu, Bell, X, Check, Trash2, Filter, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useNavigate } from 'react-router-dom';
-import { useFactory } from '../../context/FactoryContext';
 import { useAuth } from '../../contexts/AuthContext';
+import { useNotifications } from '../../contexts/NotificationContext';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
@@ -26,10 +26,8 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const [notificationFilter, setNotificationFilter] = useState<'all' | 'unread'>('all');
   const notificationRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
-  const { notifications, markNotificationAsRead, deleteNotification } = useFactory();
   const { logout: authLogout } = useAuth();
-
-  console.log('Notifications in Layout:', notifications);
+  const { notifications, unreadCount, markAsRead, deleteNotification } = useNotifications();
 
   // Close notifications when clicking outside
   useEffect(() => {
@@ -56,10 +54,6 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     notificationFilter === 'all' || !n.read
   );
 
-  console.log('Filtered notifications in Layout:', filteredNotifications);
-
-  const unreadCount = notifications.filter(n => !n.read).length;
-
   const getNotificationIcon = (type: string) => {
     switch (type) {
       case 'purchase_order':
@@ -76,19 +70,6 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         return '👥';
       default:
         return '📢';
-    }
-  };
-
-  const getPriorityColor = (priority: string) => {
-    switch (priority) {
-      case 'high':
-        return 'text-red-600 bg-red-50';
-      case 'normal':
-        return 'text-blue-600 bg-blue-50';
-      case 'low':
-        return 'text-gray-600 bg-gray-50';
-      default:
-        return 'text-gray-600 bg-gray-50';
     }
   };
 
@@ -185,73 +166,67 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                       </div>
                     ) : (
                       <div className="divide-y divide-gray-100">
-                        {filteredNotifications.map((notification) => (
-                          <div
-                            key={notification.id}
-                            className={cn(
-                              "p-4 hover:bg-gray-50 transition-colors",
-                              !notification.read && "bg-blue-50/50"
-                            )}
-                          >
-                            <div className="flex gap-3">
-                              <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-lg">
-                                {getNotificationIcon(notification.type)}
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-start justify-between gap-2">
-                                  <div>
-                                    <p className={cn(
-                                      "text-sm font-semibold",
-                                      !notification.read && "text-gray-900",
-                                      notification.read && "text-gray-700"
-                                    )}>
-                                      {notification.title}
-                                    </p>
-                                    <p className="text-sm text-gray-600 mt-1">
-                                      {notification.message}
-                                    </p>
-                                  </div>
-                                  <Badge 
-                                    variant="secondary" 
-                                    className={cn(
-                                      "text-xs",
-                                      getPriorityColor(notification.priority)
-                                    )}
-                                  >
-                                    {notification.priority}
-                                  </Badge>
+                        {filteredNotifications.map((notification) => {
+                          console.log('Notification object in Layout:', notification);
+                          return (
+                            <div
+                              key={notification.notification_id}
+                              className={cn(
+                                "p-4 hover:bg-gray-50 transition-colors",
+                                !notification.read && "bg-blue-50/50"
+                              )}
+                            >
+                              <div className="flex gap-3">
+                                <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-lg">
+                                  {getNotificationIcon(notification.type)}
                                 </div>
-                                <div className="flex items-center justify-between mt-2">
-                                  <span className="text-xs text-gray-500">
-                                    {new Date(notification.date).toLocaleString()}
-                                  </span>
-                                  <div className="flex items-center gap-2">
-                                    {!notification.read && (
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-start justify-between gap-2">
+                                    <div>
+                                      <p className={cn(
+                                        "text-sm font-semibold",
+                                        !notification.read && "text-gray-900",
+                                        notification.read && "text-gray-700"
+                                      )}>
+                                        {notification.title}
+                                      </p>
+                                      <p className="text-sm text-gray-600 mt-1">
+                                        {notification.message}
+                                      </p>
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center justify-between mt-2">
+                                    <span className="text-xs text-gray-500">
+                                      {new Date(notification.created_at).toLocaleString()}
+                                    </span>
+                                    <div className="flex items-center gap-2">
+                                      {!notification.read && (
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          className="h-7 px-2 text-xs text-blue-600 hover:text-blue-700"
+                                          onClick={() => markAsRead(notification.notification_id)}
+                                        >
+                                          <Check size={14} className="mr-1" />
+                                          Mark as read
+                                        </Button>
+                                      )}
                                       <Button
                                         variant="ghost"
                                         size="sm"
-                                        className="h-7 px-2 text-xs text-blue-600 hover:text-blue-700"
-                                        onClick={() => markNotificationAsRead(notification.id)}
+                                        className="h-7 px-2 text-xs text-red-600 hover:text-red-700"
+                                        onClick={() => deleteNotification(notification.notification_id)}
                                       >
-                                        <Check size={14} className="mr-1" />
-                                        Mark as read
+                                        <Trash2 size={14} className="mr-1" />
+                                        Delete
                                       </Button>
-                                    )}
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      className="h-7 px-2 text-xs text-red-600 hover:text-red-700"
-                                      onClick={() => deleteNotification(notification.id)}
-                                    >
-                                      <Trash2 size={14} className="mr-1" />
-                                      Delete
-                                    </Button>
+                                    </div>
                                   </div>
                                 </div>
                               </div>
                             </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     )}
                   </ScrollArea>

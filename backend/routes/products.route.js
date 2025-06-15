@@ -33,7 +33,7 @@ router.delete('/:id/sub-components/:subComponentId/manufacturing-steps/:stepId',
 // Raw materials routes
 router.get('/raw-materials', productController.getAllRawMaterials);
 router.get('/raw-materials/low-stock', productController.getLowStockMaterials);
-router.post('/raw-materials', productController.createRawMaterial);
+router.get('/raw-materials/:materialId', productController.getRawMaterial);
 router.patch('/raw-materials/:materialId/stock', productController.updateMaterialStock);
 
 // Product Materials routes

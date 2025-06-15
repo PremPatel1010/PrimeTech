@@ -2,22 +2,37 @@ import axiosInstance from '@/utils/axios';
 import { SalesOrder, OrderProduct } from '../types';
 import axios from 'axios';
 
-export const createSalesOrder = async (order: Omit<SalesOrder, 'id'>) => {
-  const payload = {
-    order_number: order.orderNumber,
-    order_date: order.date,
-    customer_name: order.customerName,
-    discount: order.discount || 0,
-    gst: order.gst || 18,
-    total_amount: order.totalValue,
-    items: order.products.map((p: OrderProduct) => ({
-      product_category: p.productCategory || '',
-      product_id: p.productId,
-      quantity: p.quantity,
-      unit_price: p.price
-    }))
-  };
-  return axiosInstance.post('/sales-orders', payload);
+export const createSalesOrder = async (orderData: Omit<SalesOrder, 'id'>) => {
+  try {
+    // Transform the data to match backend expectations
+    const transformedData = {
+      order_number: orderData.orderNumber,
+      order_date: orderData.date,
+      customer_name: orderData.customerName,
+      discount: orderData.discount || 0,
+      gst: orderData.gst || 18,
+      total_amount: orderData.totalValue,
+      status: orderData.status || 'pending',
+      items: orderData.products.map(p => ({
+        product_id: p.productId,
+        product_category: p.productCategory,
+        quantity: p.quantity,
+        unit_price: Number(p.price),
+        rating_range: p.ratingRange,
+        discharge_range: p.dischargeRange,
+        head_range: p.headRange,
+        stock_deduction: p.stockDeduction || 0,
+        manufacturing_quantity: p.manufacturingQuantity || 0
+      }))
+    };
+
+    console.log('Sending to backend:', transformedData);
+    const response = await axiosInstance.post('/sales-orders', transformedData);
+    return response.data;
+  } catch (error) {
+    console.error('Error in createSalesOrder:', error);
+    throw error;
+  }
 };
 
 export const fetchSalesOrders = async () => {

@@ -81,6 +81,11 @@ export interface OrderProduct {
   productCategory?: string;
   quantity: number;
   price: number;
+  ratingRange?: string;
+  dischargeRange?: string;
+  headRange?: string;
+  stockDeduction?: number;
+  manufacturingQuantity?: number;
 }
 
 // Purchase Order Types
