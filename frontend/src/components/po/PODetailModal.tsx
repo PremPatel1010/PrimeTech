@@ -83,6 +83,9 @@ export const PODetailModal = ({ po, isOpen, onClose }: PODetailModalProps) => {
           const quantities = Object.values(raw); // Convert object to array
           
 
+          console.log(raw)
+          console.log(quantities)
+
           const replacementNeededQuantities = quantities
             .filter((item: any) => item.status === "needs_replacement")
             .map((item: any) => ({
@@ -96,6 +99,7 @@ export const PODetailModal = ({ po, isOpen, onClose }: PODetailModalProps) => {
               unitPrice: item.unitPrice,
             }));
 
+            console.log(replacementNeededQuantities)
           setPendingQuantities(replacementNeededQuantities);
         } catch (error) {
           console.error("Error fetching pending quantities in modal:", error);
@@ -117,26 +121,18 @@ export const PODetailModal = ({ po, isOpen, onClose }: PODetailModalProps) => {
     );
     if (!orderedItem) return null;
 
-    const totalReceived = currentPO.grns.reduce((sum: number, grn: any) => {
-      const material = grn.materials.find(
-        (m: any) => m.materialId === materialId
-      );
-      return sum + (material?.receivedQty || 0);
-    }, 0);
-
-    const totalAccepted = currentPO.grns.reduce((sum: number, grn: any) => {
-      const material = grn.materials.find(
-        (m: any) => m.materialId === materialId
-      );
-      return sum + (material?.acceptedQty || 0);
-    }, 0);
-
-    const totalDefective = currentPO.grns.reduce((sum: number, grn: any) => {
-      const material = grn.materials.find(
-        (m: any) => m.materialId === materialId
-      );
-      return sum + (material?.defectiveQty || 0);
-    }, 0);
+    // Sum across all GRNs for this material
+    let totalReceived = 0;
+    let totalAccepted = 0;
+    let totalDefective = 0;
+    currentPO.grns.forEach((grn: any) => {
+      const material = grn.materials.find((m: any) => m.materialId === materialId);
+      if (material) {
+        totalReceived += Number(material.receivedQty) || 0;
+        totalAccepted += Number(material.acceptedQty) || 0;
+        totalDefective += Number(material.defectiveQty) || 0;
+      }
+    });
 
     return {
       ...orderedItem,
@@ -225,16 +221,34 @@ export const PODetailModal = ({ po, isOpen, onClose }: PODetailModalProps) => {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {currentPO.items && currentPO.items.length > 0 ? (
-                      currentPO.items.map((item: any) => {
-                        const summary = calculateMaterialSummary(
-                          item.materialId
+                    {(() => {
+                      // Collect unique materialIds from all GRNs
+                      const materialIdSet = new Set();
+                      currentPO.grns.forEach((grn: any) => {
+                        grn.materials.forEach((mat: any) => {
+                          materialIdSet.add(mat.materialId);
+                        });
+                      });
+                      const uniqueMaterialIds = Array.from(materialIdSet);
+                      if (uniqueMaterialIds.length === 0) {
+                        return (
+                          <TableRow>
+                            <TableCell
+                              colSpan={7}
+                              className="text-center text-gray-400"
+                            >
+                              No materials found for this purchase order.
+                            </TableCell>
+                          </TableRow>
                         );
+                      }
+                      return uniqueMaterialIds.map((materialId: any) => {
+                        const summary = calculateMaterialSummary(materialId);
                         if (!summary) return null;
                         return (
-                          <TableRow key={item.id}>
+                          <TableRow key={materialId}>
                             <TableCell className="font-medium">
-                              {item.materialName}
+                              {summary.materialName}
                             </TableCell>
                             <TableCell>{summary.quantity}</TableCell>
                             <TableCell>{summary.totalReceived}</TableCell>
@@ -256,17 +270,8 @@ export const PODetailModal = ({ po, isOpen, onClose }: PODetailModalProps) => {
                             <TableCell>{summary.unit}</TableCell>
                           </TableRow>
                         );
-                      })
-                    ) : (
-                      <TableRow>
-                        <TableCell
-                          colSpan={7}
-                          className="text-center text-gray-400"
-                        >
-                          No materials found for this purchase order.
-                        </TableCell>
-                      </TableRow>
-                    )}
+                      });
+                    })()}
                   </TableBody>
                 </Table>
               </CardContent>
@@ -357,9 +362,12 @@ export const PODetailModal = ({ po, isOpen, onClose }: PODetailModalProps) => {
                             <TableBody>
                               {currentPO.items.map((item: any) => {
                                 // Find corresponding GRN material data if it exists
+                                console.log(currentPO)
+                                console.log(grn)
                                 const grnMaterial = grn.materials.find(
                                   (m: any) => m.materialId === item.materialId
                                 );
+                                console.log(grnMaterial)
                                 return (
                                   <TableRow key={item.materialId}>
                                     <TableCell>{item.materialName}</TableCell>

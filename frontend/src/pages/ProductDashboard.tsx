@@ -242,7 +242,12 @@ const [lowStockMaterials, setLowStockMaterials] = useState<RawMaterial[]>([]);
       if (editingProduct) {
         await ProductService.updateProduct(editingProduct.id, productForm);
       } else {
-        await ProductService.createProduct(productForm);
+        await ProductService.createProduct({
+          ...productForm,
+          subComponents: [],
+          manufacturingSteps: [],
+          materials: []
+        });
       }
       setShowProductForm(false);
       resetProductForm();

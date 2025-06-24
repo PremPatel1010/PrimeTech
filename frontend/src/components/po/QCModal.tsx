@@ -41,6 +41,8 @@ export const QCModal = ({ po, grn, isOpen, onClose, onSuccess }: QCModalProps) =
     }))
   );
 
+  console.log(qcData)
+
   const updateQCItem = (index: number, field: keyof QCItemData, value: string | number) => {
     const updatedData = [...qcData];
     const item = updatedData[index];

@@ -363,6 +363,7 @@ const ViewOrderStatus: React.FC = () => {
         };
 
         const availabilityResult = await checkOrderAvailability(orderData);
+        console.log(availabilityResult)
         const productAvailability = availabilityResult.availability_results?.[0] || availabilityResult;
 
         // Show inventory management modal if product needs manufacturing
@@ -430,13 +431,14 @@ const ViewOrderStatus: React.FC = () => {
       manufacturingQuantity
     });
 
-    // Reset form
+    // Reset form and close modal
     setSelectedProductName('');
     setSelectedRatingRange('');
     setSelectedDischargeRange('');
     setSelectedHeadRange('');
     setProductQuantity(1);
     setCurrentInventoryProduct(null);
+    setIsInventoryModalOpen(false);
   };
 
   const addProductToOrder = (orderProduct: any) => {
@@ -538,23 +540,25 @@ const ViewOrderStatus: React.FC = () => {
 
       setIsProcessing(true);
       try {
-        // First, validate that all products have valid stock deduction and manufacturing quantities
-        const invalidProducts = newOrder.products.filter(p => {
-          const stockDeduction = p.stockDeduction || 0;
-          const manufacturingQuantity = p.manufacturingQuantity || 0;
-          return stockDeduction + manufacturingQuantity !== p.quantity;
+        // --- FIX: Ensure stockDeduction/manufacturingQuantity are always set ---
+        const fixedProducts = newOrder.products.map((p) => {
+          let stockDeduction = typeof p.stockDeduction === 'number' ? p.stockDeduction : 0;
+          let manufacturingQuantity = typeof p.manufacturingQuantity === 'number' ? p.manufacturingQuantity : 0;
+          // If both are zero, try to auto-assign based on available stock
+          if (stockDeduction + manufacturingQuantity !== p.quantity) {
+            // Find available stock for this product
+            const finishedProduct = finishedProducts.find(fp => String(fp.product_id) === String(p.productId));
+            const availableInStock = finishedProduct ? finishedProduct.quantity_available : 0;
+            stockDeduction = Math.min(p.quantity, availableInStock);
+            manufacturingQuantity = Math.max(0, p.quantity - stockDeduction);
+          }
+          return {
+            ...p,
+            stockDeduction,
+            manufacturingQuantity
+          };
         });
-
-        if (invalidProducts.length > 0) {
-          toast({
-            title: "Invalid Product Quantities",
-            description: "Stock deduction and manufacturing quantities must sum to the total quantity for each product.",
-            variant: "destructive"
-          });
-          setIsProcessing(false);
-          return;
-        }
-        console.log(newOrder)
+        // --- END FIX ---
 
         const orderData = {
           order_number: newOrder.orderNumber,
@@ -564,7 +568,7 @@ const ViewOrderStatus: React.FC = () => {
           gst: newOrder.gst || 18,
           total_amount: newOrder.totalValue,
           status: newOrder.status || 'pending',
-          items: newOrder.products.map(p => ({
+          items: fixedProducts.map(p => ({
             product_id: p.productId,
             product_category: p.productCategory,
             quantity: p.quantity,
@@ -572,8 +576,8 @@ const ViewOrderStatus: React.FC = () => {
             rating_range: p.ratingRange,
             discharge_range: p.dischargeRange,
             head_range: p.headRange,
-            stock_deduction: p.stockDeduction || 0,
-            manufacturing_quantity: p.manufacturingQuantity || 0
+            stock_deduction: p.stockDeduction,
+            manufacturing_quantity: p.manufacturingQuantity
           }))
         };
         console.log('Sending order data:', orderData);
@@ -597,7 +601,7 @@ const ViewOrderStatus: React.FC = () => {
         }
 
         // Calculate total value, discount, and GST before creating order
-        const calculatedTotalValue = newOrder.products.reduce((total, p) => total + (p.quantity * Number(p.price)), 0);
+        const calculatedTotalValue = fixedProducts.reduce((total, p) => total + (p.quantity * Number(p.price)), 0);
         const finalTotalValue = calculatedTotalValue * (1 - (newOrder.discount || 0) / 100) * (1 + (newOrder.gst || 0) / 100);
 
         // Create the order with the same data structure as orderData
@@ -609,31 +613,20 @@ const ViewOrderStatus: React.FC = () => {
           gst: orderData.gst,
           status: orderData.status,
           totalValue: finalTotalValue,
-          products: newOrder.products.map(p => {
-            // Ensure we have the stock deduction and manufacturing quantities
-            const stockDeduction = p.stockDeduction || 0;
-            const manufacturingQuantity = p.manufacturingQuantity || 0;
-            
-            // Validate that they sum to the total quantity
-            if (stockDeduction + manufacturingQuantity !== p.quantity) {
-              throw new Error(`Invalid quantities for product ${p.productName}: stock deduction (${stockDeduction}) + manufacturing (${manufacturingQuantity}) must equal total quantity (${p.quantity})`);
-            }
-
-            return {
-              productId: p.productId,
-              productName: p.productName,
-              productCategory: p.productCategory,
-              quantity: p.quantity,
-              price: Number(p.price),
-              ratingRange: p.ratingRange,
-              dischargeRange: p.dischargeRange,
-              headRange: p.headRange,
-              stockDeduction: stockDeduction,
-              manufacturingQuantity: manufacturingQuantity
-            };
-          })
+          products: fixedProducts.map(p => ({
+            productId: p.productId,
+            productName: p.productName,
+            productCategory: p.productCategory,
+            quantity: p.quantity,
+            price: Number(p.price),
+            ratingRange: p.ratingRange,
+            dischargeRange: p.dischargeRange,
+            headRange: p.headRange,
+            stockDeduction: p.stockDeduction,
+            manufacturingQuantity: p.manufacturingQuantity
+          }))
         });
-        console.log(createOrderMutation)
+       
       } catch (error) {
         console.error("Error checking availability:", error);
         toast({
@@ -1295,7 +1288,10 @@ const ViewOrderStatus: React.FC = () => {
       )}
 
       {/* Create New Sales Order Dialog */}
-      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+      <Dialog open={isDialogOpen} onOpenChange={(open) => {
+        setIsDialogOpen(open);
+        // Do NOT resetNewOrder here; only reset after successful order creation or explicit cancel
+      }}>
         <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Create New Sales Order</DialogTitle>
@@ -1479,7 +1475,7 @@ const ViewOrderStatus: React.FC = () => {
             )}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsDialogOpen(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => { resetNewOrder(); setIsDialogOpen(false); }}>Cancel</Button>
             <Button onClick={handleCreateOrder} disabled={newOrder.products.length === 0 || isProcessing} className="bg-factory-primary hover:bg-factory-primary/90">
               Create Order
             </Button>

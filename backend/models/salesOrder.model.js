@@ -82,7 +82,7 @@ class SalesOrder {
         orderData.gst || 18,
         orderData.total_amount,
         orderData.status || 'pending',
-        orderData.created_by || 1  // Default to user ID 1 if not provided
+        orderData.created_by || 7  // Default to user ID 1 if not provided
       ]);
 
       const salesOrderId = orderResult.rows[0].sales_order_id;

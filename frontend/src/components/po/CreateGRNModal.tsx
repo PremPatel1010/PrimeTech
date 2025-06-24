@@ -14,6 +14,7 @@ import { Loader2, X } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import { PurchaseOrder, GRNMaterial } from "../../services/poStore";
 import { toast } from "sonner";
+import { checkDomainOfScale } from "recharts/types/util/ChartUtils";
 
 interface CreateGRNModalProps {
   po: PurchaseOrder;
@@ -68,11 +69,12 @@ export const CreateGRNModal: React.FC<CreateGRNModalProps> = ({
 
   useEffect(() => {
     const fetchPendingQuantities = async () => {
-      if (isOpen) {
+      
         try {
           const raw = await getPendingQuantities(po.id);
           const quantities = Object.values(raw); // Convert object to array
 
+          console.log(quantities)
           const replacementNeededQuantities = quantities
             .filter((item: any) => item.status === "needs_replacement")
             .map((item: any) => ({
@@ -96,11 +98,12 @@ export const CreateGRNModal: React.FC<CreateGRNModalProps> = ({
           console.error("Error fetching pending quantities:", error);
         }
       }
-    };
     fetchPendingQuantities();
-  }, [isOpen, po.id, getPurchaseOrder]);
+  }, []);
 
+  console.log(pendingQuantities)
   const hasPendingReplacements = Object.keys(pendingQuantities).length > 0;
+  console.log(hasPendingReplacements)
 
   useEffect(() => {
     if (isOpen && po.items) {
@@ -164,6 +167,7 @@ export const CreateGRNModal: React.FC<CreateGRNModalProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    console.log(hasPendingReplacements)
     if (hasPendingReplacements) {
       // Handle replacement GRN
       if (!formData.materialId || formData.receivedQty <= 0) {

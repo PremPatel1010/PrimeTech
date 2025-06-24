@@ -116,6 +116,7 @@ export const poApi = {
     },
 
     async updateGRNMaterialQC(poId: string, grnId: string, materialId: string, qcData: { acceptedQty: number; defectiveQty: number; qcRemarks?: string }) {
+        console.log(qcData)
         const response = await axiosInstance.patch(
             `${API_BASE_URL}/${poId}/grns/${grnId}/materials/${materialId}/qc`,
             qcData

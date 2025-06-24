@@ -172,6 +172,8 @@ export const usePOStore = create<POStore>((set, get) => ({
         ),
         isLoading: false
       }));
+      // Ensure PO status is checked after GRN creation
+      await get().checkAndCompletePOAndAddInventory(poId);
     } catch (error) {
       set({ error: 'Failed to create GRN', isLoading: false });
       console.error('Error creating GRN:', error);
@@ -190,6 +192,8 @@ export const usePOStore = create<POStore>((set, get) => ({
         ),
         isLoading: false
       }));
+      // Ensure PO status is checked after replacement GRN creation
+      await get().checkAndCompletePOAndAddInventory(poId);
     } catch (error) {
       set({ error: 'Failed to create replacement GRN', isLoading: false });
       console.error('Error creating replacement GRN:', error);
@@ -291,17 +295,22 @@ export const usePOStore = create<POStore>((set, get) => ({
         grn.materials.every(material => material.qcStatus === 'completed')
       );
 
-      // 2. Check if there are no pending replacements
+      // 2. Check for pending replacements
       const pendingQuantities = await get().getPendingQuantities(poId);
-      const hasPendingReplacements = Object.values(pendingQuantities).some((item: any) => item.status === "needs_replacement" && item.qtyToReplace > 0);
+      console.log(pendingQuantities)
+      const hasPendingReplacements = Object.values(pendingQuantities).some((item: any) => item.status === "needs_replacement");
+      console.log(hasPendingReplacements)
 
       if (allGRNsQCCompleted && !hasPendingReplacements) {
         // 3. Update PO status to 'completed'
         await get().updatePOStatus(poId, 'completed');
         console.log(`PO ${po.poNumber} status updated to completed.`);
-
         // 4. Add accepted quantities to raw material inventory
         await get().addAcceptedMaterialsToInventory(poId);
+      } else if (hasPendingReplacements) {
+        // If there are pending replacements, set status to 'returned_to_vendor'
+        await get().updatePOStatus(poId, 'returned_to_vendor');
+        console.log(`PO ${po.poNumber} status updated to returned_to_vendor due to pending replacements.`);
       } else {
         console.log(`PO ${po.poNumber} not yet complete: All GRNs QC completed: ${allGRNsQCCompleted}, Has pending replacements: ${hasPendingReplacements}`);
       }

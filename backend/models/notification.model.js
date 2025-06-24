@@ -26,7 +26,7 @@ class Notification {
 
   static async getUserNotifications(userId, filters = {}) {
     const {
-      limit = 50,
+      limit = 1000,
       offset = 0,
       module,
       type,

@@ -567,6 +567,212 @@ const Inventory: React.FC = () => {
               </div>
             </CardContent>
           </Card>
+
+          {/* Add Raw Material Dialog */}
+          <Dialog open={isRawMaterialDialogOpen} onOpenChange={setIsRawMaterialDialogOpen}>
+            <DialogContent className="sm:max-w-[500px]">
+              <DialogHeader>
+                <DialogTitle>Add Raw Material</DialogTitle>
+              </DialogHeader>
+              <div className="grid gap-4 py-4">
+                <div className="grid grid-cols-4 items-center gap-4">
+                  <Label htmlFor="material_code" className="text-right">Material Code</Label>
+                  <Input
+                    id="material_code"
+                    value={newRawMaterial.material_code}
+                    onChange={e => setNewRawMaterial({ ...newRawMaterial, material_code: e.target.value })}
+                    className="col-span-3"
+                  />
+                </div>
+                <div className="grid grid-cols-4 items-center gap-4">
+                  <Label htmlFor="material_name" className="text-right">Material Name</Label>
+                  <Input
+                    id="material_name"
+                    value={newRawMaterial.material_name}
+                    onChange={e => setNewRawMaterial({ ...newRawMaterial, material_name: e.target.value })}
+                    className="col-span-3"
+                  />
+                </div>
+                <div className="grid grid-cols-4 items-center gap-4">
+                  <Label htmlFor="moc" className="text-right">MOC</Label>
+                  <Input
+                    id="moc"
+                    value={newRawMaterial.moc}
+                    onChange={e => setNewRawMaterial({ ...newRawMaterial, moc: e.target.value })}
+                    className="col-span-3"
+                  />
+                </div>
+                <div className="grid grid-cols-4 items-center gap-4">
+                  <Label htmlFor="unit_weight" className="text-right">Unit Weight</Label>
+                  <Input
+                    id="unit_weight"
+                    type="number"
+                    value={newRawMaterial.unit_weight}
+                    onChange={e => setNewRawMaterial({ ...newRawMaterial, unit_weight: Number(e.target.value) })}
+                    className="col-span-3"
+                  />
+                </div>
+                <div className="grid grid-cols-4 items-center gap-4">
+                  <Label htmlFor="unit" className="text-right">Unit</Label>
+                  <Input
+                    id="unit"
+                    value={newRawMaterial.unit}
+                    onChange={e => setNewRawMaterial({ ...newRawMaterial, unit: e.target.value })}
+                    className="col-span-3"
+                  />
+                </div>
+                <div className="grid grid-cols-4 items-center gap-4">
+                  <Label htmlFor="current_stock" className="text-right">Current Stock</Label>
+                  <Input
+                    id="current_stock"
+                    type="number"
+                    value={newRawMaterial.current_stock}
+                    onChange={e => setNewRawMaterial({ ...newRawMaterial, current_stock: Number(e.target.value) })}
+                    className="col-span-3"
+                  />
+                </div>
+                <div className="grid grid-cols-4 items-center gap-4">
+                  <Label htmlFor="minimum_stock" className="text-right">Minimum Stock</Label>
+                  <Input
+                    id="minimum_stock"
+                    type="number"
+                    value={newRawMaterial.minimum_stock}
+                    onChange={e => setNewRawMaterial({ ...newRawMaterial, minimum_stock: Number(e.target.value) })}
+                    className="col-span-3"
+                  />
+                </div>
+                <div className="grid grid-cols-4 items-center gap-4">
+                  <Label htmlFor="unit_price" className="text-right">Unit Price</Label>
+                  <Input
+                    id="unit_price"
+                    type="number"
+                    value={newRawMaterial.unit_price}
+                    onChange={e => setNewRawMaterial({ ...newRawMaterial, unit_price: Number(e.target.value) })}
+                    className="col-span-3"
+                  />
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setIsRawMaterialDialogOpen(false)}>Cancel</Button>
+                <Button onClick={handleAddRawMaterial} disabled={!newRawMaterial.material_code || !newRawMaterial.material_name || newRawMaterial.unit_price <= 0}>Add Material</Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          {/* Edit Raw Material Dialog */}
+          <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+            <DialogContent className="sm:max-w-[500px]">
+              <DialogHeader>
+                <DialogTitle>Edit Raw Material</DialogTitle>
+              </DialogHeader>
+              {editMaterial && (
+                <div className="grid gap-4 py-4">
+                  <div className="grid grid-cols-4 items-center gap-4">
+                    <Label htmlFor="edit_material_code" className="text-right">Material Code</Label>
+                    <Input
+                      id="edit_material_code"
+                      value={editMaterial.material_code}
+                      onChange={e => setEditMaterial({ ...editMaterial, material_code: e.target.value })}
+                      className="col-span-3"
+                    />
+                  </div>
+                  <div className="grid grid-cols-4 items-center gap-4">
+                    <Label htmlFor="edit_material_name" className="text-right">Material Name</Label>
+                    <Input
+                      id="edit_material_name"
+                      value={editMaterial.material_name}
+                      onChange={e => setEditMaterial({ ...editMaterial, material_name: e.target.value })}
+                      className="col-span-3"
+                    />
+                  </div>
+                  <div className="grid grid-cols-4 items-center gap-4">
+                    <Label htmlFor="edit_moc" className="text-right">MOC</Label>
+                    <Input
+                      id="edit_moc"
+                      value={editMaterial.moc || ''}
+                      onChange={e => setEditMaterial({ ...editMaterial, moc: e.target.value })}
+                      className="col-span-3"
+                    />
+                  </div>
+                  <div className="grid grid-cols-4 items-center gap-4">
+                    <Label htmlFor="edit_unit_weight" className="text-right">Unit Weight</Label>
+                    <Input
+                      id="edit_unit_weight"
+                      type="number"
+                      value={editMaterial.unit_weight}
+                      onChange={e => setEditMaterial({ ...editMaterial, unit_weight: Number(e.target.value) })}
+                      className="col-span-3"
+                    />
+                  </div>
+                  <div className="grid grid-cols-4 items-center gap-4">
+                    <Label htmlFor="edit_unit" className="text-right">Unit</Label>
+                    <Input
+                      id="edit_unit"
+                      value={editMaterial.unit}
+                      onChange={e => setEditMaterial({ ...editMaterial, unit: e.target.value })}
+                      className="col-span-3"
+                    />
+                  </div>
+                  <div className="grid grid-cols-4 items-center gap-4">
+                    <Label htmlFor="edit_current_stock" className="text-right">Current Stock</Label>
+                    <Input
+                      id="edit_current_stock"
+                      type="number"
+                      value={editMaterial.current_stock}
+                      onChange={e => setEditMaterial({ ...editMaterial, current_stock: Number(e.target.value) })}
+                      className="col-span-3"
+                    />
+                  </div>
+                  <div className="grid grid-cols-4 items-center gap-4">
+                    <Label htmlFor="edit_minimum_stock" className="text-right">Minimum Stock</Label>
+                    <Input
+                      id="edit_minimum_stock"
+                      type="number"
+                      value={editMaterial.minimum_stock}
+                      onChange={e => setEditMaterial({ ...editMaterial, minimum_stock: Number(e.target.value) })}
+                      className="col-span-3"
+                    />
+                  </div>
+                  <div className="grid grid-cols-4 items-center gap-4">
+                    <Label htmlFor="edit_unit_price" className="text-right">Unit Price</Label>
+                    <Input
+                      id="edit_unit_price"
+                      type="number"
+                      value={editMaterial.unit_price}
+                      onChange={e => setEditMaterial({ ...editMaterial, unit_price: Number(e.target.value) })}
+                      className="col-span-3"
+                    />
+                  </div>
+                </div>
+              )}
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>Cancel</Button>
+                <Button onClick={() => {
+                  if (editMaterial) {
+                    updateRawMaterialMutation.mutate({ id: editMaterial.material_id, data: editMaterial });
+                  }
+                }} disabled={!editMaterial || !editMaterial.material_code || !editMaterial.material_name || editMaterial.unit_price <= 0}>Save Changes</Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          {/* Delete Raw Material Dialog */}
+          <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Confirm Delete</DialogTitle>
+              </DialogHeader>
+              <p>Are you sure you want to delete this raw material? This action cannot be undone.</p>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setIsDeleteDialogOpen(false)}>Cancel</Button>
+                <Button variant="destructive" onClick={() => {
+                  if (deleteMaterialId) {
+                    deleteRawMaterialMutation.mutate(deleteMaterialId);
+                  }
+                }}>Delete</Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </TabsContent>
 
         {/* Finished Products Tab Content */}

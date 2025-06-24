@@ -321,15 +321,15 @@ class PurchaseOrderModel {
 
                 if (poAllGrnsCompleted.rows[0].count === '0') {
                     // Also check if there are any pending quantities left (defective that need replacement)
-                    const pendingQuantitiesCheck = await this.hasPendingQuantities(poId);
-
-                    if (!pendingQuantitiesCheck) {
-                         await client.query(
+                    const pendingQuantities = await this.getPendingQuantities(poId);
+                    const hasPendingDefective = Object.values(pendingQuantities).some((item) => item.status === 'needs_replacement' && item.defectiveQty > 0);
+                    if (Object.keys(pendingQuantities).length === 0 || !hasPendingDefective) {
+                        await client.query(
                             `UPDATE purchase.purchase_orders 
                              SET status = 'completed'
                              WHERE po_id = $1`,
                             [poId]
-                         );
+                        );
                     }
                 }
             }
@@ -501,17 +501,27 @@ class PurchaseOrderModel {
                 ]
             );
 
-            // Update PO status if needed
-            const po = await this.getPurchaseOrderById(poId);
-            const hasPendingReplacements = Object.values(pendingQuantities).some(
-                material => material.status === 'needs_replacement'
+            // After creating the replacement GRN, check for remaining defective quantities
+            const updatedPendingQuantities = await this.getPendingQuantities(poId);
+            console.log(updatedPendingQuantities)
+            const stillHasDefective = Object.values(updatedPendingQuantities).some(
+                material => material.status === 'needs_replacement' && material.defectiveQty > 0
             );
+            console.log(stillHasDefective)
 
-            if (hasPendingReplacements) {
+            if (stillHasDefective) {
                 await client.query(
                     `UPDATE purchase.purchase_orders 
                     SET status = 'returned_to_vendor'
                     WHERE po_id = $1`,
+                    [poId]
+                );
+            } else {
+                // If no more defective, set to grn_verified (or keep as is if another process will update)
+                await client.query(
+                    `UPDATE purchase.purchase_orders 
+                    SET status = 'grn_verified'
+                    WHERE po_id = $1 AND status = 'returned_to_vendor'`,
                     [poId]
                 );
             }

@@ -134,11 +134,7 @@ class RawMaterial {
   static async deleteRawMaterial(materialId) {
     // Delete from purchase_order_items and products.bom first
     const deletePurchaseOrderItemsQuery = `
-      DELETE FROM purchase.purchase_order_items
-      WHERE material_id = $1
-    `;
-    const deleteBOMQuery = `
-      DELETE FROM products.bom
+      DELETE FROM purchase.po_items
       WHERE material_id = $1
     `;
     const deleteRawMaterialQuery = `
@@ -153,7 +149,6 @@ class RawMaterial {
 
       // Delete dependent records first
       await client.query(deletePurchaseOrderItemsQuery, [materialId]);
-      await client.query(deleteBOMQuery, [materialId]);
 
       // Then delete the raw material
       const result = await client.query(deleteRawMaterialQuery, [materialId]);

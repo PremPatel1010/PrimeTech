@@ -43,6 +43,7 @@ export const PurchaseOrderDashboard = () => {
     { title: 'Total POs', value: usePOStore.getState().purchaseOrders.length, color: 'bg-blue-500' },
     { title: 'Ordered', value: statusCounts.ordered || 0, color: 'bg-yellow-500' },
     { title: 'In Progress', value: (statusCounts.arrived || 0) + (statusCounts.grn_verified || 0) + (statusCounts.qc_in_progress || 0), color: 'bg-orange-500' },
+    { title: 'Returned', value: statusCounts.returned_to_vendor || 0, color: 'bg-red-500' },
     { title: 'Completed', value: statusCounts.completed || 0, color: 'bg-green-500' },
   ];
 

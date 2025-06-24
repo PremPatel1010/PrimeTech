@@ -92,9 +92,9 @@ const App: React.FC = () => {
                   <Route path="/jobwork">
                     <Route index element={<ProtectedJobWorkTracking />} />
                     <Route path="tracking" element={<ProtectedJobWorkTracking />} />
-                    <Route path="create" element={<ProtectedCreateJobworkOrder />} />
-                    <Route path="vendors" element={<ProtectedJobworkVendors />} />
-                    <Route path=":jobworkNumber" element={<ProtectedJobwork />} />
+                    <Route path="create" element={<CreateJobworkOrder />} />
+                    <Route path="vendors" element={<JobworkVendors />} />
+                    <Route path=":jobworkNumber" element={<Jobwork />} />
                   </Route>
                   <Route path="/suppliers" element={<ProtectedSuppliers />} />
                   {/* Removed admin conditional as withPermission handles it */}
